@@ -1,0 +1,576 @@
+[
+  {
+    "nom": "Lot netto n°2 ",
+    "prix_achat": 210.0,
+    "cards": [],
+    "ventes": [
+      {
+        "date": "2026-03-16T19:41:07.013248",
+        "price": 357.0,
+        "card_name": "Vente initiale",
+        "is_lot_sale": true
+      }
+    ],
+    "created": "2026-03-16T19:41:07.013241",
+    "archived_date": "2026-03-16T19:41:11.725724"
+  },
+  {
+    "nom": "Lot ar 151 + alt dresseur",
+    "prix_achat": 61.0,
+    "cards": [],
+    "ventes": [
+      {
+        "date": "2026-03-16T21:27:48.635550",
+        "price": 93.5,
+        "card_name": "Vente initiale",
+        "is_lot_sale": true
+      }
+    ],
+    "created": "2026-03-16T21:27:48.635542",
+    "archived_date": "2026-03-16T21:30:48.868434"
+  },
+  {
+    "nom": "Lot de reverses xy EVO",
+    "prix_achat": 80.0,
+    "cards": [
+      {
+        "id": "xy12-20",
+        "name": "Magmar",
+        "set": "Évolutions",
+        "number": "20",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/20/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 3.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.845805",
+            "quantity": 1,
+            "price": 2.1,
+            "card_name": "Magmar",
+            "card_set": "Évolutions",
+            "card_number": "20"
+          }
+        ]
+      },
+      {
+        "id": "xy12-39",
+        "name": "Voltorbe",
+        "set": "Évolutions",
+        "number": "39",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/39/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.833337",
+            "quantity": 1,
+            "price": 1.4,
+            "card_name": "Voltorbe",
+            "card_set": "Évolutions",
+            "card_number": "39"
+          }
+        ]
+      },
+      {
+        "id": "xy12-41",
+        "name": "Élektek",
+        "set": "Évolutions",
+        "number": "41",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/41/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.827085",
+            "quantity": 1,
+            "price": 1.4,
+            "card_name": "Élektek",
+            "card_set": "Évolutions",
+            "card_number": "41"
+          }
+        ]
+      },
+      {
+        "id": "xy12-57",
+        "name": "Machoc",
+        "set": "Évolutions",
+        "number": "57",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/57/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.816215",
+            "quantity": 1,
+            "price": 1.4,
+            "card_name": "Machoc",
+            "card_set": "Évolutions",
+            "card_number": "57"
+          }
+        ]
+      },
+      {
+        "id": "xy12-61",
+        "name": "Onix",
+        "set": "Évolutions",
+        "number": "61",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/61/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.810330",
+            "quantity": 1,
+            "price": 1.4,
+            "card_name": "Onix",
+            "card_set": "Évolutions",
+            "card_number": "61"
+          }
+        ]
+      },
+      {
+        "id": "xy12-85",
+        "name": "Rappel",
+        "set": "Évolutions",
+        "number": "85",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/85/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": true,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.792296",
+            "quantity": 1,
+            "price": 1.4,
+            "card_name": "Rappel",
+            "card_set": "Évolutions",
+            "card_number": "85"
+          }
+        ]
+      }
+    ],
+    "ventes": [
+      {
+        "date": "2026-03-16T19:18:18.394205",
+        "price": 169.0,
+        "card_name": "Vente initiale",
+        "is_lot_sale": true
+      }
+    ],
+    "created": "2026-03-16T19:18:18.394195",
+    "archived_date": "2026-04-06T12:13:25.178455"
+  },
+  {
+    "nom": "Lot ar fr aire de covoiturage",
+    "prix_achat": 180.0,
+    "cards": [
+      {
+        "id": "sv01-201",
+        "name": "Terracool",
+        "set": "Écarlate et Violet",
+        "number": "201",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv01/201/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 7.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-03-27T19:16:01.319504",
+            "quantity": 1,
+            "price": 7.0,
+            "card_name": "Terracool",
+            "card_set": "Écarlate et Violet",
+            "card_number": "201"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-04-06",
+            "price": 14.0
+          }
+        ],
+        "suggested_price_at_sale": 7.0
+      },
+      {
+        "id": "sv04-211",
+        "name": "Capumain",
+        "set": "Faille Paradoxe",
+        "number": "211",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv04/211/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 11.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-03-27T19:16:01.309588",
+            "quantity": 1,
+            "price": 11.0,
+            "card_name": "Capumain",
+            "card_set": "Faille Paradoxe",
+            "card_number": "211"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 11.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 14.5
+          }
+        ],
+        "suggested_price_at_sale": 11.0
+      },
+      {
+        "id": "me01-153",
+        "name": "Argouste",
+        "set": "Méga-Évolution",
+        "number": "153",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/me/me01/153/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 4.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-03-27T19:16:01.330297",
+            "quantity": 1,
+            "price": 4.0,
+            "card_name": "Argouste",
+            "card_set": "Méga-Évolution",
+            "card_number": "153"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 8.0
+          },
+          {
+            "date": "2026-03-27",
+            "price": 4.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 9.5
+          }
+        ],
+        "suggested_price_at_sale": 4.0
+      },
+      {
+        "id": "sv01-222",
+        "name": "Rongourmand",
+        "set": "Écarlate et Violet",
+        "number": "222",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv01/222/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 6.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T18:00:36.078870",
+            "quantity": 1,
+            "price": 6.0,
+            "card_name": "Rongourmand",
+            "card_set": "Écarlate et Violet",
+            "card_number": "222",
+            "suggested_price_at_sale": 6.0
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 3.0
+          },
+          {
+            "date": "2026-03-17",
+            "price": 4.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 10.0
+          },
+          {
+            "date": "2026-04-07",
+            "price": 6.0
+          }
+        ]
+      },
+      {
+        "id": "sv04-202",
+        "name": "Gigansel",
+        "set": "Faille Paradoxe",
+        "number": "202",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv04/202/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 4.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "sale_id": "2_4_1778522062222",
+            "date": "2026-05-11T19:54:22.222619",
+            "quantity": 1,
+            "price": 3.4184882280124325,
+            "card_name": "Gigansel",
+            "card_set": "Faille Paradoxe",
+            "card_number": "202",
+            "suggested_price_at_sale": 4.0,
+            "canal": "Brocante"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 6.0
+          },
+          {
+            "date": "2026-03-17",
+            "price": 3.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 10.5
+          },
+          {
+            "date": "2026-04-07",
+            "price": 4.0
+          }
+        ]
+      },
+      {
+        "id": "sv10.5b-142",
+        "name": "Scalpion",
+        "set": "Foudre Noire",
+        "number": "142",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv10.5b/142/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 17.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:12:16.204878",
+            "quantity": 1,
+            "price": 17.0,
+            "card_name": "Scalpion",
+            "card_set": "Foudre Noire",
+            "card_number": "142"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 5.0
+          },
+          {
+            "date": "2026-03-17",
+            "price": 6.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 8.5
+          }
+        ],
+        "suggested_price_at_sale": 17.0
+      },
+      {
+        "id": "me02-096",
+        "name": "Lilliterelle",
+        "set": "Flammes Fantasmagoriques",
+        "number": "096",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/me/me02/096/high.webp",
+        "quantity": 2,
+        "sold_quantity": 2,
+        "condition": "NM",
+        "suggested_price": 3.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T12:57:55.739532",
+            "quantity": 1,
+            "price": 3.0,
+            "card_name": "Lilliterelle",
+            "card_set": "Flammes Fantasmagoriques",
+            "card_number": "096",
+            "suggested_price_at_sale": 3.0
+          },
+          {
+            "sale_id": "2_6_1778522062222",
+            "date": "2026-05-11T19:54:22.222614",
+            "quantity": 1,
+            "price": 2.563866171009324,
+            "card_name": "Lilliterelle",
+            "card_set": "Flammes Fantasmagoriques",
+            "card_number": "096",
+            "suggested_price_at_sale": 3.0,
+            "canal": "Brocante"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 14.0
+          },
+          {
+            "date": "2026-03-17",
+            "price": 5.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 9.0
+          },
+          {
+            "date": "2026-04-07",
+            "price": 3.0
+          }
+        ]
+      },
+      {
+        "id": "sv10-195",
+        "name": "Coquiperl",
+        "set": "Rivalités Destinées",
+        "number": "195",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv10/195/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 2.0,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T12:57:55.698226",
+            "quantity": 1,
+            "price": 2.0,
+            "card_name": "Coquiperl",
+            "card_set": "Rivalités Destinées",
+            "card_number": "195",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 3.0
+          },
+          {
+            "date": "2026-03-17",
+            "price": 14.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 10.0
+          },
+          {
+            "date": "2026-04-07",
+            "price": 2.0
+          }
+        ]
+      },
+      {
+        "id": "sv01-221",
+        "name": "Étourmi",
+        "set": "Écarlate et Violet",
+        "number": "221",
+        "rarity": "",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv01/221/high.webp",
+        "quantity": 1,
+        "sold_quantity": 1,
+        "condition": "NM",
+        "suggested_price": 13.13979604480647,
+        "is_reverse": false,
+        "is_ed1": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-17T15:24:59.742934",
+            "quantity": 1,
+            "price": 13.13979604480647,
+            "card_name": "Étourmi",
+            "card_set": "Écarlate et Violet",
+            "card_number": "221"
+          }
+        ],
+        "price_history": [
+          {
+            "date": "2026-03-17",
+            "price": 3.0
+          },
+          {
+            "date": "2026-04-06",
+            "price": 10.0
+          },
+          {
+            "date": "2026-04-07",
+            "price": 14.0
+          }
+        ],
+        "suggested_price_at_sale": 13.13979604480647
+      }
+    ],
+    "ventes": [
+      {
+        "date": "2026-03-16T21:11:51.819879",
+        "price": 269.0,
+        "card_name": "Vente initiale",
+        "is_lot_sale": true
+      }
+    ],
+    "created": "2026-03-16T21:11:51.819869",
+    "archived_date": "2026-05-11T19:56:10.225382"
+  }
+]

@@ -1,0 +1,6 @@
+streamlit
+pillow
+requests
+plotly
+supabase
+truststore

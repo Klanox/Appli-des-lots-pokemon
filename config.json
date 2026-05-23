@@ -1,0 +1,14 @@
+{
+  "pokemontcg_api_key": "TA_75c3877b-b030-4764-80e9-c66eba18c0b4",
+  "third_party": {
+    "provider": "cardmarket-api",
+    "api_key": "TA_CLE_FOURNISSEUR_TIERS_OPTIONNELLE"
+  },
+  "mkm": {
+    "app_token": "",
+    "app_secret": "",
+    "access_token": "",
+    "access_secret": "",
+    "base_url": "https://apiv2.cardmarket.com/ws/v2.0"
+  }
+}

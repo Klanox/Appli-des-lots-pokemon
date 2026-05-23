@@ -1,0 +1,209 @@
+{
+  "sets": {
+    "sv": {
+      "name": "Écarlate & Violet",
+      "note": "Rares et Ultra-Rares (EX, AR, FA, ALT)",
+      "sets": [
+        {"code": "SV01", "name": "Écarlate et Violet", "total": 198},
+        {"code": "SV02", "name": "Évolution à Paldea", "total": 198},
+        {"code": "SV03", "name": "Flammes Obsidienne", "total": 198},
+        {"code": "SV03.5", "name": "151", "total": 165},
+        {"code": "SV04", "name": "Faille Paradoxe", "total": 198},
+        {"code": "SV04.5", "name": "Destinées de Paldea", "total": 198},
+        {"code": "SV05", "name": "Force Temporelle", "total": 162},
+        {"code": "SV06", "name": "Mascarade Crépusculaire", "total": 167},
+        {"code": "SV06.5", "name": "Fable Nébuleuse", "total": 142},
+        {"code": "SV07", "name": "Couronne Stellaire", "total": 162},
+        {"code": "SV08", "name": "Étincelles Déferlantes", "total": 185},
+        {"code": "SV08.5", "name": "Évolutions Prismatiques", "total": 180},
+        {"code": "SV09", "name": "Aventure Ensemble", "total": 158},
+        {"code": "SV10", "name": "Rivalités Destinées", "total": 195},
+        {"code": "SV10.5", "name": "Flammes Blanche et Foudre Noire", "total": 156}
+      ]
+    },
+    "swsh": {
+      "name": "Épée & Bouclier",
+      "note": "V, VMAX, VSTAR, TG, FA, ALT",
+      "sets": [
+        {"code": "EB01", "name": "Épée & Bouclier - Base", "total": 202},
+        {"code": "EB02", "name": "Clash des Rebelles", "total": 192},
+        {"code": "EB03", "name": "Ténèbres Embrasées", "total": 189},
+        {"code": "EB03.5", "name": "La Voie du Maître", "total": 95},
+        {"code": "EB04", "name": "Voltage Éclatant", "total": 185},
+        {"code": "EB04.5", "name": "Destinées Radieuses", "total": 73},
+        {"code": "EB05", "name": "Styles de Combat", "total": 163},
+        {"code": "EB06", "name": "Règne de Glace", "total": 198},
+        {"code": "EB07", "name": "Ciel Évolutif", "total": 203},
+        {"code": "EB07.5", "name": "Célébrations", "total": 50},
+        {"code": "EB08", "name": "Fusion Strike", "total": 264},
+        {"code": "EB09", "name": "Brilliant Stars", "total": 172},
+        {"code": "EB10", "name": "Astres Radieux", "total": 189},
+        {"code": "EB10.5", "name": "Pokémon GO", "total": 88},
+        {"code": "EB11", "name": "Origines Perdues", "total": 196},
+        {"code": "EB12", "name": "Tempête Argentée", "total": 195},
+        {"code": "EB12.5", "name": "Zénith Suprême", "total": 159}
+      ]
+    },
+    "xy": {
+      "name": "XY",
+      "note": "EX, MEGA, FA, ALT",
+      "sets": [
+        {"code": "XY01", "name": "XY - Base", "total": 146},
+        {"code": "XY02", "name": "Étincelles", "total": 106},
+        {"code": "XY03", "name": "Poings Furieux", "total": 111},
+        {"code": "XY04", "name": "Vigueur Spectrale", "total": 119},
+        {"code": "XY05", "name": "Primo-Choc", "total": 160},
+        {"code": "XY05.5", "name": "Double Danger", "total": 34},
+        {"code": "XY06", "name": "Ciel Rugissant", "total": 108},
+        {"code": "XY07", "name": "Origines Antiques", "total": 98},
+        {"code": "XY08", "name": "Impulsion Turbo", "total": 122},
+        {"code": "XY09", "name": "Rupture Turbo", "total": 122},
+        {"code": "XY09.5", "name": "Générations", "total": 83},
+        {"code": "XY10", "name": "Impact des Destins", "total": 124},
+        {"code": "XY11", "name": "Offensive Vapeur", "total": 114},
+        {"code": "XY12", "name": "Évolutions", "total": 108}
+      ]
+    },
+    "me": {
+      "name": "Méga Évolution (bloc XY)",
+      "note": "EX, MEGA, FA",
+      "sets": [
+        {"code": "ME01", "name": "Méga Évolution", "total": 95},
+        {"code": "ME02", "name": "Flammes Fantasmagoriques", "total": 87},
+        {"code": "ME02.5", "name": "Héros Transcendants", "total": 78}
+      ]
+    },
+    "sm": {
+      "name": "Soleil & Lune",
+      "note": "GX, FA, ALT",
+      "sets": [
+        {"code": "SM01", "name": "Soleil & Lune - Base", "total": 149},
+        {"code": "SM02", "name": "Gardiens Ascendants", "total": 145},
+        {"code": "SM03", "name": "Ombres Ardentes", "total": 147},
+        {"code": "SM03.5", "name": "Légendes Brillantes", "total": 78},
+        {"code": "SM04", "name": "Invasion Carmin", "total": 111},
+        {"code": "SM05", "name": "Ultra-Prisme", "total": 156},
+        {"code": "SM06", "name": "Lumière Interdite", "total": 131},
+        {"code": "SM07", "name": "Tempête Céleste", "total": 168},
+        {"code": "SM07.5", "name": "Majesté des Dragons", "total": 70},
+        {"code": "SM08", "name": "Tonnerre Perdu", "total": 214},
+        {"code": "SM09", "name": "Duo de Choc", "total": 181},
+        {"code": "SM10", "name": "Alliance Infaillible", "total": 214},
+        {"code": "SM11", "name": "Harmonie des Esprits", "total": 236},
+        {"code": "SM11.5", "name": "Destinées Occultes", "total": 69},
+        {"code": "SM12", "name": "Éclipse Cosmique", "total": 236}
+      ]
+    },
+    "ex": {
+      "name": "EX (Rubis & Saphir)",
+      "note": "Reverse Holo et Stamped",
+      "sets": [
+        {"code": "EX01", "name": "Rubis & Saphir", "total": 109},
+        {"code": "EX02", "name": "Tempête de Sable", "total": 100},
+        {"code": "EX03", "name": "Dragon", "total": 97},
+        {"code": "EX04", "name": "Team Magma VS Team Aqua", "total": 95},
+        {"code": "EX05", "name": "Légendes Oubliées", "total": 92},
+        {"code": "EX06", "name": "Rouge Feu & Vert Feuille", "total": 116},
+        {"code": "EX07", "name": "Team Rocket Returns", "total": 111},
+        {"code": "EX08", "name": "Deoxys", "total": 107},
+        {"code": "EX09", "name": "Emerald", "total": 106},
+        {"code": "EX10", "name": "Forces Cachées", "total": 115},
+        {"code": "EX11", "name": "Espèces Delta", "total": 113},
+        {"code": "EX12", "name": "Créateurs de Légendes", "total": 92},
+        {"code": "EX13", "name": "Fantômes Holon", "total": 111},
+        {"code": "EX14", "name": "Gardiens de Crystal", "total": 100},
+        {"code": "EX15", "name": "Îles des Dragons", "total": 101},
+        {"code": "EX16", "name": "Gardiens du Pouvoir", "total": 108}
+      ]
+    },
+    "wizard": {
+      "name": "Wizard",
+      "note": "1ère édition prioritaire",
+      "sets": [
+        {"code": "BASE", "name": "Set de Base", "total": 102},
+        {"code": "JUNGLE", "name": "Jungle", "total": 64},
+        {"code": "FOSSIL", "name": "Fossile", "total": 62},
+        {"code": "BS2", "name": "Set de Base 2", "total": 130},
+        {"code": "TR", "name": "Team Rocket", "total": 83},
+        {"code": "GYM1", "name": "Gym Heroes", "total": 132},
+        {"code": "GYM2", "name": "Gym Challenge", "total": 132},
+        {"code": "NEO1", "name": "Neo Genesis", "total": 111},
+        {"code": "NEO2", "name": "Neo Discovery", "total": 75},
+        {"code": "NEO3", "name": "Neo Revelation", "total": 64},
+        {"code": "NEO4", "name": "Neo Destiny", "total": 105},
+        {"code": "EXP", "name": "Expédition", "total": 165},
+        {"code": "AQU", "name": "Aquapolis", "total": 147},
+        {"code": "SKY", "name": "Skyridge", "total": 144}
+      ]
+    },
+    "dp": {
+      "name": "Diamant & Perle",
+      "note": "LV.X, Reverse",
+      "sets": [
+        {"code": "DP01", "name": "Diamant & Perle - Base", "total": 130},
+        {"code": "DP02", "name": "Trésors Mystérieux", "total": 123},
+        {"code": "DP03", "name": "Merveilles Secrètes", "total": 132},
+        {"code": "DP04", "name": "Aube Majestueuse", "total": 100},
+        {"code": "DP05", "name": "Légendes Oubliées", "total": 146},
+        {"code": "DP06", "name": "Éveil des Légendes", "total": 146}
+      ]
+    },
+    "pl": {
+      "name": "Platine",
+      "note": "LV.X, SP",
+      "sets": [
+        {"code": "PL01", "name": "Platine - Base", "total": 133},
+        {"code": "PL02", "name": "Rivaux Émergeants", "total": 111},
+        {"code": "PL03", "name": "Vainqueurs Suprêmes", "total": 147},
+        {"code": "PL04", "name": "Arceus", "total": 99}
+      ]
+    },
+    "hgss": {
+      "name": "HeartGold & SoulSilver",
+      "note": "LEGEND, Prime",
+      "sets": [
+        {"code": "HGSS01", "name": "HeartGold & SoulSilver - Base", "total": 124},
+        {"code": "HGSS02", "name": "Déchainement", "total": 95},
+        {"code": "HGSS03", "name": "Indomptable", "total": 90},
+        {"code": "HGSS04", "name": "Triomphe", "total": 102}
+      ]
+    },
+    "cl": {
+      "name": "Appel des Légendes",
+      "note": "LEGEND",
+      "sets": [
+        {"code": "CL01", "name": "Appel des Légendes", "total": 106}
+      ]
+    },
+    "bw": {
+      "name": "Noir & Blanc",
+      "note": "EX, Full Art, Secret Rare",
+      "sets": [
+        {"code": "BW01", "name": "Noir & Blanc - Base", "total": 114},
+        {"code": "BW02", "name": "Pouvoirs Émergents", "total": 98},
+        {"code": "BW03", "name": "Nobles Victoires", "total": 101},
+        {"code": "BW04", "name": "Destinées Futures", "total": 99},
+        {"code": "BW05", "name": "Explorateurs Obscurs", "total": 108},
+        {"code": "BW06", "name": "Dragons Exaltés", "total": 128},
+        {"code": "BW07", "name": "Frontières Franchies", "total": 149},
+        {"code": "BW08", "name": "Tempête Plasma", "total": 135},
+        {"code": "BW09", "name": "Glaciation Plasma", "total": 116},
+        {"code": "BW10", "name": "Explosion Plasma", "total": 101},
+        {"code": "BW11", "name": "Legendary Treasures", "total": 140}
+      ]
+    },
+    "promos": {
+      "name": "Promos",
+      "categories": [
+        {"code": "SWSH", "name": "Promos EB", "range": "SWSH001-SWSH300+"},
+        {"code": "SV", "name": "Promos EV", "range": "SV001-SV100+"},
+        {"code": "SM", "name": "Promos SL", "range": "SM001-SM250+"},
+        {"code": "XY", "name": "Promos XY", "range": "XY001-XY200+"},
+        {"code": "BW", "name": "Promos NB", "range": "BW001-BW100+"},
+        {"code": "DP", "name": "Promos DP", "range": "DP001-DP100+"},
+        {"code": "MCDONALD", "name": "McDonald's", "years": "2011-2026"},
+        {"code": "JUMBO", "name": "Cartes Jumbo", "special": true}
+      ]
+    }
+  }
+}
