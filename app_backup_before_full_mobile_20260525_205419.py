@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
 import tomllib
 
-APP_BUILD = "Codex 2026-05-25 mobile responsive"
+APP_BUILD = "Codex 2026-05-25 mobile cleanup"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1850,201 +1850,33 @@ setInterval(autoSubmitSearch, 1000);
 if is_mobile_mode():
     st.markdown("""
     <style>
-    html, body, .stApp {
-        overflow-x: hidden !important;
-        width: 100% !important;
-    }
     section[data-testid="stSidebar"] {
-        min-width: 13.5rem !important;
-        max-width: 16rem !important;
-        border-right-width: 3px !important;
-    }
-    section[data-testid="stSidebar"]::before {
-        height: 92px !important;
-        margin-bottom: 0.35rem !important;
-    }
-    section[data-testid="stSidebar"] h2 {
-        margin-bottom: 0.65rem !important;
-        padding: 0.55rem !important;
-        font-size: 0.72rem !important;
+        min-width: 16rem !important;
+        max-width: 18rem !important;
     }
     .main .block-container {
-        max-width: 100% !important;
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-        padding-top: 0.55rem !important;
-        padding-bottom: 5rem !important;
+        padding-left: 0.55rem !important;
+        padding-right: 0.55rem !important;
+        padding-top: 0.75rem !important;
     }
-    .logo-header {
-        padding: 1rem 0.8rem !important;
-        margin-bottom: 0.9rem !important;
-        border-radius: 14px !important;
-    }
-    .logo-header img {
-        width: 92px !important;
-        margin-bottom: 0.55rem !important;
-    }
-    .logo-header h1 {
-        font-size: 1.45rem !important;
-        line-height: 1.1 !important;
-    }
-    .logo-header p {
-        font-size: 0.86rem !important;
-        line-height: 1.25 !important;
-    }
-    h1 { font-size: 1.45rem !important; line-height: 1.15 !important; }
-    h2 { font-size: 1.22rem !important; line-height: 1.18 !important; margin-top: 0.55rem !important; }
-    h3 { font-size: 1rem !important; line-height: 1.2 !important; }
-    p, label, .stMarkdown, [data-testid="stCaptionContainer"] {
-        font-size: 0.9rem !important;
-        line-height: 1.32 !important;
-    }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0.55rem !important;
-    }
-    div[data-testid="stHorizontalBlock"] {
-        gap: 0.55rem !important;
-        align-items: stretch !important;
-        flex-wrap: wrap !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        flex: 1 1 9.5rem !important;
-        width: auto !important;
-    }
+    h1 { font-size: 1.55rem !important; }
+    h2 { font-size: 1.25rem !important; }
+    h3 { font-size: 1.05rem !important; }
     div[data-testid="stButton"] button {
-        min-height: 2.85rem !important;
-        font-size: 0.9rem !important;
-        padding: 0.65rem 0.75rem !important;
-        border-radius: 10px !important;
-        white-space: normal !important;
-        line-height: 1.15 !important;
-        width: 100% !important;
+        min-height: 2.8rem !important;
+        font-size: 0.95rem !important;
     }
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextInput"] input,
     div[data-baseweb="select"] {
         min-height: 2.75rem !important;
-        font-size: 0.98rem !important;
-        border-radius: 10px !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-    }
-    div[data-testid="stNumberInput"] button {
-        min-width: 2.35rem !important;
+        font-size: 1rem !important;
     }
     img {
-        max-width: 100% !important;
         max-height: none !important;
-        height: auto !important;
-        object-fit: contain !important;
     }
     div[data-testid="column"] {
         min-width: 0 !important;
-    }
-    [data-testid="stImage"] img {
-        border-radius: 10px !important;
-    }
-    [data-testid="stMetric"] {
-        padding: 0.95rem !important;
-        padding-top: 1.35rem !important;
-        border-radius: 12px !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.72rem !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 1.45rem !important;
-        line-height: 1.1 !important;
-        word-break: break-word !important;
-    }
-    [data-testid="column"]:has([data-testid="stMetric"]) img {
-        width: 34px !important;
-        height: 34px !important;
-        top: -10px !important;
-        right: 9px !important;
-        padding: 3px !important;
-        border-width: 2px !important;
-    }
-    [data-testid="stDataFrame"],
-    [data-testid="stTable"],
-    [data-testid="stPlotlyChart"],
-    .js-plotly-plot {
-        max-width: 100% !important;
-        overflow-x: auto !important;
-    }
-    [data-testid="stExpander"] {
-        border-radius: 10px !important;
-        max-width: 100% !important;
-    }
-    [data-testid="stExpander"] details summary {
-        min-height: 3rem !important;
-        padding: 0.65rem 0.75rem !important;
-        line-height: 1.2 !important;
-    }
-    [data-testid="stTabs"] [role="tablist"] {
-        gap: 0.35rem !important;
-        overflow-x: auto !important;
-        white-space: nowrap !important;
-        padding-bottom: 0.25rem !important;
-    }
-    [data-testid="stTabs"] [role="tab"] {
-        min-height: 2.5rem !important;
-        padding: 0.45rem 0.7rem !important;
-        font-size: 0.88rem !important;
-    }
-    div[data-testid="stRadio"] > div {
-        gap: 0.35rem !important;
-    }
-    div[data-testid="stRadio"] label {
-        flex: 1 1 calc(50% - 0.35rem) !important;
-        justify-content: center !important;
-        min-height: 2.35rem !important;
-        padding: 0.45rem 0.5rem !important;
-        font-size: 0.78rem !important;
-        text-align: center !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] div[style*="font-size: 2rem"],
-    [data-testid="stMarkdownContainer"] div[style*="font-size: 2rem"] {
-        font-size: 1.35rem !important;
-        line-height: 1.15 !important;
-    }
-    div[style*="font-size: 2.5rem"] {
-        font-size: 1.55rem !important;
-    }
-    div[style*="font-size: 2.25rem"] {
-        font-size: 1.45rem !important;
-    }
-    div[style*="padding: 1.5rem"] {
-        padding: 0.9rem !important;
-    }
-    img[style*="width: 50px"][style*="height: 50px"] {
-        width: 34px !important;
-        height: 34px !important;
-    }
-    div[data-testid="stAlert"] {
-        padding: 0.75rem !important;
-        border-radius: 10px !important;
-    }
-    .block-container > div {
-        max-width: 100% !important;
-    }
-    @media (max-width: 430px) {
-        .main .block-container {
-            padding-left: 0.35rem !important;
-            padding-right: 0.35rem !important;
-        }
-        .logo-header {
-            padding: 0.85rem 0.55rem !important;
-        }
-        .logo-header img {
-            width: 78px !important;
-        }
-        .logo-header h1 {
-            font-size: 1.25rem !important;
-        }
-        div[data-testid="stRadio"] label {
-            flex-basis: 100% !important;
-        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -3956,7 +3788,7 @@ elif st.session_state.current_page=="Lots":
                     visible_sold_lot = cards_sold_lot
                 
                 def render_card_grid(card_list_with_idx, sold=False):
-                    COLS_PER_ROW = 2 if is_mobile_mode() else 6
+                    COLS_PER_ROW = 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         cols = st.columns(COLS_PER_ROW)
                         for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
@@ -4715,7 +4547,7 @@ elif st.session_state.current_page=="Brocante":
                 visible_sold_b = cards_sold_b
 
             def render_broc_grid(card_list, sold=False):
-                COLS = 2 if is_mobile_mode() else 6
+                COLS = 6
                 for row_start in range(0, len(card_list), COLS):
                     cols_g = st.columns(COLS)
                     for col_idx, (real_cix, crd) in enumerate(card_list[row_start:row_start+COLS]):
