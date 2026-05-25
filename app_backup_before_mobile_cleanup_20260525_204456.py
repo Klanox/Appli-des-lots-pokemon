@@ -1,7 +1,8 @@
-﻿# Pokestock - Version FINALE avec toutes les modifications
+# Pokestock - Version FINALE avec toutes les modifications
 # Gestion de lots de cartes Pokemon
 
 import streamlit as st
+import streamlit.components.v1 as components
 import json,os,requests,time,sys,glob,tempfile,uuid
 from datetime import datetime,timezone
 from PIL import Image,ImageDraw,ImageFont
@@ -10,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
 import tomllib
 
-APP_BUILD = "Codex 2026-05-25 mobile cleanup"
+APP_BUILD = "Codex 2026-05-23 secrets fallback"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -735,11 +736,11 @@ def ask_canal(lot_idx, card_idx, qty, price):
     CANAUX = ["Main propre", "Brocante", "Dexify_TCG", "Pokédeal"]
     canal = st.selectbox("Via quel canal ?", CANAUX)
     c1, c2 = st.columns(2)
-    if c1.button("✅ Confirmer", type="primary", width="stretch"):
+    if c1.button("✅ Confirmer", type="primary", use_container_width=True):
         scu(lot_idx, card_idx, qty, price, canal)
         st.session_state["last_sale_ok"] = True
         st.rerun()
-    if c2.button("❌ Annuler", width="stretch"):
+    if c2.button("❌ Annuler", use_container_width=True):
         st.rerun()
 
 
@@ -1730,26 +1731,6 @@ if "mobile_mode" not in st.session_state:
 def is_mobile_mode():
     return bool(st.session_state.get("mobile_mode", False))
 
-def run_html(body, height=0):
-    """Injecte les petits scripts d'interface avec l'API Streamlit actuelle."""
-    st.html(body, unsafe_allow_javascript=True)
-
-run_html("""
-<script>
-(function() {
-    const win = window.parent && window.parent !== window ? window.parent : window;
-    const url = new URL(win.location.href);
-    const alreadySet = ["1", "true", "yes", "oui"].includes((url.searchParams.get("mobile") || "").toLowerCase());
-    const looksMobile = win.matchMedia("(max-width: 760px), (pointer: coarse) and (max-width: 900px)").matches;
-    if (looksMobile && !alreadySet) {
-        url.searchParams.set("mobile", "1");
-        if (!url.searchParams.get("page")) url.searchParams.set("page", "vente");
-        win.location.replace(url.toString());
-    }
-})();
-</script>
-""")
-
 def require_app_password():
     expected_password = _secret_value("APP_PASSWORD")
     if not expected_password or st.session_state.get("app_authenticated"):
@@ -1775,7 +1756,7 @@ if "cards_index" not in st.session_state:
 load_activity_state()
 
 if st.session_state.get("current_page") != "Lots":
-    run_html("""
+    components.html("""
     <script>
     (function() {
         const doc = parent.document;
@@ -1802,7 +1783,7 @@ if "system_lots_ready" not in st.session_state:
     st.session_state["system_lots_ready"] = True
 
 if st.session_state.pop("scroll_top_once", False):
-    run_html("<script>requestAnimationFrame(()=>parent.window.scrollTo({top:0,left:0,behavior:'instant'}));</script>", height=0)
+    components.html("<script>requestAnimationFrame(()=>parent.window.scrollTo({top:0,left:0,behavior:'instant'}));</script>", height=0)
 
 # Réparer les images manquantes une seule fois (pas à chaque démarrage)
 if "images_fixed" not in st.session_state:
@@ -1811,7 +1792,7 @@ if "images_fixed" not in st.session_state:
     st.rerun()
 
 # JS : soumettre les champs de recherche à chaque frappe
-run_html("""
+components.html("""
 <script>
 function autoSubmitSearch() {
     const inputs = parent.document.querySelectorAll(
@@ -1986,6 +1967,45 @@ st.markdown("""
     div[style*="display: flex"][style*="justify-content: center"] img {
         margin: 0 auto !important;
         display: block !important;
+    }
+    .stApp::before {
+        content: '';
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 120px;
+        height: 120px;
+        background-image: url('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png');
+        background-size: contain;
+        background-repeat: no-repeat;
+        animation: bounce 2s infinite;
+        pointer-events: none;
+        z-index: 1000;
+        opacity: 0.8;
+    }
+    .stApp::after {
+        content: '';
+        position: fixed;
+        top: 100px;
+        right: 120px;
+        width: 100px;
+        height: 100px;
+        background-image: url('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png');
+        background-size: contain;
+        background-repeat: no-repeat;
+        animation: float 3s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 1000;
+        opacity: 0.7;
+    }
+    @keyframes bounce {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-20px); }
+    }
+    @keyframes float {
+        0%, 100% { transform: translate(0, 0) rotate(0deg); }
+        33% { transform: translate(10px, -10px) rotate(5deg); }
+        66% { transform: translate(-10px, 10px) rotate(-5deg); }
     }
     [data-testid="stSidebar"] {
         background: white;
@@ -2479,14 +2499,14 @@ with st.sidebar:
     cloud_ready, cloud_message = cloud_sync_status()
     if cloud_ready:
         st.caption(f"☁️ {cloud_message}")
-        if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud"):
+        if st.button("☁️ Envoyer les données locales vers le cloud", use_container_width=True, key="push_data_to_cloud"):
             if save_cloud_json(SUPABASE_DATA_KEY, ld()):
                 st.success("Données envoyées dans le cloud.")
             else:
                 st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
     else:
         st.caption(f"☁️ Cloud non prêt : {cloud_message}")
-        if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
+        if st.button("Tester le cloud", use_container_width=True, key="test_cloud_connection"):
             st.session_state.pop("cloud_sync_error", None)
             get_supabase_client.clear()
             st.rerun()
@@ -2533,13 +2553,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("NAVIGATION")
-    st.button("Accueil", width="stretch", key="nav_accueil", on_click=set_current_page, args=("Accueil",))
-    st.button("Vente/Échange", width="stretch", key="nav_vente", on_click=set_current_page, args=("Vente",))
-    st.button("Lots", width="stretch", key="nav_lots", on_click=set_current_page, args=("Lots",))
-    st.button("Historique", width="stretch", key="nav_historique", on_click=set_current_page, args=("Historique",))
-    st.button("📊 Statistiques", width="stretch", key="nav_statistiques", on_click=set_current_page, args=("Statistiques",))
-    st.button("🎰 Compteurs", width="stretch", key="nav_compteurs", on_click=set_current_page, args=("Compteurs",))
-    st.button("Archivés", width="stretch", key="nav_archives", on_click=set_current_page, args=("Archivés",))
+    st.button("Accueil", use_container_width=True, key="nav_accueil", on_click=set_current_page, args=("Accueil",))
+    st.button("Vente/Échange", use_container_width=True, key="nav_vente", on_click=set_current_page, args=("Vente",))
+    st.button("Lots", use_container_width=True, key="nav_lots", on_click=set_current_page, args=("Lots",))
+    st.button("Historique", use_container_width=True, key="nav_historique", on_click=set_current_page, args=("Historique",))
+    st.button("📊 Statistiques", use_container_width=True, key="nav_statistiques", on_click=set_current_page, args=("Statistiques",))
+    st.button("🎰 Compteurs", use_container_width=True, key="nav_compteurs", on_click=set_current_page, args=("Compteurs",))
+    st.button("Archivés", use_container_width=True, key="nav_archives", on_click=set_current_page, args=("Archivés",))
 
 
 # ============================================================
@@ -2592,8 +2612,8 @@ if st.session_state.current_page=="Accueil":
     
     st.markdown("---")
     c1,c2=st.columns(2)
-    c1.button("Nouvelle vente",width="stretch",on_click=set_current_page,args=("Vente",))
-    c2.button("Gérer les lots",width="stretch",on_click=set_current_page,args=("Lots",))
+    c1.button("Nouvelle vente",use_container_width=True,on_click=set_current_page,args=("Vente",))
+    c2.button("Gérer les lots",use_container_width=True,on_click=set_current_page,args=("Lots",))
 
     # ── Graphiques d'évolution CA + Bénéfice ──
     st.markdown("---")
@@ -2669,7 +2689,7 @@ if st.session_state.current_page=="Accueil":
                 yaxis=dict(gridcolor='#f1f5f9', showgrid=True, ticksuffix='€'),
                 height=350
             )
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         except ImportError:
             # Fallback sans plotly
             col_g1, col_g2 = st.columns(2)
@@ -2729,7 +2749,7 @@ if st.session_state.current_page=="Accueil":
 # PAGE VENTE
 # ============================================================
 elif st.session_state.current_page=="Vente":
-    run_html("""
+    components.html("""
     <script>
     (function(){
         const scrollTop = () => parent.window.scrollTo({top:0,left:0,behavior:'instant'});
@@ -2782,14 +2802,14 @@ elif st.session_state.current_page=="Vente":
                 nb_panier = sum(item["quantity"] for item in st.session_state.bulk_cart)
                 total_panier = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 if nb_panier > 0:
-                    st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", width="stretch", type="primary", on_click=scroll_to_cart_prepare)
+                    st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", use_container_width=True, type="primary", on_click=scroll_to_cart_prepare)
                 else:
                     st.markdown('<div style="background:#e2e8f0;color:#64748b;padding:0.5rem 1rem;border-radius:12px;font-weight:700;text-align:center;">🛒 Vide</div>', unsafe_allow_html=True)
 
             # Scroll vers le panier si demandé
             if st.session_state.get("scroll_to_cart"):
                 st.session_state["scroll_to_cart"] = False
-                run_html('<script>setTimeout(()=>{const el=parent.document.getElementById("cart-anchor");if(el)el.scrollIntoView({behavior:"smooth"});},200);</script>', height=0)
+                components.html('<script>setTimeout(()=>{const el=parent.document.getElementById("cart-anchor");if(el)el.scrollIntoView({behavior:"smooth"});},200);</script>', height=0)
 
             # Construire liste panier pour vérification rapide
             cart_keys = {item.get("card_uid") for item in st.session_state.bulk_cart if item.get("card_uid")}
@@ -2826,9 +2846,9 @@ elif st.session_state.current_page=="Vente":
                             q_key = card.get("card_uid") or f"{li}_{ci}"
                             q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
                             if in_cart:
-                                st.button("✅ Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                st.button("✅ Dans le panier", key=f"add_{li}_{ci}", use_container_width=True, on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
                             else:
-                                st.button("🛒 Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":cp(lot)>=0},))
+                                st.button("🛒 Ajouter", key=f"add_{li}_{ci}", use_container_width=True, type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":cp(lot)>=0},))
             else:
                 # Pas de recherche → groupé par lot avec titre
                 for li, lot in vente_lots_with_idx:
@@ -2857,9 +2877,9 @@ elif st.session_state.current_page=="Vente":
                                     q_key = card.get("card_uid") or f"{li}_{ci}"
                                     q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
                                     if in_cart:
-                                        st.button("✅ Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                        st.button("✅ Dans le panier", key=f"add_{li}_{ci}", use_container_width=True, on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
                                     else:
-                                        st.button("🛒 Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":cp(lot)>=0},))
+                                        st.button("🛒 Ajouter", key=f"add_{li}_{ci}", use_container_width=True, type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":cp(lot)>=0},))
                         st.markdown("---")
             
             # ── Panier ──
@@ -2890,10 +2910,10 @@ elif st.session_state.current_page=="Vente":
                 vente_col1, vente_col2 = st.columns(2)
                 
                 with vente_col1:
-                    st.button("✅ Vendre au prix de base", type="primary", width="stretch", on_click=bulk_sale_prepare, args=("base", total_base))
+                    st.button("✅ Vendre au prix de base", type="primary", use_container_width=True, on_click=bulk_sale_prepare, args=("base", total_base))
                 
                     negociated_price = st.number_input("💰 Prix négocié", 0., float(total_base)*2, float(total_base), 0.5, key="negociated_price")
-                    st.button("🤝 Vendre au prix négocié", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
+                    st.button("🤝 Vendre au prix négocié", use_container_width=True, on_click=bulk_sale_prepare, args=("negociated", negociated_price))
 
                 # Dialog canal pour vente en lot
                 if st.session_state.get("show_canal_dialog_bulk"):
@@ -2906,7 +2926,7 @@ elif st.session_state.current_page=="Vente":
                         CANAUX = ["Main propre", "Brocante", "Dexify_TCG", "Pokédeal"]
                         canal_b = st.selectbox("Via quel canal ?", CANAUX, key="canal_bulk_sel")
                         c1, c2 = st.columns(2)
-                        if c1.button("✅ Confirmer", type="primary", width="stretch"):
+                        if c1.button("✅ Confirmer", type="primary", use_container_width=True):
                             if pending.get("type") == "base":
                                 sale_items = [
                                     {**item, "unit_price": item["price_base"]}
@@ -2939,7 +2959,7 @@ elif st.session_state.current_page=="Vente":
                             else:
                                 st.error(msg)
                             st.rerun()
-                        if c2.button("❌ Annuler", width="stretch"):
+                        if c2.button("❌ Annuler", use_container_width=True):
                             st.rerun()
 
                     ask_canal_bulk()
@@ -3161,7 +3181,7 @@ elif st.session_state.current_page=="Vente":
         # ── Bouton confirmer l'échange ──
         if st.session_state.swap_cart_give and st.session_state.swap_cart_receive:
             st.markdown("---")
-            if st.button("✅ Confirmer l'échange", type="primary", width="stretch"):
+            if st.button("✅ Confirmer l'échange", type="primary", use_container_width=True):
                 cdd = ld()
                 # Calculer la valeur totale donnée par lot
                 valeur_par_lot_donne = {}
@@ -3234,7 +3254,7 @@ elif st.session_state.current_page=="Lots":
         cd = ld()
 
     # Bordures et ouverture rapide des lots sans charger tous les détails d'un coup.
-    run_html("""<script>
+    components.html("""<script>
     (function(){
         const doc = parent.document;
         function syncLotHeaders() {
@@ -3508,7 +3528,7 @@ elif st.session_state.current_page=="Lots":
             if st.button(
                 f"{row_prefix} {expander_title}",
                 key=f"lot_row_{ix}",
-                width="stretch",
+                use_container_width=True,
                 type="secondary",
             ):
                 if is_active_lot:
@@ -3579,7 +3599,7 @@ elif st.session_state.current_page=="Lots":
                 with c4:
                     rp_color = "#22c55e" if rv + stock_val >= pa else "#ee1515"
                     st.metric("%", f"{rp:.1f}%", delta=f"Si tout vendu : {rp_estime:.0f}%", delta_color="normal" if rv + stock_val >= pa else "inverse")
-                    run_html(f'<script>setTimeout(()=>{{const d=parent.document.querySelectorAll(\'[data-testid="stMetricDelta"]\');if(d.length)d[d.length-1].style.backgroundColor="{rp_color}";}},100);</script>', height=0)
+                    components.html(f'<script>setTimeout(()=>{{const d=parent.document.querySelectorAll(\'[data-testid="stMetricDelta"]\');if(d.length)d[d.length-1].style.backgroundColor="{rp_color}";}},100);</script>', height=0)
                 c5.metric("Bénéfice", fp(pf))
 
                 # Info lot mixte
@@ -3665,7 +3685,7 @@ elif st.session_state.current_page=="Lots":
                             popup_data=json.load(f)
                         
                         st.markdown('<div id="card-choice-popup"></div>', unsafe_allow_html=True)
-                        run_html("""
+                        components.html("""
                         <script>
                         setTimeout(function() {
                             const el = parent.document.getElementById('card-choice-popup');
@@ -3884,7 +3904,7 @@ elif st.session_state.current_page=="Lots":
                                     )
                                     if (not is_storage) and stock > 0:
                                         store_panel_key = f"show_store_{ix}_{real_cix}"
-                                        if st.button("📈 Stocker", key=f"store_btn_{ix}_{real_cix}", width="stretch"):
+                                        if st.button("📈 Stocker", key=f"store_btn_{ix}_{real_cix}", use_container_width=True):
                                             st.session_state[store_panel_key] = True
 
                                         if st.session_state.get(store_panel_key, False):
@@ -3905,7 +3925,7 @@ elif st.session_state.current_page=="Lots":
                                                 key=f"store_cote_{ix}_{real_cix}",
                                             )
                                             col_store_ok, col_store_cancel = st.columns(2)
-                                            if col_store_ok.button("Valider", key=f"store_confirm_{ix}_{real_cix}", width="stretch"):
+                                            if col_store_ok.button("Valider", key=f"store_confirm_{ix}_{real_cix}", use_container_width=True):
                                                 ok, msg = transfer_card_to_storage(ix, real_cix, transfer_qty, storage_cote)
                                                 if ok:
                                                     st.session_state[store_panel_key] = False
@@ -3913,7 +3933,7 @@ elif st.session_state.current_page=="Lots":
                                                     st.rerun()
                                                 else:
                                                     st.error(msg)
-                                            if col_store_cancel.button("Annuler", key=f"store_cancel_{ix}_{real_cix}", width="stretch"):
+                                            if col_store_cancel.button("Annuler", key=f"store_cancel_{ix}_{real_cix}", use_container_width=True):
                                                 st.session_state[store_panel_key] = False
                                                 st.rerun()
 
@@ -3953,7 +3973,7 @@ elif st.session_state.current_page=="Lots":
 
                                 # Restaurer (cartes vendues)
                                 if sold:
-                                    if st.button("↩️ Restaurer", key=f"restore_card_{ix}_{real_cix}", width="stretch"):
+                                    if st.button("↩️ Restaurer", key=f"restore_card_{ix}_{real_cix}", use_container_width=True):
                                         cdd = ld()
                                         card_data = cdd["lots"][ix]["cards"][real_cix]
                                         # Retirer la dernière vente
@@ -3975,7 +3995,7 @@ elif st.session_state.current_page=="Lots":
                                         st.rerun()
 
                                 # Supprimer
-                                if st.button("🗑️", key=f"dc{ix}_{real_cix}", width="stretch"):
+                                if st.button("🗑️", key=f"dc{ix}_{real_cix}", use_container_width=True):
                                     ok, er = dc(ix, real_cix)
                                     if ok:
                                         st.rerun()
@@ -4053,10 +4073,10 @@ elif st.session_state.current_page=="Lots":
                 else:
                     col_a, col_b = st.columns(2)
 
-                    if col_a.button(f"📦 Archiver", key=f"arch_{ix}", width="stretch"):
+                    if col_a.button(f"📦 Archiver", key=f"arch_{ix}", use_container_width=True):
                         st.session_state[f"confirm_arch_{ix}"] = True
 
-                    if col_b.button(f"🗑️ Supprimer", key=f"dl_{ix}", type="secondary", width="stretch"):
+                    if col_b.button(f"🗑️ Supprimer", key=f"dl_{ix}", type="secondary", use_container_width=True):
                         st.session_state[f"cd_{ix}"] = True
 
                 if (not is_trade) and st.session_state.get(f"confirm_arch_{ix}", False):
@@ -4091,7 +4111,7 @@ elif st.session_state.current_page=="Lots":
                         st.session_state[f"cd_{ix}"] = False
 
                 st.markdown("---")
-                if st.button("Fermer ce lot", key=f"close_lot_bottom_{ix}", width="stretch"):
+                if st.button("Fermer ce lot", key=f"close_lot_bottom_{ix}", use_container_width=True):
                     st.session_state.pop("active_lot_ix", None)
                     st.rerun()
             
@@ -4278,10 +4298,10 @@ elif st.session_state.current_page=="Historique":
 
         if len(visible_history) < len(filtered):
             st.markdown('<div id="history-load-more-anchor"></div>', unsafe_allow_html=True)
-            if st.button("Charger plus d'historique", key="history_load_more", width="stretch"):
+            if st.button("Charger plus d'historique", key="history_load_more", use_container_width=True):
                 st.session_state["history_visible_count"] = history_visible_count + 40
                 st.rerun()
-            run_html("""
+            components.html("""
             <script>
             (function() {
                 const win = parent.window;
@@ -4377,7 +4397,7 @@ elif st.session_state.current_page=="Brocante":
     pa_broc2 = c_broc2.number_input("Prix payé (€)", min_value=0., value=0., step=0.5, key="new_broc_pa2")
     col_btn_b, _ = st.columns([1, 9])
     with col_btn_b:
-        if st.button("🎪 Créer", type="primary", width="stretch", key="create_broc2"):
+        if st.button("🎪 Créer", type="primary", use_container_width=True, key="create_broc2"):
             if not nm_broc:
                 st.error("Nom requis")
             else:
@@ -4581,7 +4601,7 @@ elif st.session_state.current_page=="Brocante":
                             st.number_input("Prix (€)",0.,9999.,value=float(crd.get("suggested_price") or 0),step=0.5,key=f"bep{ix}_{real_cix}",on_change=save_price_b)
 
                             if sold:
-                                if st.button("↩️ Restaurer",key=f"brestore_{ix}_{real_cix}",width="stretch"):
+                                if st.button("↩️ Restaurer",key=f"brestore_{ix}_{real_cix}",use_container_width=True):
                                     cdd=ld()
                                     card_data=cdd["lots"][ix]["cards"][real_cix]
                                     if card_data.get("sold_entries"):
@@ -4590,7 +4610,7 @@ elif st.session_state.current_page=="Brocante":
                                     else:
                                         card_data["sold_quantity"]=max(0,card_data.get("sold_quantity",0)-1)
                                     sd(cdd); st.rerun()
-                            if st.button("🗑️",key=f"bdc{ix}_{real_cix}",width="stretch"):
+                            if st.button("🗑️",key=f"bdc{ix}_{real_cix}",use_container_width=True):
                                 ok,er=dc(ix,real_cix)
                                 if ok: st.rerun()
                     st.markdown("---")
@@ -4830,7 +4850,7 @@ elif st.session_state.current_page == "Statistiques":
             xaxis=dict(showgrid=False),
             showlegend=False,
         )
-        st.plotly_chart(fig_bar, width="stretch")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
     with col_g2:
         st.markdown("#### 🃏 Cartes vendues par mois")
@@ -4849,7 +4869,7 @@ elif st.session_state.current_page == "Statistiques":
             xaxis=dict(showgrid=False),
             showlegend=False,
         )
-        st.plotly_chart(fig_qty, width="stretch")
+        st.plotly_chart(fig_qty, use_container_width=True)
 
     st.markdown("#### 💎 Bénéfice par mois")
     benef_values = [benef_by_month[m] for m in months_sorted]
@@ -4868,7 +4888,7 @@ elif st.session_state.current_page == "Statistiques":
         xaxis=dict(showgrid=False),
         showlegend=False,
     )
-    st.plotly_chart(fig_benef_month, width="stretch")
+    st.plotly_chart(fig_benef_month, use_container_width=True)
 
     with st.expander("🔎 Détail du bénéfice du mois"):
         detail_rows = []
@@ -4882,7 +4902,7 @@ elif st.session_state.current_page == "Statistiques":
                 "Coût estimé": round(float(s.get("cost", 0)), 2),
                 "Bénéfice": round(float(s.get("benef", 0)), 2),
             })
-        st.dataframe(detail_rows, width="stretch", hide_index=True)
+        st.dataframe(detail_rows, use_container_width=True, hide_index=True)
         st.caption("Calcul actuel : coût = cote vendue ÷ valeur estimée du lot × prix d'achat du lot. Pour les lots mixtes : coût = cote vendue ÷ valeur totale du lot × prix réel payé.")
 
     # Graphique tendance CA (courbe lissée)
@@ -4906,7 +4926,7 @@ elif st.session_state.current_page == "Statistiques":
             yaxis=dict(gridcolor="#f1f5f9"),
             xaxis=dict(showgrid=False),
         )
-        st.plotly_chart(fig_line, width="stretch")
+        st.plotly_chart(fig_line, use_container_width=True)
 
     # ── CA et bénéfice par lot — mois courant ──
     st.markdown("---")
@@ -4934,7 +4954,7 @@ elif st.session_state.current_page == "Statistiques":
             ))
             fig_ca.update_layout(height=280, margin=dict(t=10,b=0,l=0,r=0),
                                  paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-            st.plotly_chart(fig_ca, width="stretch")
+            st.plotly_chart(fig_ca, use_container_width=True)
         else:
             st.info("Aucune vente ce mois.")
 
@@ -4961,7 +4981,7 @@ elif st.session_state.current_page == "Statistiques":
                 yaxis=dict(showgrid=False),
                 showlegend=False,
             )
-            st.plotly_chart(fig_benef, width="stretch")
+            st.plotly_chart(fig_benef, use_container_width=True)
         else:
             st.info("Aucune donnée de bénéfice ce mois.")
 
@@ -5326,7 +5346,7 @@ elif st.session_state.current_page == "Compteurs":
           <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;">Depuis le {dt_module.date.fromisoformat(start_date_mb).strftime('%d/%m/%Y')} ({days_since}j)</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("🔄 Remettre à zéro", key="reset_mb", width="stretch"):
+        if st.button("🔄 Remettre à zéro", key="reset_mb", use_container_width=True):
             st.session_state["confirm_reset_mb"] = True
         if st.session_state.get("confirm_reset_mb"):
             st.warning("Confirmer la remise à zéro ?")
@@ -5385,5 +5405,4 @@ elif st.session_state.current_page == "Compteurs":
     rc1.metric("🤝 Main propre & Brocante", f"{total_mb_ca:.2f}€")
     rc2.metric("⚡ Dexify_TCG", f"{total_dx_ca:.2f}€")
     rc3.metric("🎴 Pokédeal", f"{total_pk_ca:.2f}€")
-
 
