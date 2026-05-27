@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
 import tomllib
 
-APP_BUILD = "Codex 2026-05-26 sticky no ghost"
+APP_BUILD = "Codex 2026-05-25 sticky background fix"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1948,13 +1948,13 @@ if is_mobile_mode():
     }
     [data-testid="stExpander"] [data-testid="stImage"] img,
     [data-testid="stHorizontalBlock"] [data-testid="stImage"] img {
-        max-height: 118px !important;
+        max-height: 150px !important;
         width: auto !important;
         margin-left: auto !important;
         margin-right: auto !important;
     }
     [data-testid="stExpander"] img {
-        max-height: 118px !important;
+        max-height: 150px !important;
         width: auto !important;
         margin-left: auto !important;
         margin-right: auto !important;
@@ -3478,8 +3478,23 @@ elif st.session_state.current_page=="Lots":
                     const stickyTop = 64;
                     let topOffset = isMobile ? 0 : stickyTop;
                     const formBg = isMobile ? '#eaf2ff' : '#bed3fa';
+                    const blockRect = lotBlock.getBoundingClientRect();
                     let shield = doc.getElementById('codex-add-card-shield');
-                    if (shield) shield.remove();
+                    if (!shield) {
+                        shield = doc.createElement('div');
+                        shield.id = 'codex-add-card-shield';
+                        doc.body.appendChild(shield);
+                    }
+                    shield.style.setProperty('position', 'fixed', 'important');
+                    shield.style.setProperty('top', topOffset + 'px', 'important');
+                    shield.style.setProperty('left', blockRect.left + 'px', 'important');
+                    shield.style.setProperty('width', blockRect.width + 'px', 'important');
+                    shield.style.setProperty('height', '1px', 'important');
+                    shield.style.setProperty('background', formBg, 'important');
+                    shield.style.setProperty('z-index', '4990', 'important');
+                    shield.style.setProperty('pointer-events', 'none', 'important');
+                    shield.style.setProperty('border-radius', '18px', 'important');
+                    shield.style.setProperty('box-shadow', '0 8px 18px rgba(15, 23, 42, 0.10)', 'important');
                     markerChild.style.setProperty('margin-bottom', '0', 'important');
                     formParts.forEach(function(part, partIndex) {
                         part.setAttribute('data-codex-add-sticky', '1');
@@ -3494,57 +3509,44 @@ elif st.session_state.current_page=="Lots":
                         part.style.setProperty('background', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', '0 -12px 0 ' + formBg + ', 0 12px 0 ' + formBg, 'important');
-                        part.style.setProperty('padding', isMobile ? '0.08rem 0.45rem' : '0.18rem 0.95rem', 'important');
-                        part.style.setProperty('margin', partIndex === 0 ? '0' : '-0.72rem 0 0 0', 'important');
+                        part.style.setProperty('box-shadow', '0 0 0 rgba(15, 23, 42, 0)', 'important');
+                        part.style.setProperty('padding', isMobile ? '0.18rem 0.7rem' : '0.25rem 1.15rem', 'important');
+                        part.style.setProperty('margin', partIndex === 0 ? '0' : '-1px 0 0 0', 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
                         part.style.setProperty('outline', 'none', 'important');
                         part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                             inner.style.setProperty('background', formBg, 'important');
-                            inner.style.setProperty('gap', isMobile ? '0.12rem' : '0.35rem', 'important');
-                            inner.style.setProperty('box-shadow', 'none', 'important');
+                            inner.style.setProperty('gap', isMobile ? '0.25rem' : '0.5rem', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.22rem' : '0.42rem', 'important');
-                            if (isMobile) row.style.setProperty('flex-wrap', 'wrap', 'important');
-                        });
-                        if (isMobile) {
-                            part.querySelectorAll('[data-testid="column"]').forEach(function(col) {
-                                col.style.setProperty('flex', '1 1 calc(50% - 0.25rem)', 'important');
-                                col.style.setProperty('min-width', '7.2rem', 'important');
-                            });
-                            if (partIndex === 0) {
-                                part.style.setProperty('padding-top', '0.35rem', 'important');
-                                part.style.setProperty('padding-bottom', '0.05rem', 'important');
-                            }
+                            row.style.setProperty('gap', isMobile ? '0.35rem' : '0.55rem', 'important');
                         });
                         part.querySelectorAll('button').forEach(function(btn) {
                             btn.style.setProperty('width', '100%', 'important');
                             if (isMobile) {
-                                btn.style.setProperty('min-height', '1.95rem', 'important');
-                                btn.style.setProperty('padding', '0.25rem 0.45rem', 'important');
-                                btn.style.setProperty('font-size', '0.76rem', 'important');
+                                btn.style.setProperty('min-height', '2.25rem', 'important');
+                                btn.style.setProperty('padding', '0.4rem 0.55rem', 'important');
+                                btn.style.setProperty('font-size', '0.82rem', 'important');
                             }
                         });
                         part.querySelectorAll('input, [data-baseweb="select"]').forEach(function(input) {
                             if (isMobile) {
-                                input.style.setProperty('min-height', '1.95rem', 'important');
-                                input.style.setProperty('font-size', '0.78rem', 'important');
-                                input.style.setProperty('padding-top', '0.15rem', 'important');
-                                input.style.setProperty('padding-bottom', '0.15rem', 'important');
+                                input.style.setProperty('min-height', '2.25rem', 'important');
+                                input.style.setProperty('font-size', '0.86rem', 'important');
                             }
                         });
                         part.querySelectorAll('label, p, span').forEach(function(txt) {
                             if (isMobile) {
-                                txt.style.setProperty('font-size', '0.7rem', 'important');
-                                txt.style.setProperty('line-height', '1.0', 'important');
+                                txt.style.setProperty('font-size', '0.78rem', 'important');
+                                txt.style.setProperty('line-height', '1.1', 'important');
                             }
                         });
                         if (part === formParts[0]) {
                             part.style.setProperty('border-top', 'none', 'important');
                             part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.35rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-top', isMobile ? '0.55rem' : '1.15rem', 'important');
+                            part.style.setProperty('box-shadow', 'none', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
                             });
@@ -3552,13 +3554,23 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[formParts.length - 1]) {
                             part.style.setProperty('border-bottom', 'none', 'important');
                             part.style.setProperty('border-radius', '0 0 18px 18px', 'important');
-                            part.style.setProperty('padding-bottom', isMobile ? '0.35rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-bottom', isMobile ? '0.55rem' : '1.15rem', 'important');
+                            part.style.setProperty('box-shadow', 'none', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
                         }
                         topOffset += Math.max(part.getBoundingClientRect().height, 1);
                     });
+                    if (!isMobile) {
+                        shield.style.setProperty('height', Math.max(topOffset - 64, 1) + 'px', 'important');
+                        const firstRect = formParts[0].getBoundingClientRect();
+                        const lastRect = formParts[formParts.length - 1].getBoundingClientRect();
+                        const isStuck = firstRect.top <= stickyTop + 2 && lastRect.bottom > stickyTop;
+                        shield.style.setProperty('display', isStuck ? 'block' : 'none', 'important');
+                    } else {
+                        shield.style.setProperty('display', 'none', 'important');
+                    }
                 }
             }
         }
