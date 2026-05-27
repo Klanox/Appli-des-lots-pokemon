@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
 import tomllib
 
-APP_BUILD = "Codex 2026-05-27 sticky restored"
+APP_BUILD = "Codex 2026-05-26 sticky no ghost"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1948,23 +1948,19 @@ if is_mobile_mode():
     }
     [data-testid="stExpander"] [data-testid="stImage"] img,
     [data-testid="stHorizontalBlock"] [data-testid="stImage"] img {
-        max-height: 128px !important;
+        max-height: 118px !important;
         width: auto !important;
         margin-left: auto !important;
         margin-right: auto !important;
     }
     [data-testid="stExpander"] img {
-        max-height: 128px !important;
+        max-height: 118px !important;
         width: auto !important;
         margin-left: auto !important;
         margin-right: auto !important;
     }
     [data-add-card-form-marker] {
-        scroll-margin-top: 0.25rem !important;
-    }
-    [data-codex-add-sticky="1"] {
-        isolation: isolate !important;
-        contain: paint !important;
+        scroll-margin-top: 0.75rem !important;
     }
     [data-testid="stMetric"] {
         padding: 0.95rem !important;
@@ -3479,36 +3475,35 @@ elif st.session_state.current_page=="Lots":
                     const markerIndex = children.indexOf(markerChild);
                     const formParts = children.slice(markerIndex + 1, markerIndex + 5);
                     const isMobile = doc.body.classList.contains('codex-mobile-mode') || parent.window.matchMedia('(max-width: 760px)').matches;
-                    const stickyTop = isMobile ? 0 : 64;
-                    let topOffset = stickyTop;
-                    const formBg = isMobile ? '#d8e7ff' : '#bed3fa';
-                    const overlap = isMobile ? 10 : 8;
+                    const stickyTop = 64;
+                    let topOffset = isMobile ? 0 : stickyTop;
+                    const formBg = isMobile ? '#eaf2ff' : '#bed3fa';
                     let shield = doc.getElementById('codex-add-card-shield');
                     if (shield) shield.remove();
                     markerChild.style.setProperty('margin-bottom', '0', 'important');
                     formParts.forEach(function(part, partIndex) {
                         part.setAttribute('data-codex-add-sticky', '1');
-                        part.style.setProperty('position', 'sticky', 'important');
-                        part.style.setProperty('top', topOffset + 'px', 'important');
-                        part.style.setProperty('z-index', String(7000 - partIndex), 'important');
+                        part.style.setProperty('position', isMobile ? 'static' : 'sticky', 'important');
+                        if (isMobile) {
+                            part.style.removeProperty('top');
+                            part.style.removeProperty('z-index');
+                        } else {
+                            part.style.setProperty('top', topOffset + 'px', 'important');
+                            part.style.setProperty('z-index', '5000', 'important');
+                        }
                         part.style.setProperty('background', formBg, 'important');
-                        part.style.setProperty('background-color', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', '0 -18px 0 ' + formBg + ', 0 18px 0 ' + formBg, 'important');
-                        part.style.setProperty('padding', isMobile ? '0.06rem 0.42rem' : '0.18rem 0.95rem', 'important');
-                        part.style.setProperty('margin', partIndex === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
+                        part.style.setProperty('box-shadow', '0 -12px 0 ' + formBg + ', 0 12px 0 ' + formBg, 'important');
+                        part.style.setProperty('padding', isMobile ? '0.08rem 0.45rem' : '0.18rem 0.95rem', 'important');
+                        part.style.setProperty('margin', partIndex === 0 ? '0' : '-0.72rem 0 0 0', 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
-                        part.style.setProperty('border-top', 'none', 'important');
-                        part.style.setProperty('border-bottom', 'none', 'important');
                         part.style.setProperty('outline', 'none', 'important');
                         part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                             inner.style.setProperty('background', formBg, 'important');
-                            inner.style.setProperty('background-color', formBg, 'important');
                             inner.style.setProperty('gap', isMobile ? '0.12rem' : '0.35rem', 'important');
                             inner.style.setProperty('box-shadow', 'none', 'important');
-                            inner.style.setProperty('border', 'none', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
                             row.style.setProperty('gap', isMobile ? '0.22rem' : '0.42rem', 'important');
@@ -3520,10 +3515,10 @@ elif st.session_state.current_page=="Lots":
                                 col.style.setProperty('min-width', '7.2rem', 'important');
                             });
                             if (partIndex === 0) {
-                                part.style.setProperty('padding-top', '0.32rem', 'important');
+                                part.style.setProperty('padding-top', '0.35rem', 'important');
                                 part.style.setProperty('padding-bottom', '0.05rem', 'important');
                             }
-                        }
+                        });
                         part.querySelectorAll('button').forEach(function(btn) {
                             btn.style.setProperty('width', '100%', 'important');
                             if (isMobile) {
@@ -3549,7 +3544,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[0]) {
                             part.style.setProperty('border-top', 'none', 'important');
                             part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.32rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-top', isMobile ? '0.35rem' : '0.85rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
                             });
@@ -3562,7 +3557,7 @@ elif st.session_state.current_page=="Lots":
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
                         }
-                        topOffset += Math.max(part.getBoundingClientRect().height - overlap, 1);
+                        topOffset += Math.max(part.getBoundingClientRect().height, 1);
                     });
                 }
             }
