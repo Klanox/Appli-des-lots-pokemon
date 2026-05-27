@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
 import tomllib
 
-APP_BUILD = "Codex 2026-05-27 sticky restored"
+APP_BUILD = "Codex 2026-05-27 sticky compact"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1748,6 +1748,19 @@ run_html("""
         if (!url.searchParams.get("page")) url.searchParams.set("page", "vente");
         win.location.replace(url.toString());
     }
+    if (doc && doc.body && (alreadySet || looksMobile)) {
+        setInterval(function() {
+            doc.querySelectorAll('img').forEach(function(img) {
+                const src = img.getAttribute('src') || '';
+                const style = win.getComputedStyle(img);
+                const isFixed = style.position === 'fixed' || style.position === 'absolute';
+                if (isFixed && (src.includes('/pokemon/other/official-artwork/25') || src.includes('/pokemon/other/official-artwork/133'))) {
+                    img.style.setProperty('display', 'none', 'important');
+                    img.style.setProperty('opacity', '0', 'important');
+                }
+            });
+        }, 1000);
+    }
 })();
 </script>
 """)
@@ -1855,6 +1868,15 @@ if is_mobile_mode():
     html, body, .stApp {
         overflow-x: hidden !important;
         width: 100% !important;
+    }
+    body.codex-mobile-mode .stApp::before,
+    body.codex-mobile-mode .stApp::after,
+    .codex-mobile-mode .stApp::before,
+    .codex-mobile-mode .stApp::after {
+        content: none !important;
+        display: none !important;
+        background-image: none !important;
+        opacity: 0 !important;
     }
     section[data-testid="stSidebar"] {
         min-width: 13.5rem !important;
@@ -1965,6 +1987,7 @@ if is_mobile_mode():
     [data-codex-add-sticky="1"] {
         isolation: isolate !important;
         contain: paint !important;
+        overflow: hidden !important;
     }
     [data-testid="stMetric"] {
         padding: 0.95rem !important;
@@ -3482,7 +3505,7 @@ elif st.session_state.current_page=="Lots":
                     const stickyTop = isMobile ? 0 : 64;
                     let topOffset = stickyTop;
                     const formBg = isMobile ? '#d8e7ff' : '#bed3fa';
-                    const overlap = isMobile ? 10 : 8;
+                    const overlap = isMobile ? 4 : 0;
                     let shield = doc.getElementById('codex-add-card-shield');
                     if (shield) shield.remove();
                     markerChild.style.setProperty('margin-bottom', '0', 'important');
@@ -3495,9 +3518,9 @@ elif st.session_state.current_page=="Lots":
                         part.style.setProperty('background-color', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', '0 -18px 0 ' + formBg + ', 0 18px 0 ' + formBg, 'important');
-                        part.style.setProperty('padding', isMobile ? '0.06rem 0.42rem' : '0.18rem 0.95rem', 'important');
-                        part.style.setProperty('margin', partIndex === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
+                        part.style.setProperty('box-shadow', '0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg, 'important');
+                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.18rem 0.95rem', 'important');
+                        part.style.setProperty('margin', partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
                         part.style.setProperty('border-top', 'none', 'important');
@@ -3506,50 +3529,53 @@ elif st.session_state.current_page=="Lots":
                         part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                             inner.style.setProperty('background', formBg, 'important');
                             inner.style.setProperty('background-color', formBg, 'important');
-                            inner.style.setProperty('gap', isMobile ? '0.12rem' : '0.35rem', 'important');
+                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.35rem', 'important');
                             inner.style.setProperty('box-shadow', 'none', 'important');
                             inner.style.setProperty('border', 'none', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.22rem' : '0.42rem', 'important');
-                            if (isMobile) row.style.setProperty('flex-wrap', 'wrap', 'important');
+                            row.style.setProperty('gap', isMobile ? '0.18rem' : '0.42rem', 'important');
+                            if (isMobile) row.style.setProperty('flex-wrap', 'nowrap', 'important');
                         });
                         if (isMobile) {
                             part.querySelectorAll('[data-testid="column"]').forEach(function(col) {
-                                col.style.setProperty('flex', '1 1 calc(50% - 0.25rem)', 'important');
-                                col.style.setProperty('min-width', '7.2rem', 'important');
+                                col.style.setProperty('flex', '1 1 0', 'important');
+                                col.style.setProperty('min-width', '0', 'important');
+                                col.style.setProperty('width', 'auto', 'important');
                             });
                             if (partIndex === 0) {
-                                part.style.setProperty('padding-top', '0.32rem', 'important');
-                                part.style.setProperty('padding-bottom', '0.05rem', 'important');
+                                part.style.setProperty('padding-top', '0.18rem', 'important');
+                                part.style.setProperty('padding-bottom', '0', 'important');
                             }
                         }
                         part.querySelectorAll('button').forEach(function(btn) {
                             btn.style.setProperty('width', '100%', 'important');
                             if (isMobile) {
-                                btn.style.setProperty('min-height', '1.95rem', 'important');
-                                btn.style.setProperty('padding', '0.25rem 0.45rem', 'important');
-                                btn.style.setProperty('font-size', '0.76rem', 'important');
+                                btn.style.setProperty('min-height', '1.55rem', 'important');
+                                btn.style.setProperty('padding', '0.12rem 0.35rem', 'important');
+                                btn.style.setProperty('font-size', '0.68rem', 'important');
+                                btn.style.setProperty('border-width', '1px', 'important');
                             }
                         });
                         part.querySelectorAll('input, [data-baseweb="select"]').forEach(function(input) {
                             if (isMobile) {
-                                input.style.setProperty('min-height', '1.95rem', 'important');
-                                input.style.setProperty('font-size', '0.78rem', 'important');
-                                input.style.setProperty('padding-top', '0.15rem', 'important');
-                                input.style.setProperty('padding-bottom', '0.15rem', 'important');
+                                input.style.setProperty('min-height', '1.55rem', 'important');
+                                input.style.setProperty('font-size', '0.68rem', 'important');
+                                input.style.setProperty('padding', '0.08rem 0.3rem', 'important');
+                                input.style.setProperty('border-width', '2px', 'important');
                             }
                         });
                         part.querySelectorAll('label, p, span').forEach(function(txt) {
                             if (isMobile) {
-                                txt.style.setProperty('font-size', '0.7rem', 'important');
-                                txt.style.setProperty('line-height', '1.0', 'important');
+                                txt.style.setProperty('font-size', '0.62rem', 'important');
+                                txt.style.setProperty('line-height', '0.95', 'important');
+                                txt.style.setProperty('margin', '0', 'important');
                             }
                         });
                         if (part === formParts[0]) {
                             part.style.setProperty('border-top', 'none', 'important');
                             part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.32rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '0.85rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
                             });
@@ -3557,7 +3583,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[formParts.length - 1]) {
                             part.style.setProperty('border-bottom', 'none', 'important');
                             part.style.setProperty('border-radius', '0 0 18px 18px', 'important');
-                            part.style.setProperty('padding-bottom', isMobile ? '0.35rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '0.85rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
