@@ -11,7 +11,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-28 sticky mobile hardening"
+APP_BUILD = "Codex 2026-05-28 mobile grid responsive"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1999,7 +1999,6 @@ if is_mobile_mode():
     [data-codex-add-sticky="1"] {
         isolation: isolate !important;
         contain: paint !important;
-        overflow: hidden !important;
     }
     [data-testid="stMetric"] {
         padding: 0.95rem !important;
@@ -2780,6 +2779,43 @@ st.markdown("""
             font-size: 0.68rem !important;
             border-radius: 8px !important;
         }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
+            display: grid !important;
+            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+            gap: 0.28rem !important;
+            align-items: start !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            flex: none !important;
+            padding: 0 !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img {
+            width: 100% !important;
+            max-height: 88px !important;
+            object-fit: contain !important;
+            border-radius: 7px !important;
+            border-width: 1px !important;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
+            font-size: 0.58rem !important;
+            line-height: 1.05 !important;
+            margin: 0.05rem 0 !important;
+            overflow-wrap: anywhere !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) button,
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) input {
+            min-height: 1.45rem !important;
+            height: 1.45rem !important;
+            font-size: 0.6rem !important;
+            padding: 0.05rem 0.25rem !important;
+            border-radius: 7px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -3135,7 +3171,7 @@ elif st.session_state.current_page=="Vente":
                         if card_available_qty(card) > 0 and normalize_name(search_vente) in normalize_name(card.get("name","")):
                             all_found.append((li, ci, card, lot))
 
-                COLS_PER_ROW = 2 if is_mobile_mode() else 8
+                COLS_PER_ROW = 5 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
                     cols = st.columns(COLS_PER_ROW)
                     for col_idx, (li, ci, card, lot) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
@@ -3167,7 +3203,7 @@ elif st.session_state.current_page=="Vente":
                     cards_in_stock = [(ci, c) for ci, c in enumerate(lot.get("cards", [])) if card_available_qty(c) > 0]
                     if cards_in_stock:
                         st.markdown(f"### 📦 {lot['nom']}")
-                        COLS_PER_ROW = 2 if is_mobile_mode() else 8
+                        COLS_PER_ROW = 5 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_in_stock), COLS_PER_ROW):
                             cols = st.columns(COLS_PER_ROW)
                             for col_idx, (ci, card) in enumerate(cards_in_stock[row_start:row_start + COLS_PER_ROW]):
@@ -3635,8 +3671,8 @@ elif st.session_state.current_page=="Lots":
                         part.style.setProperty('background-color', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', isMobile ? ('0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg) : ('0 -10px 0 ' + formBg + ', 0 10px 0 ' + formBg), 'important');
-                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.42rem 0.95rem', 'important');
+                        part.style.setProperty('box-shadow', isMobile ? ('0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg) : ('0 -14px 0 ' + formBg + ', 0 14px 0 ' + formBg), 'important');
+                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.62rem 1.05rem', 'important');
                         part.style.setProperty('margin', partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
@@ -3646,12 +3682,12 @@ elif st.session_state.current_page=="Lots":
                         part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                             inner.style.setProperty('background', formBg, 'important');
                             inner.style.setProperty('background-color', formBg, 'important');
-                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.65rem', 'important');
+                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.85rem', 'important');
                             inner.style.setProperty('box-shadow', 'none', 'important');
                             inner.style.setProperty('border', 'none', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.18rem' : '0.8rem', 'important');
+                            row.style.setProperty('gap', isMobile ? '0.18rem' : '1rem', 'important');
                             if (isMobile) row.style.setProperty('flex-wrap', 'nowrap', 'important');
                         });
                         if (isMobile) {
@@ -3692,7 +3728,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[0]) {
                             part.style.setProperty('border-top', 'none', 'important');
                             part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '1.05rem', 'important');
+                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '1.25rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
                             });
@@ -3700,7 +3736,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[formParts.length - 1]) {
                             part.style.setProperty('border-bottom', 'none', 'important');
                             part.style.setProperty('border-radius', '0 0 18px 18px', 'important');
-                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '1.05rem', 'important');
+                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '1.25rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
@@ -4148,7 +4184,7 @@ elif st.session_state.current_page=="Lots":
                     visible_sold_lot = cards_sold_lot
                 
                 def render_card_grid(card_list_with_idx, sold=False):
-                    COLS_PER_ROW = 2 if is_mobile_mode() else 8
+                    COLS_PER_ROW = 5 if is_mobile_mode() else 8
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         cols = st.columns(COLS_PER_ROW)
                         for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
@@ -4907,7 +4943,7 @@ elif st.session_state.current_page=="Brocante":
                 visible_sold_b = cards_sold_b
 
             def render_broc_grid(card_list, sold=False):
-                COLS = 2 if is_mobile_mode() else 8
+                COLS = 5 if is_mobile_mode() else 8
                 for row_start in range(0, len(card_list), COLS):
                     cols_g = st.columns(COLS)
                     for col_idx, (real_cix, crd) in enumerate(card_list[row_start:row_start+COLS]):
