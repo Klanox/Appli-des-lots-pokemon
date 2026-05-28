@@ -8,9 +8,10 @@ from PIL import Image,ImageDraw,ImageFont
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor,as_completed
 import unicodedata
+import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-27 sticky compact"
+APP_BUILD = "Codex 2026-05-28 sticky mobile hardening"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1767,6 +1768,13 @@ run_html("""
 
 def require_app_password():
     expected_password = _secret_value("APP_PASSWORD")
+    auth_token = hashlib.sha256(f"pokestock:{expected_password}".encode("utf-8")).hexdigest()[:24] if expected_password else ""
+    try:
+        query_auth = str(st.query_params.get("auth", ""))
+    except Exception:
+        query_auth = ""
+    if query_auth and auth_token and query_auth == auth_token:
+        st.session_state["app_authenticated"] = True
     if not expected_password or st.session_state.get("app_authenticated"):
         return
     st.title("Pokestock")
@@ -1776,6 +1784,10 @@ def require_app_password():
     if submitted:
         if password == expected_password:
             st.session_state["app_authenticated"] = True
+            try:
+                st.query_params["auth"] = auth_token
+            except Exception:
+                pass
             st.rerun()
         else:
             st.error("Mot de passe incorrect.")
@@ -2181,6 +2193,13 @@ st.markdown(f"""
 
 st.markdown("""
 <style>
+    .stApp::before,
+    .stApp::after {
+        content: none !important;
+        display: none !important;
+        background-image: none !important;
+        animation: none !important;
+    }
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     h1 {display: none;}
     :root {
@@ -2663,6 +2682,104 @@ st.markdown("""
     div[data-testid="stRadio"] label p,
     div[data-testid="stRadio"] label span {
         color: #ffffff !important;
+    }
+    @media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
+        .stApp::before,
+        .stApp::after {
+            content: none !important;
+            display: none !important;
+            background-image: none !important;
+            animation: none !important;
+            opacity: 0 !important;
+        }
+        img[src*="/pokemon/other/official-artwork/25"],
+        img[src*="/pokemon/other/official-artwork/133"] {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {
+            background: #d8e7ff !important;
+            background-color: #d8e7ff !important;
+            margin: 0 !important;
+            padding: 0.1rem 0.35rem !important;
+            position: sticky !important;
+            z-index: 6900 !important;
+            overflow: hidden !important;
+            box-shadow: 0 -18px 0 #d8e7ff, 0 18px 0 #d8e7ff !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div {
+            top: 0 !important;
+            border-radius: 14px 14px 0 0 !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div {
+            top: 1.7rem !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div {
+            top: 4.1rem !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {
+            top: 6.6rem !important;
+            border-radius: 0 0 14px 14px !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stHorizontalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stHorizontalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stHorizontalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            gap: 0.2rem !important;
+            align-items: stretch !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="column"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="column"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="column"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="column"] {
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+            width: auto !important;
+            padding: 0 !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div p,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div p,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div p,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div p {
+            font-size: 0.62rem !important;
+            line-height: 0.95 !important;
+            margin: 0 !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div input,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div input,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div input,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div input,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-baseweb="select"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-baseweb="select"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-baseweb="select"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-baseweb="select"] {
+            min-height: 1.55rem !important;
+            height: 1.55rem !important;
+            font-size: 0.68rem !important;
+            padding: 0.08rem 0.3rem !important;
+            border-radius: 8px !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div button,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div button,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div button,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div button {
+            min-height: 1.55rem !important;
+            height: 1.55rem !important;
+            padding: 0.08rem 0.35rem !important;
+            font-size: 0.68rem !important;
+            border-radius: 8px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -3518,8 +3635,8 @@ elif st.session_state.current_page=="Lots":
                         part.style.setProperty('background-color', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', '0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg, 'important');
-                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.18rem 0.95rem', 'important');
+                        part.style.setProperty('box-shadow', isMobile ? ('0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg) : ('0 -10px 0 ' + formBg + ', 0 10px 0 ' + formBg), 'important');
+                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.42rem 0.95rem', 'important');
                         part.style.setProperty('margin', partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
@@ -3529,12 +3646,12 @@ elif st.session_state.current_page=="Lots":
                         part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                             inner.style.setProperty('background', formBg, 'important');
                             inner.style.setProperty('background-color', formBg, 'important');
-                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.35rem', 'important');
+                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.65rem', 'important');
                             inner.style.setProperty('box-shadow', 'none', 'important');
                             inner.style.setProperty('border', 'none', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.18rem' : '0.42rem', 'important');
+                            row.style.setProperty('gap', isMobile ? '0.18rem' : '0.8rem', 'important');
                             if (isMobile) row.style.setProperty('flex-wrap', 'nowrap', 'important');
                         });
                         if (isMobile) {
@@ -3575,7 +3692,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[0]) {
                             part.style.setProperty('border-top', 'none', 'important');
                             part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '1.05rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
                             });
@@ -3583,7 +3700,7 @@ elif st.session_state.current_page=="Lots":
                         if (part === formParts[formParts.length - 1]) {
                             part.style.setProperty('border-bottom', 'none', 'important');
                             part.style.setProperty('border-radius', '0 0 18px 18px', 'important');
-                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '0.85rem', 'important');
+                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '1.05rem', 'important');
                             part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
