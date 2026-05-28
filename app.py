@@ -3038,7 +3038,7 @@ if st.session_state.current_page=="Accueil":
 
         if results_found:
             st.caption(f"{len(results_found)} résultat(s) pour « {search_global} »")
-            COLS_S = 6
+            COLS_S = 8
             for row_start in range(0, len(results_found), COLS_S):
                 cols_s = st.columns(COLS_S)
                 for col_idx, res in enumerate(results_found[row_start:row_start+COLS_S]):
@@ -3135,7 +3135,7 @@ elif st.session_state.current_page=="Vente":
                         if card_available_qty(card) > 0 and normalize_name(search_vente) in normalize_name(card.get("name","")):
                             all_found.append((li, ci, card, lot))
 
-                COLS_PER_ROW = 2 if is_mobile_mode() else 6
+                COLS_PER_ROW = 2 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
                     cols = st.columns(COLS_PER_ROW)
                     for col_idx, (li, ci, card, lot) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
@@ -3167,7 +3167,7 @@ elif st.session_state.current_page=="Vente":
                     cards_in_stock = [(ci, c) for ci, c in enumerate(lot.get("cards", [])) if card_available_qty(c) > 0]
                     if cards_in_stock:
                         st.markdown(f"### 📦 {lot['nom']}")
-                        COLS_PER_ROW = 2 if is_mobile_mode() else 6
+                        COLS_PER_ROW = 2 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_in_stock), COLS_PER_ROW):
                             cols = st.columns(COLS_PER_ROW)
                             for col_idx, (ci, card) in enumerate(cards_in_stock[row_start:row_start + COLS_PER_ROW]):
@@ -4148,7 +4148,7 @@ elif st.session_state.current_page=="Lots":
                     visible_sold_lot = cards_sold_lot
                 
                 def render_card_grid(card_list_with_idx, sold=False):
-                    COLS_PER_ROW = 2 if is_mobile_mode() else 6
+                    COLS_PER_ROW = 2 if is_mobile_mode() else 8
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         cols = st.columns(COLS_PER_ROW)
                         for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
@@ -4907,7 +4907,7 @@ elif st.session_state.current_page=="Brocante":
                 visible_sold_b = cards_sold_b
 
             def render_broc_grid(card_list, sold=False):
-                COLS = 2 if is_mobile_mode() else 6
+                COLS = 2 if is_mobile_mode() else 8
                 for row_start in range(0, len(card_list), COLS):
                     cols_g = st.columns(COLS)
                     for col_idx, (real_cix, crd) in enumerate(card_list[row_start:row_start+COLS]):
