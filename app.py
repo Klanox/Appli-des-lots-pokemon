@@ -3,6 +3,7 @@
 
 import streamlit as st
 import json,os,requests,time,sys,glob,tempfile,uuid
+import html
 from datetime import datetime,timezone
 from PIL import Image,ImageDraw,ImageFont
 from io import BytesIO
@@ -11,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-28 mobile lot grid hard fix"
+APP_BUILD = "Codex 2026-05-29 mobile lot grid stable"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2869,6 +2870,107 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+.mobile-card-grid {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 0.32rem !important;
+    width: 100% !important;
+    margin: 0.35rem 0 0.7rem 0 !important;
+}
+.mobile-card-tile {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    background: rgba(255,255,255,0.78) !important;
+    border: 1px solid #dbe4f0 !important;
+    border-radius: 7px !important;
+    padding: 0.08rem !important;
+}
+.mobile-card-tile.sold {
+    opacity: 0.42 !important;
+    filter: grayscale(100%) !important;
+}
+.mobile-card-imgbox {
+    width: 100% !important;
+    aspect-ratio: 0.72 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+}
+.mobile-card-imgbox img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    display: block !important;
+    border-radius: 6px !important;
+}
+.mobile-card-placeholder {
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: #94a3b8 !important;
+    font-size: 0.75rem !important;
+    background: #f8fafc !important;
+}
+.mobile-card-name {
+    margin-top: 0.08rem !important;
+    font-size: 0.52rem !important;
+    line-height: 1.05 !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+.mobile-card-meta {
+    font-size: 0.48rem !important;
+    line-height: 1.05 !important;
+    color: #64748b !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+@media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div,
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div,
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div,
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {
+        width: 100% !important;
+        max-width: 100% !important;
+        left: 0 !important;
+        right: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stHorizontalBlock"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stHorizontalBlock"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stHorizontalBlock"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stHorizontalBlock"] {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 0.12rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="column"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="column"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="column"],
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 if "current_page" not in st.session_state:
     try:
         query_page = str(st.query_params.get("page", "")).lower()
@@ -3736,14 +3838,14 @@ elif st.session_state.current_page=="Lots":
                             inner.style.setProperty('border', 'none', 'important');
                         });
                         part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.18rem' : '1rem', 'important');
-                            if (isMobile) row.style.setProperty('flex-wrap', 'nowrap', 'important');
+                            row.style.setProperty('gap', isMobile ? '0.14rem' : '1rem', 'important');
+                            if (isMobile) row.style.setProperty('flex-wrap', 'wrap', 'important');
                         });
                         if (isMobile) {
                             part.querySelectorAll('[data-testid="column"]').forEach(function(col) {
-                                col.style.setProperty('flex', '1 1 0', 'important');
+                                col.style.setProperty('flex', '1 1 calc(50% - 0.18rem)', 'important');
                                 col.style.setProperty('min-width', '0', 'important');
-                                col.style.setProperty('width', 'auto', 'important');
+                                col.style.setProperty('width', 'calc(50% - 0.18rem)', 'important');
                             });
                             if (partIndex === 0) {
                                 part.style.setProperty('padding-top', '0.18rem', 'important');
@@ -4233,6 +4335,32 @@ elif st.session_state.current_page=="Lots":
                     visible_sold_lot = cards_sold_lot
                 
                 def render_card_grid(card_list_with_idx, sold=False):
+                    if is_mobile_mode():
+                        tiles = []
+                        for real_cix, crd in card_list_with_idx:
+                            stock = card_available_qty(crd)
+                            name = html.escape(str(crd.get("name", "Carte")))
+                            price = float(crd.get("suggested_price", 0.) or 0.)
+                            img_url = crd.get("image_url", "")
+                            if img_url:
+                                src = html.escape(proxy_img(img_url), quote=True)
+                                img_html = f'<img src="{src}" alt="{name}">'
+                            else:
+                                img_html = '<div class="mobile-card-placeholder">?</div>'
+                            stock_txt = "vendue" if sold else f"{stock}/{int(crd.get('quantity', 0) or 0)}"
+                            if crd.get("stored_quantity", 0):
+                                stock_txt += f" · stock {int(crd.get('stored_quantity', 0))}"
+                            meta = html.escape(f"{price:.2f}€ · {stock_txt}")
+                            sold_cls = " sold" if sold else ""
+                            tiles.append(
+                                f'<div class="mobile-card-tile{sold_cls}">'
+                                f'<div class="mobile-card-imgbox">{img_html}</div>'
+                                f'<div class="mobile-card-name">{name}</div>'
+                                f'<div class="mobile-card-meta">{meta}</div>'
+                                f'</div>'
+                            )
+                        st.markdown('<div class="mobile-card-grid">' + "".join(tiles) + '</div>', unsafe_allow_html=True)
+                        return
                     COLS_PER_ROW = 5 if is_mobile_mode() else 8
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         cols = st.columns(COLS_PER_ROW)
@@ -4992,6 +5120,30 @@ elif st.session_state.current_page=="Brocante":
                 visible_sold_b = cards_sold_b
 
             def render_broc_grid(card_list, sold=False):
+                if is_mobile_mode():
+                    tiles = []
+                    for real_cix, crd in card_list:
+                        stock = max(int(crd.get("quantity", 0)) - int(crd.get("sold_quantity", 0)), 0)
+                        name = html.escape(str(crd.get("name", "Carte")))
+                        price = float(crd.get("suggested_price", 0.) or 0.)
+                        img_url = crd.get("image_url", "")
+                        if img_url:
+                            src = html.escape(proxy_img(img_url), quote=True)
+                            img_html = f'<img src="{src}" alt="{name}">'
+                        else:
+                            img_html = '<div class="mobile-card-placeholder">?</div>'
+                        stock_txt = "vendue" if sold else f"{stock}/{int(crd.get('quantity', 0) or 0)}"
+                        meta = html.escape(f"{price:.2f}€ · {stock_txt}")
+                        sold_cls = " sold" if sold else ""
+                        tiles.append(
+                            f'<div class="mobile-card-tile{sold_cls}">'
+                            f'<div class="mobile-card-imgbox">{img_html}</div>'
+                            f'<div class="mobile-card-name">{name}</div>'
+                            f'<div class="mobile-card-meta">{meta}</div>'
+                            f'</div>'
+                        )
+                    st.markdown('<div class="mobile-card-grid">' + "".join(tiles) + '</div>', unsafe_allow_html=True)
+                    return
                 COLS = 5 if is_mobile_mode() else 8
                 for row_start in range(0, len(card_list), COLS):
                     cols_g = st.columns(COLS)
