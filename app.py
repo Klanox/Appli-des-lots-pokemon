@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-30 mobile sale pc images"
+APP_BUILD = "Codex 2026-05-30 mobile sale image scale"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2894,6 +2894,84 @@ st.markdown("""
             overflow: hidden !important;
             text-overflow: ellipsis !important;
         }
+        body:has([data-sale-mobile-marker]) .block-container,
+        .stApp:has([data-sale-mobile-marker]) .block-container,
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) .block-container {
+            max-width: 100% !important;
+            padding-left: 0.35rem !important;
+            padding-right: 0.35rem !important;
+        }
+        body:has([data-sale-mobile-marker]) h3,
+        .stApp:has([data-sale-mobile-marker]) h3,
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) h3 {
+            font-size: 1.15rem !important;
+            line-height: 1.12 !important;
+            margin: 0.35rem 0 0.18rem 0 !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]),
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]),
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            column-gap: 0.06rem !important;
+            row-gap: 0.22rem !important;
+            overflow: visible !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
+            overflow: visible !important;
+            padding: 0 !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] {
+            overflow: visible !important;
+            margin: 0 0 0.08rem 0 !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"] {
+            width: 116% !important;
+            max-width: none !important;
+            height: auto !important;
+            max-height: none !important;
+            margin-left: -8% !important;
+            margin-right: -8% !important;
+            object-fit: contain !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
+            min-height: 0.88rem !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
+            font-size: 0.56rem !important;
+            line-height: 1.12 !important;
+            margin: 0 !important;
+        }
+        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"],
+        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"],
+        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            min-height: 0.9rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -3411,6 +3489,7 @@ elif st.session_state.current_page=="Vente":
     tab2, tab3 = st.tabs(["💰 Vente", "🔄 Échange"])
 
     with tab2:
+        st.markdown('<span data-sale-mobile-marker="1"></span>', unsafe_allow_html=True)
         st.subheader("Vente")
         
         cd=ld()
@@ -3526,7 +3605,7 @@ elif st.session_state.current_page=="Vente":
 
                 COLS_PER_ROW = 3 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
-                    cols = st.columns(COLS_PER_ROW)
+                    cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
                     for col_idx, (li, ci, card, lot) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
                         stock = card_available_qty(card)
                         in_cart = card.get("card_uid") in cart_keys
@@ -3558,7 +3637,7 @@ elif st.session_state.current_page=="Vente":
                         st.markdown(f"### 📦 {lot['nom']}")
                         COLS_PER_ROW = 3 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_in_stock), COLS_PER_ROW):
-                            cols = st.columns(COLS_PER_ROW)
+                            cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
                             for col_idx, (ci, card) in enumerate(cards_in_stock[row_start:row_start + COLS_PER_ROW]):
                                 stock = card_available_qty(card)
                                 in_cart = card.get("card_uid") in cart_keys
