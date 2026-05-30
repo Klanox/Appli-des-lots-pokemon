@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-30 mobile sale polish"
+APP_BUILD = "Codex 2026-05-30 mobile sale polish 2"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2799,7 +2799,7 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
             display: grid !important;
             grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 0.32rem !important;
+            gap: 0.24rem !important;
             align-items: start !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
@@ -2812,22 +2812,25 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img {
             width: 100% !important;
-            max-height: 184px !important;
+            max-height: 250px !important;
             object-fit: contain !important;
             border-radius: 9px !important;
             border-width: 1px !important;
             box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
         }
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] {
+            margin-bottom: 0.12rem !important;
+        }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
             font-size: 0.55rem !important;
-            line-height: 0.98 !important;
-            margin: 0 !important;
+            line-height: 1.12 !important;
+            margin: 0.02rem 0 !important;
             overflow-wrap: anywhere !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stVerticalBlock"],
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
-            gap: 0.08rem !important;
+            gap: 0.06rem !important;
             margin-top: 0 !important;
             margin-bottom: 0 !important;
         }
@@ -2883,7 +2886,7 @@ st.markdown("""
 .mobile-card-grid {
     display: grid !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 0.32rem !important;
+    gap: 0.24rem !important;
     width: 100% !important;
     margin: 0.35rem 0 0.7rem 0 !important;
 }
@@ -2981,7 +2984,7 @@ st.markdown("""
     }
     img[src*="wsrv.nl"],
     img[src*="tcgdex.net"] {
-        max-height: 184px !important;
+        max-height: 250px !important;
         width: auto !important;
         max-width: 100% !important;
         object-fit: contain !important;
@@ -2989,7 +2992,7 @@ st.markdown("""
     .codex-floating-cart {
         position: fixed !important;
         right: 0.85rem !important;
-        bottom: 5.2rem !important;
+        bottom: calc(5.8rem + env(safe-area-inset-bottom, 0px)) !important;
         width: 3.2rem !important;
         height: 3.2rem !important;
         border-radius: 999px !important;
@@ -3019,6 +3022,47 @@ st.markdown("""
         align-items: center !important;
         justify-content: center !important;
         font-size: 0.68rem !important;
+        line-height: 1 !important;
+        border: 2px solid #ffffff !important;
+    }
+}
+.codex-floating-cart {
+    display: none;
+}
+@media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
+    .codex-floating-cart {
+        position: fixed !important;
+        right: 0.85rem !important;
+        bottom: calc(5.8rem + env(safe-area-inset-bottom, 0px)) !important;
+        width: 3.35rem !important;
+        height: 3.35rem !important;
+        border-radius: 999px !important;
+        background: #22c55e !important;
+        color: #ffffff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-decoration: none !important;
+        font-size: 1.45rem !important;
+        font-weight: 900 !important;
+        z-index: 2147483000 !important;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.32) !important;
+        border: 3px solid #ffffff !important;
+    }
+    .codex-floating-cart span {
+        position: absolute !important;
+        top: -0.45rem !important;
+        right: -0.45rem !important;
+        min-width: 1.35rem !important;
+        height: 1.35rem !important;
+        padding: 0 0.25rem !important;
+        border-radius: 999px !important;
+        background: #ef4444 !important;
+        color: #ffffff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 0.72rem !important;
         line-height: 1 !important;
         border: 2px solid #ffffff !important;
     }
@@ -3375,67 +3419,70 @@ elif st.session_state.current_page=="Vente":
                     st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", width="stretch", type="primary", on_click=scroll_to_cart_prepare)
                 else:
                     st.markdown('<div style="background:#e2e8f0;color:#64748b;padding:0.5rem 1rem;border-radius:12px;font-weight:700;text-align:center;">🛒 Vide</div>', unsafe_allow_html=True)
-            if is_mobile_mode():
-                run_html(f"""
-                <script>
-                (function(){{
-                    const win = parent.window;
-                    const doc = parent.document;
-                    let btn = doc.getElementById('codex-floating-cart-button');
-                    if (!btn) {{
-                        btn = doc.createElement('button');
-                        btn.id = 'codex-floating-cart-button';
-                        btn.type = 'button';
-                        doc.body.appendChild(btn);
-                    }}
-                    btn.innerHTML = '🛒<span>{nb_panier}</span>';
-                    btn.setAttribute('aria-label', 'Aller au panier');
-                    Object.assign(btn.style, {{
-                        position: 'fixed',
-                        right: '14px',
-                        bottom: 'calc(92px + env(safe-area-inset-bottom, 0px))',
-                        width: '54px',
-                        height: '54px',
-                        borderRadius: '999px',
-                        border: '3px solid #ffffff',
-                        background: '#22c55e',
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '24px',
-                        fontWeight: '900',
-                        zIndex: '2147483000',
-                        boxShadow: '0 8px 22px rgba(15, 23, 42, 0.32)',
-                        cursor: 'pointer'
-                    }});
-                    const badge = btn.querySelector('span');
-                    Object.assign(badge.style, {{
-                        position: 'absolute',
-                        top: '-8px',
-                        right: '-8px',
-                        minWidth: '22px',
-                        height: '22px',
-                        padding: '0 4px',
-                        borderRadius: '999px',
-                        background: '#ef4444',
-                        color: '#ffffff',
-                        border: '2px solid #ffffff',
-                        fontSize: '12px',
-                        lineHeight: '18px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }});
-                    btn.onclick = function(e) {{
-                        e.preventDefault();
-                        win.sessionStorage.setItem('codexSkipSaleTopOnce', '1');
-                        const el = doc.getElementById('cart-anchor');
-                        if (el) el.scrollIntoView({{behavior:'smooth', block:'start'}});
-                    }};
-                }})();
-                </script>
-                """, height=0)
+            st.markdown(f'<a class="codex-floating-cart" href="#cart-anchor" aria-label="Aller au panier">🛒<span>{nb_panier}</span></a>', unsafe_allow_html=True)
+            run_html(f"""
+            <script>
+            (function(){{
+                const win = parent.window;
+                const doc = parent.document;
+                let btn = doc.getElementById('codex-floating-cart-button');
+                if (!btn) {{
+                    btn = doc.createElement('button');
+                    btn.id = 'codex-floating-cart-button';
+                    btn.type = 'button';
+                    doc.body.appendChild(btn);
+                }}
+                const shouldShow = win.matchMedia('(max-width: 760px), (pointer: coarse) and (max-width: 900px)').matches;
+                btn.innerHTML = '🛒<span>{nb_panier}</span>';
+                btn.setAttribute('aria-label', 'Aller au panier');
+                Object.assign(btn.style, {{
+                    position: 'fixed',
+                    right: '14px',
+                    bottom: 'calc(96px + env(safe-area-inset-bottom, 0px))',
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '999px',
+                    border: '3px solid #ffffff',
+                    background: '#22c55e',
+                    color: '#ffffff',
+                    display: shouldShow ? 'flex' : 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '25px',
+                    fontWeight: '900',
+                    zIndex: '2147483000',
+                    boxShadow: '0 8px 22px rgba(15, 23, 42, 0.32)',
+                    cursor: 'pointer',
+                    padding: '0',
+                    lineHeight: '1'
+                }});
+                const badge = btn.querySelector('span');
+                Object.assign(badge.style, {{
+                    position: 'absolute',
+                    top: '-8px',
+                    right: '-8px',
+                    minWidth: '22px',
+                    height: '22px',
+                    padding: '0 4px',
+                    borderRadius: '999px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: '2px solid #ffffff',
+                    fontSize: '12px',
+                    lineHeight: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }});
+                btn.onclick = function(e) {{
+                    e.preventDefault();
+                    win.sessionStorage.setItem('codexSkipSaleTopOnce', '1');
+                    const el = doc.getElementById('cart-anchor');
+                    if (el) el.scrollIntoView({{behavior:'smooth', block:'start'}});
+                }};
+            }})();
+            </script>
+            """, height=0)
 
             # Scroll vers le panier si demandé
             if st.session_state.get("scroll_to_cart"):
