@@ -11,7 +11,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-28 mobile grid responsive"
+APP_BUILD = "Codex 2026-05-28 mobile lot grid hard fix"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2729,8 +2729,8 @@ st.markdown("""
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stHorizontalBlock"],
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stHorizontalBlock"],
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-wrap: nowrap !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             gap: 0.2rem !important;
             align-items: stretch !important;
         }
@@ -2743,6 +2743,12 @@ st.markdown("""
             width: auto !important;
             padding: 0 !important;
         }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stVerticalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stVerticalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stVerticalBlock"],
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stVerticalBlock"] {
+            gap: 0.05rem !important;
+        }
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div label,
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div label,
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div label,
@@ -2754,6 +2760,14 @@ st.markdown("""
             font-size: 0.62rem !important;
             line-height: 0.95 !important;
             margin: 0 !important;
+        }
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div label,
+        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div label {
+            min-height: 0 !important;
+            height: 0.75rem !important;
+            overflow: hidden !important;
         }
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div input,
         [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div input,
@@ -2815,6 +2829,41 @@ st.markdown("""
             font-size: 0.6rem !important;
             padding: 0.05rem 0.25rem !important;
             border-radius: 7px !important;
+        }
+        .mobile-card-grid {
+            display: grid !important;
+            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+            gap: 0.35rem !important;
+            width: 100% !important;
+        }
+        .mobile-card {
+            min-width: 0 !important;
+            overflow: hidden !important;
+            font-size: 0.58rem !important;
+            line-height: 1.05 !important;
+            color: #1e293b !important;
+        }
+        .mobile-card img {
+            width: 100% !important;
+            height: 88px !important;
+            object-fit: contain !important;
+            border-radius: 7px !important;
+            border: 1px solid #dbe4f0 !important;
+            background: white !important;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
+        }
+        .mobile-card-name {
+            margin-top: 0.12rem !important;
+            font-weight: 800 !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+        .mobile-card-meta {
+            color: #64748b !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
         }
     }
 </style>
