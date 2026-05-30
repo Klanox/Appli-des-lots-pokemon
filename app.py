@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-29 mobile lot grid stable"
+APP_BUILD = "Codex 2026-05-30 mobile sale grid cart"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1728,6 +1728,8 @@ except Exception:
     query_mobile = False
 if "mobile_mode" not in st.session_state:
     st.session_state["mobile_mode"] = query_mobile
+elif query_mobile:
+    st.session_state["mobile_mode"] = True
 
 def is_mobile_mode():
     return bool(st.session_state.get("mobile_mode", False))
@@ -2796,8 +2798,8 @@ st.markdown("""
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
             display: grid !important;
-            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-            gap: 0.28rem !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 0.55rem !important;
             align-items: start !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
@@ -2810,9 +2812,9 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img {
             width: 100% !important;
-            max-height: 88px !important;
+            max-height: 150px !important;
             object-fit: contain !important;
-            border-radius: 7px !important;
+            border-radius: 9px !important;
             border-width: 1px !important;
             box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
         }
@@ -2825,11 +2827,11 @@ st.markdown("""
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) button,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) input {
-            min-height: 1.45rem !important;
-            height: 1.45rem !important;
-            font-size: 0.6rem !important;
-            padding: 0.05rem 0.25rem !important;
-            border-radius: 7px !important;
+            min-height: 2rem !important;
+            height: 2rem !important;
+            font-size: 0.72rem !important;
+            padding: 0.1rem 0.3rem !important;
+            border-radius: 8px !important;
         }
         .mobile-card-grid {
             display: grid !important;
@@ -2874,8 +2876,8 @@ st.markdown("""
 <style>
 .mobile-card-grid {
     display: grid !important;
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-    gap: 0.32rem !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.55rem !important;
     width: 100% !important;
     margin: 0.35rem 0 0.7rem 0 !important;
 }
@@ -2920,7 +2922,7 @@ st.markdown("""
 }
 .mobile-card-name {
     margin-top: 0.08rem !important;
-    font-size: 0.52rem !important;
+    font-size: 0.68rem !important;
     line-height: 1.05 !important;
     font-weight: 800 !important;
     color: #0f172a !important;
@@ -2929,7 +2931,7 @@ st.markdown("""
     text-overflow: ellipsis !important;
 }
 .mobile-card-meta {
-    font-size: 0.48rem !important;
+    font-size: 0.62rem !important;
     line-height: 1.05 !important;
     color: #64748b !important;
     white-space: nowrap !important;
@@ -2947,6 +2949,10 @@ st.markdown("""
         right: 0 !important;
         overflow: hidden !important;
         box-sizing: border-box !important;
+        position: static !important;
+        top: auto !important;
+        margin: 0 !important;
+        padding: 0.12rem 0.35rem !important;
     }
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stHorizontalBlock"],
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stHorizontalBlock"],
@@ -2966,6 +2972,49 @@ st.markdown("""
         width: auto !important;
         max-width: 100% !important;
         padding: 0 !important;
+    }
+    img[src*="wsrv.nl"],
+    img[src*="tcgdex.net"] {
+        max-height: 150px !important;
+        width: auto !important;
+        max-width: 100% !important;
+        object-fit: contain !important;
+    }
+    .codex-floating-cart {
+        position: fixed !important;
+        right: 0.85rem !important;
+        bottom: 5.2rem !important;
+        width: 3.2rem !important;
+        height: 3.2rem !important;
+        border-radius: 999px !important;
+        background: #22c55e !important;
+        color: #ffffff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-decoration: none !important;
+        font-size: 1.35rem !important;
+        font-weight: 900 !important;
+        z-index: 9500 !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.28) !important;
+        border: 3px solid #ffffff !important;
+    }
+    .codex-floating-cart span {
+        position: absolute !important;
+        top: -0.35rem !important;
+        right: -0.35rem !important;
+        min-width: 1.25rem !important;
+        height: 1.25rem !important;
+        padding: 0 0.22rem !important;
+        border-radius: 999px !important;
+        background: #ef4444 !important;
+        color: #ffffff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 0.68rem !important;
+        line-height: 1 !important;
+        border: 2px solid #ffffff !important;
     }
 }
 </style>
@@ -3302,6 +3351,8 @@ elif st.session_state.current_page=="Vente":
                     st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", width="stretch", type="primary", on_click=scroll_to_cart_prepare)
                 else:
                     st.markdown('<div style="background:#e2e8f0;color:#64748b;padding:0.5rem 1rem;border-radius:12px;font-weight:700;text-align:center;">🛒 Vide</div>', unsafe_allow_html=True)
+            if is_mobile_mode():
+                st.markdown(f'<a class="codex-floating-cart" href="#cart-anchor" aria-label="Aller au panier">🛒<span>{nb_panier}</span></a>', unsafe_allow_html=True)
 
             # Scroll vers le panier si demandé
             if st.session_state.get("scroll_to_cart"):
@@ -3322,7 +3373,7 @@ elif st.session_state.current_page=="Vente":
                         if card_available_qty(card) > 0 and normalize_name(search_vente) in normalize_name(card.get("name","")):
                             all_found.append((li, ci, card, lot))
 
-                COLS_PER_ROW = 5 if is_mobile_mode() else 8
+                COLS_PER_ROW = 3 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
                     cols = st.columns(COLS_PER_ROW)
                     for col_idx, (li, ci, card, lot) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
@@ -3354,7 +3405,7 @@ elif st.session_state.current_page=="Vente":
                     cards_in_stock = [(ci, c) for ci, c in enumerate(lot.get("cards", [])) if card_available_qty(c) > 0]
                     if cards_in_stock:
                         st.markdown(f"### 📦 {lot['nom']}")
-                        COLS_PER_ROW = 5 if is_mobile_mode() else 8
+                        COLS_PER_ROW = 3 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_in_stock), COLS_PER_ROW):
                             cols = st.columns(COLS_PER_ROW)
                             for col_idx, (ci, card) in enumerate(cards_in_stock[row_start:row_start + COLS_PER_ROW]):
@@ -3815,16 +3866,21 @@ elif st.session_state.current_page=="Lots":
                     markerChild.style.setProperty('margin-bottom', '0', 'important');
                     formParts.forEach(function(part, partIndex) {
                         part.setAttribute('data-codex-add-sticky', '1');
-                        part.style.setProperty('position', 'sticky', 'important');
-                        part.style.setProperty('top', topOffset + 'px', 'important');
-                        part.style.setProperty('z-index', String(7000 - partIndex), 'important');
+                        part.style.setProperty('position', isMobile ? 'static' : 'sticky', 'important');
+                        if (isMobile) {
+                            part.style.removeProperty('top');
+                            part.style.setProperty('z-index', '1', 'important');
+                        } else {
+                            part.style.setProperty('top', topOffset + 'px', 'important');
+                            part.style.setProperty('z-index', String(7000 - partIndex), 'important');
+                        }
                         part.style.setProperty('background', formBg, 'important');
                         part.style.setProperty('background-color', formBg, 'important');
                         part.style.setProperty('width', '100%', 'important');
                         part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', isMobile ? ('0 -22px 0 ' + formBg + ', 0 22px 0 ' + formBg) : ('0 -14px 0 ' + formBg + ', 0 14px 0 ' + formBg), 'important');
-                        part.style.setProperty('padding', isMobile ? '0.03rem 0.28rem' : '0.62rem 1.05rem', 'important');
-                        part.style.setProperty('margin', partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0', 'important');
+                        part.style.setProperty('box-shadow', isMobile ? 'none' : ('0 -14px 0 ' + formBg + ', 0 14px 0 ' + formBg), 'important');
+                        part.style.setProperty('padding', isMobile ? '0.12rem 0.35rem' : '0.62rem 1.05rem', 'important');
+                        part.style.setProperty('margin', isMobile ? '0' : (partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0'), 'important');
                         part.style.setProperty('border-left', 'none', 'important');
                         part.style.setProperty('border-right', 'none', 'important');
                         part.style.setProperty('border-top', 'none', 'important');
@@ -3843,9 +3899,9 @@ elif st.session_state.current_page=="Lots":
                         });
                         if (isMobile) {
                             part.querySelectorAll('[data-testid="column"]').forEach(function(col) {
-                                col.style.setProperty('flex', '1 1 calc(50% - 0.18rem)', 'important');
+                                col.style.setProperty('flex', '1 1 calc(50% - 0.12rem)', 'important');
                                 col.style.setProperty('min-width', '0', 'important');
-                                col.style.setProperty('width', 'calc(50% - 0.18rem)', 'important');
+                                col.style.setProperty('width', 'calc(50% - 0.12rem)', 'important');
                             });
                             if (partIndex === 0) {
                                 part.style.setProperty('padding-top', '0.18rem', 'important');
@@ -3892,7 +3948,7 @@ elif st.session_state.current_page=="Lots":
                                 inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
                             });
                         }
-                        topOffset += Math.max(part.getBoundingClientRect().height - overlap, 1);
+                        if (!isMobile) topOffset += Math.max(part.getBoundingClientRect().height - overlap, 1);
                     });
                 }
             }
