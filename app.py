@@ -3113,6 +3113,16 @@ with st.sidebar:
     st.button("🎰 Compteurs", width="stretch", key="nav_compteurs", on_click=set_current_page, args=("Compteurs",))
     st.button("Archivés", width="stretch", key="nav_archives", on_click=set_current_page, args=("Archivés",))
 
+if st.session_state.get("current_page") != "Vente":
+    run_html("""
+    <script>
+    (function(){
+        const btn = parent.document.getElementById('codex-floating-cart-button');
+        if (btn) btn.remove();
+    })();
+    </script>
+    """, height=0)
+
 
 # ============================================================
 # PAGE ACCUEIL
