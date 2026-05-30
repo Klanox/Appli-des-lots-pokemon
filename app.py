@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-30 mobile sale polish 3"
+APP_BUILD = "Codex 2026-05-30 mobile sale pc images"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2810,19 +2810,18 @@ st.markdown("""
             padding: 0 !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] {
-            min-height: 250px !important;
-            height: 250px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            margin: 0 0 0.08rem 0 !important;
+            min-height: 0 !important;
+            height: auto !important;
+            display: block !important;
+            margin: 0 0 0.05rem 0 !important;
             overflow: visible !important;
+            background: transparent !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img {
-            width: auto !important;
-            height: 250px !important;
-            max-height: 250px !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
             max-width: 100% !important;
             object-fit: contain !important;
             border-radius: 9px !important;
@@ -2832,15 +2831,15 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
             font-size: 0.55rem !important;
-            line-height: 1.05 !important;
+            line-height: 1.08 !important;
             margin: 0 !important;
-            min-height: 0.66rem !important;
+            min-height: 0.7rem !important;
             display: block !important;
             overflow-wrap: anywhere !important;
         }
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stVerticalBlock"],
         div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
-            gap: 0.1rem !important;
+            gap: 0.04rem !important;
             margin-top: 0 !important;
             margin-bottom: 0 !important;
             min-height: 0 !important;
@@ -2922,17 +2921,17 @@ st.markdown("""
 }
 .mobile-card-imgbox {
     width: 100% !important;
-    height: 250px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    overflow: hidden !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    overflow: visible !important;
     border-radius: 6px !important;
-    background: #ffffff !important;
+    background: transparent !important;
 }
 .mobile-card-imgbox img {
-    width: auto !important;
-    height: 250px !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
     max-width: 100% !important;
     object-fit: contain !important;
     display: block !important;
@@ -3005,9 +3004,9 @@ st.markdown("""
     }
     img[src*="wsrv.nl"],
     img[src*="tcgdex.net"] {
-        height: 250px !important;
-        max-height: 250px !important;
-        width: auto !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
         max-width: 100% !important;
         object-fit: contain !important;
     }
