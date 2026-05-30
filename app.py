@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-30 mobile sale image scale"
+APP_BUILD = "Codex 2026-05-30 mobile sale text compact"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -2937,12 +2937,12 @@ st.markdown("""
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"] {
-            width: 116% !important;
+            width: 110% !important;
             max-width: none !important;
             height: auto !important;
             max-height: none !important;
-            margin-left: -8% !important;
-            margin-right: -8% !important;
+            margin-left: -5% !important;
+            margin-right: -5% !important;
             object-fit: contain !important;
         }
         body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
@@ -2951,7 +2951,7 @@ st.markdown("""
         .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
-            min-height: 0.88rem !important;
+            min-height: 0.58rem !important;
             margin: 0 !important;
             padding: 0 !important;
         }
@@ -2961,8 +2961,8 @@ st.markdown("""
         .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
-            font-size: 0.56rem !important;
-            line-height: 1.12 !important;
+            font-size: 0.52rem !important;
+            line-height: 1.02 !important;
             margin: 0 !important;
         }
         body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"],
@@ -2970,7 +2970,7 @@ st.markdown("""
         section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
             margin-top: 0 !important;
             margin-bottom: 0 !important;
-            min-height: 0.9rem !important;
+            min-height: 0.62rem !important;
         }
     }
 </style>
@@ -3618,9 +3618,10 @@ elif st.session_state.current_page=="Vente":
                             else:
                                 st.markdown("🃏")
                             st.markdown(f"**{card['name']}**")
-                            st.caption(f"{card.get('set','')} · #{card.get('number','')}")
+                            st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} · #{card.get('number','')}")
                             st.caption(f"💰 {fp(card.get('suggested_price', 0))} · 📦 {stock}")
-                            st.caption(f"🗂️ {lot['nom']}")
+                            if not is_mobile_mode():
+                                st.caption(f"🗂️ {lot['nom']}")
                             q_key = card.get("card_uid") or f"{li}_{ci}"
                             q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
                             if in_cart:
@@ -3650,7 +3651,7 @@ elif st.session_state.current_page=="Vente":
                                     else:
                                         st.markdown("🃏")
                                     st.markdown(f"**{card['name']}**")
-                                    st.caption(f"{card['set']} · #{card['number']}")
+                                    st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} · #{card.get('number','')}")
                                     st.caption(f"💰 {fp(card.get('suggested_price', 0))} · 📦 {stock}")
                                     q_key = card.get("card_uid") or f"{li}_{ci}"
                                     q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
