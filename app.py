@@ -2,7 +2,7 @@
 # Gestion de lots de cartes Pokemon
 
 import streamlit as st
-import json,os,requests,time,sys,glob,tempfile,uuid
+import json,os,requests,time,sys,glob,tempfile,uuid,shutil
 import html
 from datetime import datetime,timezone
 from PIL import Image,ImageDraw,ImageFont
@@ -12,7 +12,7 @@ import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-05-30 mobile sale text compact"
+APP_BUILD = "Codex 2026-05-31 backup protection"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -322,6 +322,101 @@ def search_in_cache(name, num=None):
 # ============================================================
 DATA = "data.json"
 ACTIVITY_STATE_FILE = "activity_state.json"
+BACKUP_DIR = "backups"
+BACKUP_STATE_FILE = os.path.join(BACKUP_DIR, "backup_state.json")
+BACKUP_JSON_FILES = [
+    "data.json",
+    "lots_archives.json",
+    "counters.json",
+    "monthly_goals.json",
+    "activity_state.json",
+    "config.json",
+]
+
+def _safe_backup_name(reason):
+    clean = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(reason or "backup"))
+    return clean.strip("_") or "backup"
+
+def create_local_backup(reason="manual", include_images=False):
+    """Copie les fichiers de donnees dans backups/ sans les envoyer sur GitHub."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_dir = os.path.join(BACKUP_DIR, f"{stamp}_{_safe_backup_name(reason)}")
+    os.makedirs(target_dir, exist_ok=True)
+
+    copied = []
+    for filename in BACKUP_JSON_FILES:
+        if os.path.exists(filename):
+            shutil.copy2(filename, os.path.join(target_dir, filename))
+            copied.append(filename)
+
+    if include_images and os.path.isdir("card_images"):
+        shutil.copytree("card_images", os.path.join(target_dir, "card_images"), dirs_exist_ok=True)
+        copied.append("card_images/")
+
+    manifest = {
+        "created_at": datetime.now().isoformat(),
+        "reason": reason,
+        "files": copied,
+        "app_build": APP_BUILD,
+    }
+    safe_write_json(os.path.join(target_dir, "backup_manifest.json"), manifest, indent=2)
+    return target_dir, copied
+
+def _load_backup_state():
+    if not os.path.exists(BACKUP_STATE_FILE):
+        return {}
+    try:
+        with open(BACKUP_STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def _save_backup_state(state):
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    safe_write_json(BACKUP_STATE_FILE, state, indent=2)
+
+def cleanup_old_backups(keep=60):
+    if not os.path.isdir(BACKUP_DIR):
+        return
+    entries = []
+    for name in os.listdir(BACKUP_DIR):
+        path = os.path.join(BACKUP_DIR, name)
+        if os.path.isdir(path):
+            entries.append((os.path.getmtime(path), path))
+    entries.sort(reverse=True)
+    for _, path in entries[keep:]:
+        try:
+            shutil.rmtree(path)
+        except:
+            pass
+
+def maybe_create_weekly_backup():
+    state = _load_backup_state()
+    last = float(state.get("last_weekly_backup_at", 0) or 0)
+    if time.time() - last >= 7 * 24 * 60 * 60:
+        path, copied = create_local_backup("weekly", include_images=False)
+        state["last_weekly_backup_at"] = time.time()
+        state["last_weekly_backup_path"] = path
+        state["last_weekly_backup_files"] = copied
+        _save_backup_state(state)
+        cleanup_old_backups()
+        return path
+    return ""
+
+def maybe_create_prewrite_backup():
+    state = _load_backup_state()
+    last = float(state.get("last_prewrite_backup_at", 0) or 0)
+    # Protection anti-catastrophe : pas plus d'une sauvegarde de securite toutes les 30 min.
+    if time.time() - last >= 30 * 60:
+        path, copied = create_local_backup("before_write", include_images=False)
+        state["last_prewrite_backup_at"] = time.time()
+        state["last_prewrite_backup_path"] = path
+        state["last_prewrite_backup_files"] = copied
+        _save_backup_state(state)
+        cleanup_old_backups()
+        return path
+    return ""
 
 def new_uid(prefix):
     return f"{prefix}_{uuid.uuid4().hex}"
@@ -575,6 +670,7 @@ def ld():
     if consolidate_storage_cards(d):
         data_changed = True
     if data_changed:
+        maybe_create_prewrite_backup()
         safe_write_json(DATA, d)
         if cloud_sync_enabled():
             save_cloud_json(SUPABASE_DATA_KEY, d)
@@ -584,6 +680,7 @@ def ld():
 
 def sd(d):
     # Écriture sans indentation = 3x plus rapide
+    maybe_create_prewrite_backup()
     safe_write_json(DATA, d)
     if cloud_sync_enabled():
         if save_cloud_json(SUPABASE_DATA_KEY, d):
@@ -1656,6 +1753,13 @@ def scroll_to_cart_prepare():
 def set_current_page(page):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
+    if page == "Vente":
+        st.session_state["sale_scroll_top_pending"] = True
+    if page != "Lots":
+        st.session_state.pop("active_lot_ix", None)
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("lot_expanded_"):
+                st.session_state.pop(key, None)
     if page != "Historique":
         st.session_state["history_visible_count"] = 40
 
@@ -1804,7 +1908,17 @@ if "cards_index" not in st.session_state:
 
 load_activity_state()
 
+if "weekly_backup_checked" not in st.session_state:
+    st.session_state["weekly_backup_checked"] = True
+    try:
+        weekly_backup_path = maybe_create_weekly_backup()
+        if weekly_backup_path:
+            st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo créée : {os.path.basename(weekly_backup_path)}"
+    except Exception as e:
+        st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo impossible : {e}"
+
 if st.session_state.get("current_page") != "Lots":
+    st.session_state.pop("active_lot_ix", None)
     run_html("""
     <script>
     (function() {
@@ -3205,6 +3319,21 @@ with st.sidebar:
             st.session_state.pop("cloud_sync_error", None)
             get_supabase_client.clear()
             st.rerun()
+    backup_state = _load_backup_state()
+    last_weekly_path = backup_state.get("last_weekly_backup_path", "")
+    if st.session_state.get("last_auto_backup_message"):
+        st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
+    elif last_weekly_path:
+        st.caption(f"🛡️ Dernière sauvegarde hebdo : {os.path.basename(last_weekly_path)}")
+    else:
+        st.caption("🛡️ Sauvegarde locale prête")
+    if st.button("🛡️ Sauvegarde locale maintenant", width="stretch", key="manual_local_backup"):
+        try:
+            path, copied = create_local_backup("manual", include_images=True)
+            cleanup_old_backups()
+            st.success(f"Sauvegarde créée : {os.path.basename(path)}")
+        except Exception as e:
+            st.error(f"Sauvegarde impossible : {e}")
     sts=gst()
     
     pokeballs = [
@@ -3454,36 +3583,32 @@ if st.session_state.current_page=="Accueil":
 # PAGE VENTE
 # ============================================================
 elif st.session_state.current_page=="Vente":
-    run_html("""
-    <script>
-    (function(){
-        const win = parent.window;
-        const doc = parent.document;
-        if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
-        const skipTop = win.sessionStorage.getItem('codexSkipSaleTopOnce') === '1';
-        if (skipTop) {
-            win.sessionStorage.removeItem('codexSkipSaleTopOnce');
-            return;
-        }
-        const scrollTop = () => win.scrollTo({top:0,left:0,behavior:'instant'});
-        [0, 60, 160, 360, 800, 1400, 2400].forEach(delay => setTimeout(scrollTop, delay));
-        const waitForImagesThenScroll = () => {
-            const imgs = Array.from(doc.querySelectorAll('img'));
-            if (!imgs.length) { scrollTop(); return; }
-            let pending = imgs.filter(img => !img.complete).length;
-            if (pending === 0) { scrollTop(); return; }
-            const done = () => { pending -= 1; if (pending <= 0) scrollTop(); };
-            imgs.forEach(img => {
-                if (img.complete) return;
-                img.addEventListener('load', done, {once:true});
-                img.addEventListener('error', done, {once:true});
-            });
-            setTimeout(scrollTop, 4500);
-        };
-        setTimeout(waitForImagesThenScroll, 250);
-    })();
-    </script>
-    """, height=0)
+    if st.session_state.pop("sale_scroll_top_pending", False):
+        run_html("""
+        <script>
+        (function(){
+            const win = parent.window;
+            const doc = parent.document;
+            if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
+            const scrollTop = () => win.scrollTo({top:0,left:0,behavior:'instant'});
+            [0, 80, 220, 520, 1100, 1800].forEach(delay => setTimeout(scrollTop, delay));
+            const waitForImagesThenScroll = () => {
+                const imgs = Array.from(doc.querySelectorAll('img'));
+                if (!imgs.length) { scrollTop(); return; }
+                let pending = imgs.filter(img => !img.complete).length;
+                if (pending === 0) { scrollTop(); return; }
+                const done = () => { pending -= 1; if (pending <= 0) scrollTop(); };
+                imgs.forEach(img => {
+                    if (img.complete) return;
+                    img.addEventListener('load', done, {once:true});
+                    img.addEventListener('error', done, {once:true});
+                });
+                setTimeout(scrollTop, 3500);
+            };
+            setTimeout(waitForImagesThenScroll, 250);
+        })();
+        </script>
+        """, height=0)
     st.markdown('<h2>💰 Vente / Échange</h2>', unsafe_allow_html=True)
     
     tab2, tab3 = st.tabs(["💰 Vente", "🔄 Échange"])
@@ -3691,7 +3816,11 @@ elif st.session_state.current_page=="Vente":
                 with vente_col1:
                     st.button("✅ Vendre au prix de base", type="primary", width="stretch", on_click=bulk_sale_prepare, args=("base", total_base))
                 
-                    negociated_price = st.number_input("💰 Prix négocié", 0., float(total_base)*2, float(total_base), 0.5, key="negociated_price")
+                    total_base_ref = round(float(total_base), 2)
+                    if st.session_state.get("negociated_price_base_ref") != total_base_ref:
+                        st.session_state["negociated_price"] = total_base_ref
+                        st.session_state["negociated_price_base_ref"] = total_base_ref
+                    negociated_price = st.number_input("💰 Prix négocié", 0., float(total_base)*2, float(st.session_state.get("negociated_price", total_base)), 0.5, key="negociated_price")
                     st.button("🤝 Vendre au prix négocié", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
 
                 # Dialog canal pour vente en lot
@@ -3761,6 +3890,8 @@ elif st.session_state.current_page=="Vente":
             st.session_state.swap_cart_give = []  # liste de {lot_idx, card_idx, card_name, set, number, value}
         if "swap_cart_receive" not in st.session_state:
             st.session_state.swap_cart_receive = []  # liste de {name, set, number, value, lot_target_idx}
+        st.session_state.setdefault("swap_cash_give", 0.0)
+        st.session_state.setdefault("swap_cash_receive", 0.0)
 
         col_give, col_receive = st.columns(2)
 
@@ -3812,7 +3943,8 @@ elif st.session_state.current_page=="Vente":
                 for g in st.session_state.swap_cart_give:
                     st.markdown(f"• {g['card_name']} ({fp(g['value'])})")
                     total_give += g["value"]
-                st.metric("Total donné", fp(total_give))
+                cash_give = st.number_input("Argent ajouté par moi (€)", 0., 99999., float(st.session_state.get("swap_cash_give", 0.0)), 0.5, key="swap_cash_give")
+                st.metric("Total donné", fp(total_give + cash_give))
 
         # ── Colonne RECEVOIR ──
         with col_receive:
@@ -3931,12 +4063,15 @@ elif st.session_state.current_page=="Vente":
                         save_activity_state()
                         st.rerun()
                     total_receive += r["value"]
-                st.metric("Total reçu", fp(total_receive))
+                cash_receive = st.number_input("Argent reçu en plus (€)", 0., 99999., float(st.session_state.get("swap_cash_receive", 0.0)), 0.5, key="swap_cash_receive")
+                st.metric("Total reçu", fp(total_receive + cash_receive))
 
                 # Afficher la répartition prévue
                 if st.session_state.swap_cart_give:
                     total_give_val = sum(g["value"] for g in st.session_state.swap_cart_give)
-                    diff = total_receive - total_give_val
+                    cash_give = float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
+                    cash_receive = float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
+                    diff = (total_receive + cash_receive) - (total_give_val + cash_give)
                     diff_color = "#10b981" if diff >= 0 else "#ef4444"
                     st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:{diff_color};">{"📈" if diff>=0 else "📉"} Différence : {diff:+.2f}€</div>', unsafe_allow_html=True)
 
@@ -3962,6 +4097,8 @@ elif st.session_state.current_page=="Vente":
             st.markdown("---")
             if st.button("✅ Confirmer l'échange", type="primary", width="stretch"):
                 cdd = ld()
+                cash_give = float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
+                cash_receive = float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
                 # Calculer la valeur totale donnée par lot
                 valeur_par_lot_donne = {}
                 for g in st.session_state.swap_cart_give:
@@ -3972,21 +4109,25 @@ elif st.session_state.current_page=="Vente":
                     g["lot_idx"], g["card_idx"] = li, ci
                     valeur_par_lot_donne[li] = valeur_par_lot_donne.get(li, 0.) + g["value"]
                 total_valeur_donnee = sum(valeur_par_lot_donne.values()) or 1.
+                total_cards_given_value = sum(float(g.get("value", 0.) or 0.) for g in st.session_state.swap_cart_give) or 1.
 
                 # Marquer les cartes données comme échangées
                 for g in st.session_state.swap_cart_give:
                     _, _, _, card_g = resolve_card_ref(cdd, g)
                     if card_g is None:
                         continue
+                    cash_part = cash_receive * (float(g.get("value", 0.) or 0.) / total_cards_given_value) if cash_receive > 0 else 0.
                     card_g["sold_quantity"] = card_g.get("sold_quantity", 0) + 1
                     card_g.setdefault("sold_entries", []).append({
                         "date": datetime.now().isoformat(),
-                        "quantity": 1, "price": 0.,
+                        "quantity": 1, "price": cash_part,
                         "card_name": card_g["name"],
                         "card_set": card_g.get("set",""),
                         "card_number": card_g.get("number",""),
                         "suggested_price_at_sale": float(card_g.get("suggested_price",0)),
                         "canal": "Échange", "is_exchange": True,
+                        "exchange_cash_received": cash_receive,
+                        "exchange_cash_part": cash_part,
                         "exchanged_for": ", ".join(r["name"] for r in st.session_state.swap_cart_receive),
                     })
 
@@ -4000,6 +4141,8 @@ elif st.session_state.current_page=="Vente":
                         "condition": "NM", "is_reverse": False, "is_ed1": False,
                         "image_url": r.get("image_url",""), "sold_entries": [],
                         "received_by_exchange": True,
+                        "exchange_cash_paid": cash_give,
+                        "exchange_cash_received": cash_receive,
                         "exchanged_from": ", ".join(g["card_name"] for g in st.session_state.swap_cart_give),
                         "exchange_repartition": {
                             str(li_donne): (valeur_par_lot_donne[li_donne] / total_valeur_donnee) * r["value"]
@@ -4013,6 +4156,8 @@ elif st.session_state.current_page=="Vente":
                 nb_recv = len(st.session_state.swap_cart_receive)
                 st.session_state.swap_cart_give = []
                 st.session_state.swap_cart_receive = []
+                st.session_state.swap_cash_give = 0.0
+                st.session_state.swap_cash_receive = 0.0
                 save_activity_state()
                 st.success(f"✅ Échange confirmé : {nb_give} carte(s) donnée(s) contre {nb_recv} carte(s) reçue(s) !")
                 st.rerun()
@@ -4086,7 +4231,13 @@ elif st.session_state.current_page=="Lots":
                 if (lotBlock && markerChild) {
                     const children = Array.from(lotBlock.children);
                     const markerIndex = children.indexOf(markerChild);
-                    const formParts = children.slice(markerIndex + 1, markerIndex + 5);
+                    const markerId = addMarker.getAttribute('data-add-card-form-marker');
+                    const endMarker = doc.querySelector('[data-add-card-form-end-marker="' + markerId + '"]');
+                    const endChild = endMarker ? endMarker.closest('[data-testid="stElementContainer"]') : null;
+                    const endIndex = endChild ? children.indexOf(endChild) : -1;
+                    const formParts = endIndex > markerIndex
+                        ? children.slice(markerIndex + 1, endIndex)
+                        : children.slice(markerIndex + 1, markerIndex + 6);
                     const isMobile = doc.body.classList.contains('codex-mobile-mode') || parent.window.matchMedia('(max-width: 760px)').matches;
                     const stickyTop = isMobile ? 0 : 64;
                     let topOffset = stickyTop;
@@ -4194,7 +4345,7 @@ elif st.session_state.current_page=="Lots":
         });
         observer.observe(doc.body, {childList: true, subtree: true});
         const intervalId = setInterval(syncLotHeaders, 5000);
-        setTimeout(function(){ clearInterval(intervalId); observer.disconnect(); }, 120000);
+        setTimeout(function(){ clearInterval(intervalId); }, 120000);
     })();
     </script>""", height=0)
 
@@ -4475,19 +4626,16 @@ elif st.session_state.current_page=="Lots":
                 except:
                     pi = 0.
 
-                past_sales = recent_sale_notes_for_card(nm, nu)
-                if past_sales:
-                    last_prices = " · ".join(
-                        f"{sale['price']:.2f}€ le {sale['date']}" + (f" ({sale['lot']})" if sale.get("lot") else "")
-                        for sale in past_sales
-                    )
-                    st.caption(f"Déjà vendu avant : {last_prices}")
-
-                co8,co9,co10,co11=st.columns(4)
-                rv_check=co8.checkbox("Reverse",key=f"r{ix}{ts}")
-                ed=co9.checkbox("1ère Éd",key=f"e{ix}{ts}")
-                is_jp=co10.checkbox("🇯🇵 Japonaise",key=f"jp{ix}{ts}")
-                special_tag=co11.selectbox("Spécial", ["", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"], key=f"sp{ix}{ts}")
+                special_options = st.multiselect(
+                    "Spécial",
+                    ["Reverse", "1ère Éd", "Japonaise", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
+                    key=f"sp{ix}{ts}",
+                    placeholder="Reverse, Stamp, Scellé..."
+                )
+                rv_check = "Reverse" in special_options
+                ed = "1ère Éd" in special_options
+                is_jp = "Japonaise" in special_options
+                special_tag = ", ".join([tag for tag in special_options if tag not in ("Reverse", "1ère Éd", "Japonaise")])
                 cn="NM"
                 
                 # Popup multi-choix
@@ -4583,6 +4731,7 @@ elif st.session_state.current_page=="Lots":
                     else:
                         st.error(mg)
                 
+                st.markdown(f'<div data-add-card-form-end-marker="{ix}"></div>', unsafe_allow_html=True)
                 st.markdown("---")
                 st.markdown("**📦 Cartes du lot**")
                 
@@ -4634,6 +4783,11 @@ elif st.session_state.current_page=="Lots":
                                 img_html = f'<img src="{src}" alt="{name}">'
                             else:
                                 img_html = '<div class="mobile-card-placeholder">?</div>'
+                            past_note_html = ""
+                            if not sold:
+                                past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
+                                if past_notes:
+                                    past_note_html = f'<div class="mobile-card-meta" style="color:#0f766e;font-weight:800;">Dernière vente {past_notes[0]["price"]:.2f}€</div>'
                             stock_txt = "vendue" if sold else f"{stock}/{int(crd.get('quantity', 0) or 0)}"
                             if crd.get("stored_quantity", 0):
                                 stock_txt += f" · stock {int(crd.get('stored_quantity', 0))}"
@@ -4642,6 +4796,7 @@ elif st.session_state.current_page=="Lots":
                             tiles.append(
                                 f'<div class="mobile-card-tile{sold_cls}">'
                                 f'<div class="mobile-card-imgbox">{img_html}</div>'
+                                f'{past_note_html}'
                                 f'<div class="mobile-card-name">{name}</div>'
                                 f'<div class="mobile-card-meta">{meta}</div>'
                                 f'</div>'
@@ -4662,6 +4817,9 @@ elif st.session_state.current_page=="Lots":
                                         st.markdown(f'<div style="opacity:0.35;filter:grayscale(100%)"><img src="{proxy_img(img_url)}" style="width:100%;border-radius:12px;border:3px solid #e2e8f0;"></div>', unsafe_allow_html=True)
                                     else:
                                         st.markdown(f'<img src="{proxy_img(img_url)}" style="width:100%;border-radius:12px;">', unsafe_allow_html=True)
+                                        past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
+                                        if past_notes:
+                                            st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
                                 else:
                                     # Pas d'image — bouton upload
                                     st.markdown("🃏 *Pas d'image*")
