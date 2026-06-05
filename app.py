@@ -2,17 +2,88 @@
 # Gestion de lots de cartes Pokemon
 
 import streamlit as st
-import json,os,requests,time,sys,glob,tempfile,uuid,shutil,re
+import json,os,requests,time,glob,tempfile,uuid,shutil,re
 import html
 from datetime import datetime,timezone
-from PIL import Image,ImageDraw,ImageFont
-from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor,as_completed
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 import unicodedata
 import hashlib
 import tomllib
 
-APP_BUILD = "Codex 2026-06-02 estimation workflow"
+# Import from modular structure
+from utils import (
+    normalize_name,
+    parse_float_input,
+    parse_int_input,
+    fp,
+    safe_write_json,
+    load_app_settings,
+    save_app_settings,
+    canal_key,
+    cardmarket_search_url,
+    fetch_listing_preview_image,
+    new_uid,
+    APP_DIR,
+    DATA,
+    CARDS_CACHE_FILE,
+    CARDS_CACHE_TTL_SECONDS,
+    BACKUP_DIR,
+    BACKUP_STATE_FILE,
+    ESTIMATIONS_FILE,
+)
+from cloud import (
+    cloud_sync_enabled,
+    load_cloud_json,
+    save_cloud_json,
+    SUPABASE_DATA_KEY,
+    SUPABASE_ESTIMATIONS_KEY,
+)
+from data import (
+    ld,
+    sd,
+    ensure_card_ids,
+    sync_mixte_purchase_prices,
+    consolidate_storage_cards,
+    ensure_trade_lot,
+    ensure_storage_lot,
+    ensure_system_lots,
+    maybe_create_prewrite_backup,
+    create_local_backup,
+    cleanup_old_backups,
+    maybe_create_weekly_backup,
+    LOTS_ARCHIVES_FILE,
+)
+from logic import (
+    cr,
+    cp,
+    crp,
+    effective_purchase_price,
+    card_sold_cote,
+    calc_cout_lot,
+    gst,
+    gsh,
+    is_trade_lot,
+    is_storage_lot,
+    card_available_qty,
+    resolve_card_ref,
+    migrate_open_trade_cards,
+)
+
+from ui.theme import (
+    KPI_ACCENTS,
+    NAV_SECTIONS,
+    inject_functional_css,
+    inject_mobile_overrides,
+    inject_theme,
+    render_app_header,
+    render_kpi_card,
+    render_page_header,
+    render_sidebar_brand,
+    render_sidebar_stat,
+)
+
+APP_BUILD = "Codex 2026-06-05 estimations finalisees"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -49,7 +120,8 @@ def safe_write_json(path, data, indent=None):
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except:
+            except Exception as e:
+                print(f"Warning: Could not remove temporary file {tmp_path}: {e}")
                 pass
 
 def _local_secrets():
@@ -210,7 +282,8 @@ def load_cards_cache():
                 resp = requests.get(f"https://api.tcgdex.net/v2/fr/sets/{sid}", timeout=3)
                 if resp.status_code == 200:
                     return resp.json()
-            except:
+            except (requests.RequestException, json.JSONDecodeError) as e:
+                print(f"Warning: Could not fetch set {sid}: {e}")
                 pass
             return None
         
@@ -372,7 +445,8 @@ def _load_backup_state():
     try:
         with open(BACKUP_STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load backup state: {e}")
         return {}
 
 def _save_backup_state(state):
@@ -391,7 +465,8 @@ def cleanup_old_backups(keep=60):
     for _, path in entries[keep:]:
         try:
             shutil.rmtree(path)
-        except:
+        except (IOError, OSError) as e:
+            print(f"Warning: Could not remove backup directory {path}: {e}")
             pass
 
 def maybe_create_weekly_backup():
@@ -488,7 +563,8 @@ def load_estimations():
         try:
             with open(ESTIMATIONS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"Warning: Could not load estimations file: {e}")
             data = default_estimations_data()
     else:
         data = default_estimations_data()
@@ -508,14 +584,14 @@ def parse_float_input(value, default=0.0):
     try:
         text = str(value).replace("€", "").replace(" ", "").replace(",", ".").strip()
         return float(text) if text else float(default)
-    except:
+    except (ValueError, TypeError) as e:
         return float(default)
 
 def parse_int_input(value, default=1):
     try:
         text = str(value).replace(" ", "").strip()
         return max(int(float(text.replace(",", "."))), 0)
-    except:
+    except (ValueError, TypeError) as e:
         return int(default)
 
 def cardmarket_search_url(name, number="", condition="", special=""):
@@ -527,8 +603,14 @@ def fetch_listing_preview_image(url):
     if not url:
         return ""
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=5)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+        }
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+        except requests.exceptions.SSLError:
+            r = requests.get(url, headers=headers, timeout=5, verify=False)
         if r.status_code >= 400:
             return ""
         html_text = r.text
@@ -537,11 +619,17 @@ def fetch_listing_preview_image(url):
             r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
             r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
             r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+            r'"photo":\s*\{[^{}]*"url":\s*"([^"]+)"',
+            r'"url":\s*"(https?://[^"]+(?:vinted|vinted-reserved|images)[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"',
+            r'(https?://[^"\']+(?:vinted|vinted-reserved|images)[^"\']+\.(?:jpg|jpeg|png|webp)[^"\']*)',
         ]
         for pattern in patterns:
             m = re.search(pattern, html_text, re.I)
             if m:
-                return html.unescape(m.group(1))
+                found = html.unescape(m.group(1)).replace("\\u002F", "/").replace("\\/", "/")
+                if found.startswith("//"):
+                    found = "https:" + found
+                return found
     except:
         pass
     return ""
@@ -858,16 +946,29 @@ def ld():
         last_cloud_load = float(st.session_state.get("data_cloud_loaded_at", 0) or 0)
         if time.time() - last_cloud_load < 10:
             return st.session_state["data_cache"]
+    
     cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
+    local_data = None
+    if os.path.exists(DATA):
+        with open(DATA,"r",encoding="utf-8") as f:
+            local_data = json.load(f)
+    
+    # Merge strategy: prefer cloud if available and recent, otherwise use local
     if isinstance(cloud_data, dict) and cloud_data.get("lots") is not None:
+        if local_data is not None:
+            # Both exist - use cloud but warn if local has more recent changes
+            cloud_updated = cloud_data.get("updated_at", "")
+            local_updated = local_data.get("updated_at", "")
+            if local_updated and cloud_updated and local_updated > cloud_updated:
+                st.warning("⚠️ Les données locales semblent plus récentes que le cloud. Synchronisation recommandée.")
         d = cloud_data
         st.session_state["cloud_sync_active"] = True
         st.session_state["data_cloud_loaded_at"] = time.time()
-    elif os.path.exists(DATA):
-        with open(DATA,"r",encoding="utf-8") as f:
-            d = json.load(f)
+    elif local_data is not None:
+        d = local_data
     else:
         d = {"lots":[]}
+    
     data_changed = False
     if ensure_card_ids(d):
         data_changed = True
@@ -994,6 +1095,7 @@ def migrate_open_trade_cards(d):
         lot["cards"] = kept_cards
     return moved
 
+@st.cache_data(ttl=30, show_spinner=False)
 def gst():
     d=ld()
     tc=sc=rc=0
@@ -1027,9 +1129,16 @@ def gst():
                         continue
                     tr+=v.get("price",0.)
                 for c in l.get("cards",[]):
+                    cq=c.get("quantity",0)
+                    csq=c.get("sold_quantity",0)
+                    tc+=cq
+                    sc+=csq
+                    rc+=cq-csq
+                    sv+=(cq-csq)*c.get("suggested_price",0.)
                     for s in c.get("sold_entries",[]):
                         tr+=s.get("price",0.)
-        except:
+        except Exception as e:
+            st.warning(f"Erreur lors de la lecture des archives dans gst(): {e}")
             pass
     
     return {"total_cards":int(tc),"sold_cards":int(sc),"remaining_cards":int(rc),"stock_value":sv,"total_revenue":tr,"total_profit":tr-total_cost,"total_revenue_gross":tr}
@@ -1057,8 +1166,8 @@ def load_app_settings():
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
-            pass
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"Warning: Could not load app settings: {e}")
     return {}
 
 def save_app_settings(settings):
@@ -1151,7 +1260,8 @@ def fix_missing_images():
                         if img:
                             cd["lots"][li]["cards"][ci]["image_url"] = img
                             changed = True
-                except:
+                except (requests.RequestException, KeyError, json.JSONDecodeError) as e:
+                    print(f"Warning: Could not fix image for card {card.get('name', 'unknown')}: {e}")
                     pass
     if changed:
         sd(cd)
@@ -2204,296 +2314,10 @@ setInterval(autoSubmitSearch, 1000);
 """, height=0)
 
 if is_mobile_mode():
-    st.markdown("""
-    <style>
-    html, body, .stApp {
-        overflow-x: hidden !important;
-        width: 100% !important;
-    }
-    body.codex-mobile-mode .stApp::before,
-    body.codex-mobile-mode .stApp::after,
-    .codex-mobile-mode .stApp::before,
-    .codex-mobile-mode .stApp::after {
-        content: none !important;
-        display: none !important;
-        background-image: none !important;
-        opacity: 0 !important;
-    }
-    section[data-testid="stSidebar"] {
-        min-width: 13.5rem !important;
-        max-width: 16rem !important;
-        border-right-width: 3px !important;
-    }
-    section[data-testid="stSidebar"]::before {
-        height: 92px !important;
-        margin-bottom: 0.35rem !important;
-    }
-    section[data-testid="stSidebar"] h2 {
-        margin-bottom: 0.65rem !important;
-        padding: 0.55rem !important;
-        font-size: 0.72rem !important;
-    }
-    .main .block-container {
-        max-width: 100% !important;
-        padding-left: 0.22rem !important;
-        padding-right: 0.22rem !important;
-        padding-top: 0.55rem !important;
-        padding-bottom: 5rem !important;
-    }
-    .logo-header {
-        padding: 1rem 0.8rem !important;
-        margin-bottom: 0.9rem !important;
-        border-radius: 14px !important;
-    }
-    .logo-header img {
-        width: 92px !important;
-        margin-bottom: 0.55rem !important;
-    }
-    .logo-header h1 {
-        font-size: 1.45rem !important;
-        line-height: 1.1 !important;
-    }
-    .logo-header p {
-        font-size: 0.86rem !important;
-        line-height: 1.25 !important;
-    }
-    h1 { font-size: 1.45rem !important; line-height: 1.15 !important; }
-    h2 { font-size: 1.22rem !important; line-height: 1.18 !important; margin-top: 0.55rem !important; }
-    h3 { font-size: 1rem !important; line-height: 1.2 !important; }
-    p, label, .stMarkdown, [data-testid="stCaptionContainer"] {
-        font-size: 0.9rem !important;
-        line-height: 1.32 !important;
-    }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0.55rem !important;
-    }
-    div[data-testid="stHorizontalBlock"] {
-        gap: 0.55rem !important;
-        align-items: stretch !important;
-        flex-wrap: wrap !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        flex: 1 1 9.5rem !important;
-        width: auto !important;
-    }
-    div[data-testid="stButton"] button {
-        min-height: 2.85rem !important;
-        font-size: 0.9rem !important;
-        padding: 0.65rem 0.75rem !important;
-        border-radius: 10px !important;
-        white-space: normal !important;
-        line-height: 1.15 !important;
-        width: 100% !important;
-    }
-    div[data-testid="stNumberInput"] input,
-    div[data-testid="stTextInput"] input,
-    div[data-baseweb="select"] {
-        min-height: 2.75rem !important;
-        font-size: 0.98rem !important;
-        border-radius: 10px !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-    }
-    div[data-testid="stNumberInput"] button {
-        min-width: 2.35rem !important;
-    }
-    img {
-        max-width: 100% !important;
-        max-height: none !important;
-        height: auto !important;
-        object-fit: contain !important;
-    }
-    div[data-testid="column"] {
-        min-width: 0 !important;
-    }
-    [data-testid="stImage"] img {
-        border-radius: 10px !important;
-    }
-    [data-testid="stExpander"] [data-testid="stImage"] img,
-    [data-testid="stHorizontalBlock"] [data-testid="stImage"] img {
-        max-height: 128px !important;
-        width: auto !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
-    [data-testid="stExpander"] img {
-        max-height: 128px !important;
-        width: auto !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
-    [data-add-card-form-marker] {
-        scroll-margin-top: 0.25rem !important;
-    }
-    [data-codex-add-sticky="1"] {
-        isolation: isolate !important;
-        contain: paint !important;
-    }
-    [data-testid="stMetric"] {
-        padding: 0.95rem !important;
-        padding-top: 1.35rem !important;
-        border-radius: 12px !important;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.72rem !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 1.45rem !important;
-        line-height: 1.1 !important;
-        word-break: break-word !important;
-    }
-    [data-testid="column"]:has([data-testid="stMetric"]) img {
-        width: 34px !important;
-        height: 34px !important;
-        top: -10px !important;
-        right: 9px !important;
-        padding: 3px !important;
-        border-width: 2px !important;
-    }
-    [data-testid="stDataFrame"],
-    [data-testid="stTable"],
-    [data-testid="stPlotlyChart"],
-    .js-plotly-plot {
-        max-width: 100% !important;
-        overflow-x: auto !important;
-    }
-    [data-testid="stExpander"] {
-        border-radius: 10px !important;
-        max-width: 100% !important;
-    }
-    [data-testid="stExpander"] details summary {
-        min-height: 3rem !important;
-        padding: 0.65rem 0.75rem !important;
-        line-height: 1.2 !important;
-    }
-    [data-testid="stTabs"] [role="tablist"] {
-        gap: 0.35rem !important;
-        overflow-x: auto !important;
-        white-space: nowrap !important;
-        padding-bottom: 0.25rem !important;
-    }
-    [data-testid="stTabs"] [role="tab"] {
-        min-height: 2.5rem !important;
-        padding: 0.45rem 0.7rem !important;
-        font-size: 0.88rem !important;
-    }
-    div[data-testid="stRadio"] > div {
-        gap: 0.35rem !important;
-    }
-    div[data-testid="stRadio"] label {
-        flex: 1 1 calc(50% - 0.35rem) !important;
-        justify-content: center !important;
-        min-height: 2.35rem !important;
-        padding: 0.45rem 0.5rem !important;
-        font-size: 0.78rem !important;
-        text-align: center !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] div[style*="font-size: 2rem"],
-    [data-testid="stMarkdownContainer"] div[style*="font-size: 2rem"] {
-        font-size: 1.35rem !important;
-        line-height: 1.15 !important;
-    }
-    div[style*="font-size: 2.5rem"] {
-        font-size: 1.55rem !important;
-    }
-    div[style*="font-size: 2.25rem"] {
-        font-size: 1.45rem !important;
-    }
-    div[style*="padding: 1.5rem"] {
-        padding: 0.9rem !important;
-    }
-    img[style*="width: 50px"][style*="height: 50px"] {
-        width: 34px !important;
-        height: 34px !important;
-    }
-    div[data-testid="stAlert"] {
-        padding: 0.75rem !important;
-        border-radius: 10px !important;
-    }
-    .block-container > div {
-        max-width: 100% !important;
-    }
-    @media (max-width: 430px) {
-        .main .block-container {
-            padding-left: 0.35rem !important;
-            padding-right: 0.35rem !important;
-        }
-        .logo-header {
-            padding: 0.85rem 0.55rem !important;
-        }
-        .logo-header img {
-            width: 78px !important;
-        }
-        .logo-header h1 {
-            font-size: 1.25rem !important;
-        }
-        div[data-testid="stRadio"] label {
-            flex-basis: 100% !important;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-.logo-header {
-    background: white;
-    border-radius: 20px;
-    padding: 2rem;
-    margin-bottom: 2rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    text-align: center;
-}
-.logo-header img {
-    display: block;
-    margin: 0 auto 1rem auto;
-    width: 200px;
-    height: auto;
-}
-.logo-header h1 {
-    display: block !important;
-    color: #ee1515;
-    font-size: 2.5rem;
-    font-weight: 900;
-    margin: 0 0 0.5rem 0;
-}
-.logo-header p {
-    color: #64748b;
-    margin: 0;
-    font-weight: 600;
-}
-</style>
-
-<script>
-console.log('[SCRIPT] JavaScript chargé !');
-
-function styleDeltas() {
-    document.querySelectorAll('[data-testid="stMetricDelta"]').forEach(delta => {
-        delta.style.setProperty('background-color', '#22c55e', 'important');
-        delta.style.setProperty('color', 'white', 'important');
-        delta.style.setProperty('border-radius', '12px', 'important');
-        delta.style.setProperty('padding', '0.5rem 1rem', 'important');
-        delta.querySelectorAll('svg, path').forEach(svg => {
-            svg.style.setProperty('fill', 'white', 'important');
-        });
-        delta.querySelectorAll('*').forEach(el => {
-            if (el.tagName !== 'svg' && el.tagName !== 'SVG' && el.tagName !== 'path' && el.tagName !== 'PATH') {
-                el.style.setProperty('color', 'white', 'important');
-            }
-        });
-    });
-}
-styleDeltas();
-
-styleDeltas();
-
-const _obs = new MutationObserver(function(muts) { 
-    styleDeltas();
-});
-_obs.observe(document.body, { childList: true, subtree: false });
-</script>
-
-""", unsafe_allow_html=True)
+    st.markdown(
+        '<style>.ps-app-header { display: none !important; }</style>',
+        unsafe_allow_html=True,
+    )
 
 try:
     import os
@@ -2511,796 +2335,16 @@ try:
 except:
     logo_src = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png"
 
-st.markdown(f"""
-<div class="logo-header">
-    <img src="{logo_src}" alt="Pokestock">
-    <h1>POKESTOCK</h1>
-    <p>Stock, ventes et lots Pokémon</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    render_app_header(logo_src, mobile=is_mobile_mode()),
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
-<style>
-    .stApp::before,
-    .stApp::after {
-        content: none !important;
-        display: none !important;
-        background-image: none !important;
-        animation: none !important;
-    }
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-    h1 {display: none;}
-    :root {
-        --pokemon-red: #ee1515;
-        --pokemon-blue: #3b4cca;
-        --pokemon-yellow: #ffde00;
-        --pokemon-green: #22c55e;
-        --text-primary: #1e293b;
-        --text-secondary: #64748b;
-        --border: #e2e8f0;
-    }
-    .stApp {
-        background: #f0f4f8;
-        font-family: 'Inter', sans-serif;
-    }
-    div[style*="display: flex"][style*="justify-content: center"] img {
-        margin: 0 auto !important;
-        display: block !important;
-    }
-    [data-testid="stSidebar"] {
-        background: white;
-        border-right: 4px solid var(--pokemon-red);
-        overflow-y: auto !important;
-        max-height: 100vh !important;
-    }
-    [data-testid="stSidebar"] > div {
-        overflow-y: auto !important;
-        max-height: calc(100vh - 2rem) !important;
-    }
-    [data-testid="stSidebar"]::before {
-        content: '';
-        display: block;
-        width: 100%;
-        height: 180px;
-        background-image: url('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png');
-        background-size: contain;
-        background-repeat: no-repeat;
-        background-position: center;
-        margin-bottom: 1rem;
-        opacity: 0.12;
-    }
-    [data-testid="stSidebar"] h2 {
-        font-size: 0.75rem;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: var(--pokemon-red);
-        margin-bottom: 1.5rem;
-        padding: 0.75rem;
-        background: #fee2e2;
-        border-radius: 8px;
-        text-align: center;
-    }
-    [data-testid="stMetric"] {
-        background: white;
-        border: 3px solid var(--border);
-        border-radius: 16px;
-        padding: 1.5rem;
-        padding-top: 2rem;
-        transition: all 0.2s ease;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        position: relative;
-        overflow: visible;
-    }
-    [data-testid="column"]:has([data-testid="stMetric"]) img {
-        position: absolute !important;
-        top: -15px !important;
-        right: 15px !important;
-        width: 50px !important;
-        height: 50px !important;
-        background: white !important;
-        border: 3px solid #e2e8f0 !important;
-        border-radius: 50% !important;
-        padding: 5px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
-        z-index: 10 !important;
-        margin: 0 !important;
-    }
-    [data-testid="stMetric"]:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
-        border-color: var(--pokemon-yellow);
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.875rem;
-        font-weight: 700;
-        color: var(--text-primary) !important;
-        text-transform: uppercase;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 2.25rem;
-        font-weight: 900;
-        color: var(--text-primary) !important;
-    }
-    [data-testid="stMetricDelta"] {
-        border-radius: 12px !important;
-        padding: 0.4rem 0.8rem !important;
-        margin-top: 0.5rem !important;
-        display: inline-block !important;
-    }
-    [data-testid="stMetricDelta"] > div,
-    [data-testid="stMetricDelta"] > div > div {
-        background: transparent !important;
-        background-color: transparent !important;
-    }
-    [data-testid="stMetricDelta"],
-    [data-testid="stMetricDelta"] *:not(svg):not(path) {
-        color: #000000 !important;
-        font-weight: 700 !important;
-    }
-    /* Cacher l'icône SVG (flèche/carré) */
-    [data-testid="stMetricDelta"] svg {
-        display: none !important;
-    }
-    .stMarkdown, .stMarkdown p, .stMarkdown span,
-    [data-testid="stCaptionContainer"],
-    [data-testid="stText"],
-    .element-container,
-    div[data-testid="column"] > div,
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
-    label, .stSelectbox label, .stTextInput label, .stNumberInput label {
-        color: var(--text-primary) !important;
-    }
-    .stButton > button {
-        background: white;
-        color: var(--text-primary);
-        border: 3px solid var(--border);
-        border-radius: 12px;
-        padding: 0.875rem 1.5rem;
-        font-weight: 700;
-        font-size: 0.875rem;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
-    }
-    .stButton > button:hover {
-        background: #fef3c7;
-        border-color: var(--pokemon-yellow);
-        transform: translateY(-2px);
-    }
-    .stButton > button[kind="primary"] {
-        background: #22c55e !important;
-        color: white !important;
-        border-color: #16a34a !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        background: #16a34a !important;
-    }
-    .stForm button,
-    .stForm button *,
-    .stForm button[kind="primary"],
-    .stForm button[type="submit"],
-    button[kind="primary"],
-    button[type="submit"] {
-        background: #1e293b !important;
-        background-color: #1e293b !important;
-        color: #ffffff !important;
-        border: 3px solid #475569 !important;
-        border-radius: 12px !important;
-        padding: 0.75rem 1.5rem !important;
-        font-weight: 700 !important;
-        transition: background 0.2s ease !important;
-    }
-    .stForm button:hover,
-    .stForm button:hover *,
-    .stForm button:focus,
-    .stForm button:focus *,
-    .stForm button:active,
-    .stForm button:active *,
-    .stForm button[kind="primary"]:hover,
-    .stForm button[kind="primary"]:hover *,
-    .stForm button[type="submit"]:hover,
-    .stForm button[type="submit"]:hover *,
-    button[kind="primary"]:hover,
-    button[kind="primary"]:hover *,
-    button[type="submit"]:hover,
-    button[type="submit"]:hover * {
-        background: #334155 !important;
-        background-color: #334155 !important;
-        color: #ffffff !important;
-        border-color: #64748b !important;
-    }
-    .stForm button span,
-    .stForm button div,
-    .stForm button p,
-    .stForm button:hover span,
-    .stForm button:hover div,
-    .stForm button:hover p,
-    .stForm button:focus span,
-    .stForm button:active span {
-        color: #ffffff !important;
-    }
-    .stTextInput > div > div > input,
-    .stNumberInput > div > div > input,
-    .stSelectbox > div > div > select {
-        background: #1e293b !important;
-        background-color: #1e293b !important;
-        border: 3px solid var(--border);
-        border-radius: 12px;
-        padding: 0.75rem 1rem;
-        font-weight: 600;
-        transition: all 0.2s ease;
-        color: white !important;
-    }
-    .stSelectbox > div > div > div {
-        background: #1e293b !important;
-        color: #ffffff !important;
-    }
-    /* Texte sélectionné visible dans le selectbox */
-    .stSelectbox [data-baseweb="select"] span,
-    .stSelectbox [data-baseweb="select"] div,
-    .stSelectbox [data-baseweb="select"] p,
-    .stSelectbox [data-baseweb="select"] [data-testid="stMarkdownContainer"],
-    .stSelectbox svg {
-        color: #ffffff !important;
-        fill: #ffffff !important;
-    }
-    /* Dropdown ouvert - options lisibles */
-    [data-baseweb="menu"],
-    [data-baseweb="menu"] *,
-    [data-baseweb="menu"] li,
-    [data-baseweb="menu"] ul,
-    [role="listbox"],
-    [role="listbox"] *,
-    [role="option"],
-    [role="option"] * {
-        background-color: #334155 !important;
-        color: #ffffff !important;
-    }
-    [role="option"]:hover,
-    [role="option"]:hover * {
-        background-color: #475569 !important;
-        color: #ffffff !important;
-    }
-    .stTextInput > div > div > input::placeholder,
-    .stNumberInput > div > div > input::placeholder {
-        color: #94a3b8 !important;
-    }
-    .stSelectbox option,
-    .stSelectbox option * {
-        background: #64748b !important;
-        background-color: #64748b !important;
-        color: #ffffff !important;
-        padding: 0.5rem !important;
-        font-weight: 600 !important;
-    }
-    .stSelectbox [data-baseweb="popover"],
-    .stSelectbox [data-baseweb="popover"] * {
-        background: #64748b !important;
-        background-color: #64748b !important;
-        color: #ffffff !important;
-    }
-    .stSelectbox [role="option"],
-    .stSelectbox [role="option"] * {
-        background: #64748b !important;
-        background-color: #64748b !important;
-        color: #ffffff !important;
-        padding: 0.75rem !important;
-        font-weight: 600 !important;
-    }
-    .stSelectbox [role="option"]:hover {
-        background: #94a3b8 !important;
-        background-color: #94a3b8 !important;
-        color: #ffffff !important;
-    }
-    .stSelectbox div[data-baseweb="select"] > div {
-        background: #1e293b !important;
-        color: #ffffff !important;
-    }
-    .stSelectbox ul,
-    .stSelectbox ul li {
-        background: #64748b !important;
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-    .stSelectbox [role="listbox"] * {
-        color: #ffffff !important;
-    }
-    .stRadio > div {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-    .stRadio label {
-        background: #1e293b !important;
-        color: white !important;
-        padding: 0.5rem 1rem !important;
-        border-radius: 8px !important;
-        border: 2px solid #475569 !important;
-        cursor: pointer !important;
-        font-weight: 600 !important;
-        transition: all 0.2s ease !important;
-    }
-    .stRadio label:hover {
-        background: #334155 !important;
-        border-color: #64748b !important;
-    }
-    .stRadio input:checked + div,
-    .stRadio label:has(input:checked),
-    div[data-testid="stRadio"] [aria-checked="true"],
-    div[data-testid="stRadio"] label:focus,
-    div[data-testid="stRadio"] label:focus-within {
-        background: #1e293b !important;
-        border-color: #ffffff !important;
-        color: white !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    input:-webkit-autofill,
-    input:-webkit-autofill:hover,
-    input:-webkit-autofill:focus,
-    input:-webkit-autofill:active {
-        -webkit-box-shadow: 0 0 0 30px #1e293b inset !important;
-        -webkit-text-fill-color: white !important;
-        box-shadow: 0 0 0 30px #1e293b inset !important;
-    }
-    .stTextInput > div > div > input:focus,
-    .stNumberInput > div > div > input:focus {
-        border-color: var(--pokemon-blue);
-        box-shadow: 0 0 0 4px rgba(59, 76, 202, 0.1);
-    }
-    [data-testid="stExpander"] {
-        background: white;
-        border: 3px solid var(--border);
-        border-left: 8px solid;
-        border-radius: 12px;
-        margin: 1rem 0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        position: relative;
-    }
-    [data-testid="stExpander"].lot-profitable {
-        border-left-color: #22c55e !important;
-    }
-    [data-testid="stExpander"].lot-not-profitable {
-        border-left-color: #ee1515 !important;
-    }
-    [data-testid="stExpander"]::before {
-        content: '';
-        position: absolute;
-        top: 12px;
-        right: 50px;
-        width: 35px;
-        height: 35px;
-        background-image: url('https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png');
-        background-size: contain;
-        opacity: 0.2;
-    }
-    [data-testid="stExpander"]:hover {
-        transform: translateX(4px);
-    }
-    [data-testid="stExpander"] summary {
-        font-weight: 800;
-        padding: 1.25rem 1.5rem;
-        background: #fafafa;
-        color: var(--text-primary);
-    }
-    .badge {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        margin: 0.25rem;
-        text-transform: uppercase;
-        border: 2px solid;
-    }
-    .badge-reverse {
-        background: #f3e8ff;
-        color: #7c3aed;
-        border-color: #7c3aed;
-    }
-    .badge-ed1 {
-        background: #fee2e2;
-        color: var(--pokemon-red);
-        border-color: var(--pokemon-red);
-    }
-    .badge-profitable {
-        background: #dcfce7;
-        color: var(--pokemon-green);
-        border-color: var(--pokemon-green);
-    }
+st.markdown(inject_theme(mobile=is_mobile_mode()), unsafe_allow_html=True)
+if is_mobile_mode():
+    st.markdown(inject_mobile_overrides(), unsafe_allow_html=True)
 
-    /* ── Alignement grille cartes ── */
-    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
-        height: 100%;
-    }
-    /* Forcer même hauteur sur toutes les colonnes de la grille */
-    [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] {
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div {
-        flex: 1 !important;
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    /* Images dans la grille cartes - taille uniforme sans rogner */
-    [data-testid="stExpander"] [data-testid="stImage"] img,
-    .card-grid-col [data-testid="stImage"] img,
-    [data-testid="stHorizontalBlock"] [data-testid="stImage"] img {
-        border-radius: 12px;
-        border: 3px solid var(--border);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-        transition: all 0.3s ease;
-        width: 100% !important;
-        max-height: 340px !important;
-        height: auto !important;
-        object-fit: contain !important;
-        display: block !important;
-        background: transparent;
-    }
-    /* Supprimer le fond blanc du conteneur stImage */
-    [data-testid="stExpander"] [data-testid="stImage"],
-    [data-testid="stHorizontalBlock"] [data-testid="stImage"],
-    [data-testid="stImage"] {
-        background: transparent !important;
-        padding: 0 !important;
-    }
-    [data-testid="stImage"] > div,
-    [data-testid="stImage"] > div > div {
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    [data-testid="stExpander"] [data-testid="stImage"] img:hover,
-    .card-grid-col [data-testid="stImage"] img:hover,
-    [data-testid="stHorizontalBlock"] [data-testid="stImage"] img:hover {
-        transform: scale(1.05) rotate(2deg);
-        border-color: var(--pokemon-yellow);
-        box-shadow: 0 12px 32px rgba(238, 21, 21, 0.3);
-    }
-
-    hr {
-        border: none;
-        height: 4px;
-        background: var(--pokemon-yellow);
-        margin: 2rem 0;
-        border-radius: 2px;
-    }
-    .stSuccess {
-        background: #dcfce7;
-        border: 3px solid var(--pokemon-green);
-        border-radius: 12px;
-        padding: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-    .stWarning {
-        background: #fed7aa;
-        border: 3px solid #ff7518;
-        border-radius: 12px;
-        padding: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-    h2 {
-        font-size: 1.75rem;
-        font-weight: 900;
-        color: var(--pokemon-blue);
-        text-transform: uppercase;
-        margin-bottom: 2rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 4px solid var(--pokemon-yellow);
-    }
-    .price-lg {
-        font-size: 1.5rem;
-        font-weight: 900;
-        color: var(--pokemon-green);
-    }
-    p, span, div, label, .stMarkdown, 
-    [data-testid="stCaptionContainer"],
-    [data-testid="stText"] {
-        color: var(--text-primary) !important;
-    }
-    .stTextInput label, 
-    .stNumberInput label,
-    .stSelectbox label,
-    .stCheckbox label {
-        color: var(--text-primary) !important;
-    }
-    div[data-testid="stRadio"] label p,
-    div[data-testid="stRadio"] label span {
-        color: #ffffff !important;
-    }
-    @media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
-        .stApp::before,
-        .stApp::after {
-            content: none !important;
-            display: none !important;
-            background-image: none !important;
-            animation: none !important;
-            opacity: 0 !important;
-        }
-        img[src*="/pokemon/other/official-artwork/25"],
-        img[src*="/pokemon/other/official-artwork/133"] {
-            display: none !important;
-            opacity: 0 !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {
-            background: #d8e7ff !important;
-            background-color: #d8e7ff !important;
-            margin: 0 !important;
-            padding: 0.1rem 0.35rem !important;
-            position: sticky !important;
-            z-index: 6900 !important;
-            overflow: hidden !important;
-            box-shadow: 0 -18px 0 #d8e7ff, 0 18px 0 #d8e7ff !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div {
-            top: 0 !important;
-            border-radius: 14px 14px 0 0 !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div {
-            top: 1.7rem !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div {
-            top: 4.1rem !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {
-            top: 6.6rem !important;
-            border-radius: 0 0 14px 14px !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stHorizontalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stHorizontalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stHorizontalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stHorizontalBlock"] {
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 0.2rem !important;
-            align-items: stretch !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="column"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="column"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="column"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="column"] {
-            flex: 1 1 0 !important;
-            min-width: 0 !important;
-            width: auto !important;
-            padding: 0 !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-testid="stVerticalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-testid="stVerticalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-testid="stVerticalBlock"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-testid="stVerticalBlock"] {
-            gap: 0.05rem !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div p,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div p,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div p,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div p {
-            font-size: 0.62rem !important;
-            line-height: 0.95 !important;
-            margin: 0 !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div label,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div label {
-            min-height: 0 !important;
-            height: 0.75rem !important;
-            overflow: hidden !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div input,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div input,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div input,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div input,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div [data-baseweb="select"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div [data-baseweb="select"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div [data-baseweb="select"],
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div [data-baseweb="select"] {
-            min-height: 1.55rem !important;
-            height: 1.55rem !important;
-            font-size: 0.68rem !important;
-            padding: 0.08rem 0.3rem !important;
-            border-radius: 8px !important;
-        }
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div button,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div button,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div button,
-        [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div button {
-            min-height: 1.55rem !important;
-            height: 1.55rem !important;
-            padding: 0.08rem 0.35rem !important;
-            font-size: 0.68rem !important;
-            border-radius: 8px !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
-            display: grid !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            gap: 0.18rem !important;
-            align-items: start !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: none !important;
-            flex: none !important;
-            padding: 0 !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] {
-            min-height: 0 !important;
-            height: auto !important;
-            display: block !important;
-            margin: 0 0 0.05rem 0 !important;
-            overflow: visible !important;
-            background: transparent !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img {
-            width: 100% !important;
-            height: auto !important;
-            max-height: none !important;
-            max-width: 100% !important;
-            object-fit: contain !important;
-            border-radius: 9px !important;
-            border-width: 1px !important;
-            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
-            font-size: 0.55rem !important;
-            line-height: 1.08 !important;
-            margin: 0 !important;
-            min-height: 0.7rem !important;
-            display: block !important;
-            overflow-wrap: anywhere !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stVerticalBlock"],
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
-            gap: 0.04rem !important;
-            margin-top: 0 !important;
-            margin-bottom: 0 !important;
-            min-height: 0 !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] {
-            min-height: 0.72rem !important;
-            overflow: visible !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"]) {
-            min-height: 0.72rem !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) button,
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) input {
-            min-height: 1.8rem !important;
-            height: 1.8rem !important;
-            font-size: 0.68rem !important;
-            padding: 0.06rem 0.25rem !important;
-            border-radius: 8px !important;
-        }
-        .mobile-card-grid {
-            display: grid !important;
-            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-            gap: 0.35rem !important;
-            width: 100% !important;
-        }
-        .mobile-card {
-            min-width: 0 !important;
-            overflow: hidden !important;
-            font-size: 0.58rem !important;
-            line-height: 1.05 !important;
-            color: #1e293b !important;
-        }
-        .mobile-card img {
-            width: 100% !important;
-            height: 88px !important;
-            object-fit: contain !important;
-            border-radius: 7px !important;
-            border: 1px solid #dbe4f0 !important;
-            background: white !important;
-            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
-        }
-        .mobile-card-name {
-            margin-top: 0.12rem !important;
-            font-weight: 800 !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-        }
-        .mobile-card-meta {
-            color: #64748b !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-        }
-        body:has([data-sale-mobile-marker]) .block-container,
-        .stApp:has([data-sale-mobile-marker]) .block-container,
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) .block-container {
-            max-width: 100% !important;
-            padding-left: 0.35rem !important;
-            padding-right: 0.35rem !important;
-        }
-        body:has([data-sale-mobile-marker]) h3,
-        .stApp:has([data-sale-mobile-marker]) h3,
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) h3 {
-            font-size: 1.15rem !important;
-            line-height: 1.12 !important;
-            margin: 0.35rem 0 0.18rem 0 !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]),
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]),
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            column-gap: 0.06rem !important;
-            row-gap: 0.22rem !important;
-            overflow: visible !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) > div[data-testid="column"] {
-            overflow: visible !important;
-            padding: 0 !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] {
-            overflow: visible !important;
-            margin: 0 0 0.08rem 0 !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stImage"] img,
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="wsrv.nl"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) img[src*="tcgdex.net"] {
-            width: 110% !important;
-            max-width: none !important;
-            height: auto !important;
-            max-height: none !important;
-            margin-left: -5% !important;
-            margin-right: -5% !important;
-            object-fit: contain !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
-            min-height: 0.58rem !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stMarkdownContainer"] p,
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stCaptionContainer"] {
-            font-size: 0.52rem !important;
-            line-height: 1.02 !important;
-            margin: 0 !important;
-        }
-        body:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"],
-        .stApp:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"],
-        section[data-testid="stMain"]:has([data-sale-mobile-marker]) div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) [data-testid="stElementContainer"] {
-            margin-top: 0 !important;
-            margin-bottom: 0 !important;
-            min-height: 0.62rem !important;
-        }
-    }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(inject_functional_css(), unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -3517,14 +2561,43 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = page_map.get(query_page, "Vente" if is_mobile_mode() else "Accueil")
 
 with st.sidebar:
-    st.header("STATISTIQUES")
-    st.caption(f"Version : {APP_BUILD}")
-    with st.expander("⚙️ Maintenance", expanded=False):
-        st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage plus compact pour vendre depuis le téléphone.")
+    st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
+    sts = gst()
+    sidebar_stats = [
+        ("Vendues", str(sts["sold_cards"])),
+        ("En stock", str(sts["remaining_cards"])),
+        ("Valeur stock", fp(sts["stock_value"])),
+        ("CA", fp(sts["total_revenue"])),
+        ("Bénéfice", fp(sts["total_profit"])),
+    ]
+    st.markdown(
+        '<div class="ps-sidebar-stats">'
+        + "".join(render_sidebar_stat(label, value) for label, value in sidebar_stats)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    for section in NAV_SECTIONS:
+        st.markdown(
+            f'<div class="ps-nav-section-label">{section["label"]}</div>',
+            unsafe_allow_html=True,
+        )
+        for page, label, icon in section["items"]:
+            btn_type = "primary" if st.session_state.current_page == page else "secondary"
+            st.button(
+                f"{icon}  {label}",
+                width="stretch",
+                key=f"nav_{page.lower()}",
+                type=btn_type,
+                on_click=set_current_page,
+                args=(page,),
+            )
+    st.markdown("---")
+    with st.expander("⚙️ Paramètres", expanded=False):
+        st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
         cloud_ready, cloud_message = cloud_sync_status()
         if cloud_ready:
             st.caption(f"☁️ {cloud_message}")
-            if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud"):
+            if st.button("☁️ Envoyer vers le cloud", width="stretch", key="push_data_to_cloud"):
                 if save_cloud_json(SUPABASE_DATA_KEY, ld()):
                     st.success("Données envoyées dans le cloud.")
                 else:
@@ -3540,68 +2613,16 @@ with st.sidebar:
         if st.session_state.get("last_auto_backup_message"):
             st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
         elif last_weekly_path:
-            st.caption(f"🛡️ Dernière sauvegarde hebdo : {os.path.basename(last_weekly_path)}")
+            st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
         else:
             st.caption("🛡️ Sauvegarde locale prête")
-        if st.button("🛡️ Sauvegarde locale maintenant", width="stretch", key="manual_local_backup"):
+        if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
             try:
                 path, copied = create_local_backup("manual", include_images=True)
                 cleanup_old_backups()
                 st.success(f"Sauvegarde créée : {os.path.basename(path)}")
             except Exception as e:
                 st.error(f"Sauvegarde impossible : {e}")
-    sts=gst()
-    
-    pokeballs = [
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/great-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/ultra-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/master-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/luxury-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/premier-ball.png"
-    ]
-    
-    metrics_data = [
-        ("Vendues", sts["sold_cards"], None),
-        ("En stock", sts["remaining_cards"], None),
-        ("Valeur stock", fp(sts["stock_value"]), None),
-        ("Chiffre d'affaires", fp(sts["total_revenue"]), None),
-        ("Bénéfice net", fp(sts["total_profit"]), fp(sts["total_profit"]) if sts["total_profit"] != 0 else None),
-    ]
-    
-    for idx, (label, value, delta) in enumerate(metrics_data):
-        if delta and delta != "0.00€":
-            delta_val = float(delta.replace("€", "").replace(",", "."))
-            if delta_val > 0:
-                delta_bg = "#22c55e"
-                delta_arrow = "↑"
-            else:
-                delta_bg = "#ef4444"
-                delta_arrow = "↓"
-            delta_html = f'<div style="display: inline-block; background: {delta_bg}; color: white; font-size: 0.875rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 12px; margin-top: 0.5rem;">{delta_arrow} {delta}</div>'
-        else:
-            delta_html = ''
-        
-        st.markdown(f"""
-        <div style="position: relative; background: white; border: 3px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-            <img src="{pokeballs[idx]}" style="position: absolute; top: -15px; right: 15px; width: 45px; height: 45px; background: white; border: 3px solid #e2e8f0; border-radius: 50%; padding: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-            <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{label}</div>
-            <div style="font-size: 2rem; font-weight: 900; color: #1e293b; margin-bottom: 0.25rem;">{value}</div>
-            {delta_html}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    st.header("NAVIGATION")
-    st.button("Accueil", width="stretch", key="nav_accueil", on_click=set_current_page, args=("Accueil",))
-    st.button("Vente/Échange", width="stretch", key="nav_vente", on_click=set_current_page, args=("Vente",))
-    st.button("Lots", width="stretch", key="nav_lots", on_click=set_current_page, args=("Lots",))
-    st.button("Collection", width="stretch", key="nav_collection", on_click=set_current_page, args=("Collection",))
-    st.button("Estimations", width="stretch", key="nav_estimations", on_click=set_current_page, args=("Estimations",))
-    st.button("Historique", width="stretch", key="nav_historique", on_click=set_current_page, args=("Historique",))
-    st.button("📊 Statistiques", width="stretch", key="nav_statistiques", on_click=set_current_page, args=("Statistiques",))
-    st.button("🎰 Compteurs", width="stretch", key="nav_compteurs", on_click=set_current_page, args=("Compteurs",))
-    st.button("Archivés", width="stretch", key="nav_archives", on_click=set_current_page, args=("Archivés",))
 
 if st.session_state.get("current_page") != "Vente":
     run_html("""
@@ -3618,58 +2639,43 @@ if st.session_state.get("current_page") != "Vente":
 # PAGE ACCUEIL
 # ============================================================
 if st.session_state.current_page=="Accueil":
-    st.markdown('<h2>Tableau de bord</h2>', unsafe_allow_html=True)
-    
-    pokeballs_main = [
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/quick-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/timer-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/repeat-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/net-ball.png",
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/dusk-ball.png"
-    ]
-    
+    st.markdown(
+        render_page_header("Tableau de bord", "Vue d'ensemble de votre activité", "📊"),
+        unsafe_allow_html=True,
+    )
+
     metrics_main = [
-        ("VENDUES", str(sts["sold_cards"]), None),
-        ("EN STOCK", str(sts["remaining_cards"]), None),
-        ("VALEUR STOCK", fp(sts["stock_value"]), None),
-        ("CA", fp(sts["total_revenue"]), None),
-        ("BÉNÉFICE NET", fp(sts["total_profit"]), fp(sts["total_profit"]) if sts["total_profit"] != 0 else None)
+        ("Vendues", str(sts["sold_cards"]), None, "✅"),
+        ("En stock", str(sts["remaining_cards"]), None, "📦"),
+        ("Valeur stock", fp(sts["stock_value"]), None, "💎"),
+        ("Chiffre d'affaires", fp(sts["total_revenue"]), None, "💰"),
+        ("Bénéfice net", fp(sts["total_profit"]), fp(sts["total_profit"]) if sts["total_profit"] != 0 else None, "📈"),
     ]
-    
+
     c1, c2, c3, c4, c5 = st.columns(5)
     cols = [c1, c2, c3, c4, c5]
-    
-    for idx, (col, (label, value, delta)) in enumerate(zip(cols, metrics_main)):
+    for idx, (col, (label, value, delta, icon)) in enumerate(zip(cols, metrics_main)):
         with col:
-            if delta and delta != "0.00€":
-                delta_val = float(delta.replace("€", "").replace(",", "."))
-                if delta_val > 0:
-                    delta_bg = "#22c55e"
-                    delta_arrow = "↑"
-                else:
-                    delta_bg = "#ef4444"
-                    delta_arrow = "↓"
-                delta_html = f'<div style="display: inline-block; background: {delta_bg}; color: white; font-size: 0.875rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 12px; margin-top: 0.5rem;">{delta_arrow} {delta}</div>'
-            else:
-                delta_html = ''
-                
-            st.markdown(f'''
-            <div style="position: relative; background: white; border: 3px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; padding-top: 2rem; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                <img src="{pokeballs_main[idx]}" style="position: absolute; top: -15px; right: 15px; width: 50px; height: 50px; background: white; border: 3px solid #e2e8f0; border-radius: 50%; padding: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">{label}</div>
-                <div style="font-size: 2rem; font-weight: 900; color: #1e293b; margin-bottom: 0.25rem;">{value}</div>
-                {delta_html}
-            </div>
-            ''', unsafe_allow_html=True)
-    
-    st.markdown("---")
-    c1,c2=st.columns(2)
-    c1.button("Nouvelle vente",width="stretch",on_click=set_current_page,args=("Vente",))
-    c2.button("Gérer les lots",width="stretch",on_click=set_current_page,args=("Lots",))
+            st.markdown(
+                render_kpi_card(
+                    label,
+                    value,
+                    delta=delta,
+                    accent=KPI_ACCENTS[idx % len(KPI_ACCENTS)],
+                    icon=icon,
+                ),
+                unsafe_allow_html=True,
+            )
 
-    # ── Graphiques d'évolution CA + Bénéfice ──
+    c1, c2 = st.columns(2)
+    c1.button("💰 Nouvelle vente", width="stretch", type="primary", on_click=set_current_page, args=("Vente",))
+    c2.button("📦 Gérer les lots", width="stretch", on_click=set_current_page, args=("Lots",))
+
     st.markdown("---")
-    st.markdown('<h2>📈 Évolution</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Évolution", "Chiffre d'affaires et bénéfice cumulés", "📈"),
+        unsafe_allow_html=True,
+    )
 
     # Collecter toutes les ventes avec date
     all_sales = []
@@ -3682,9 +2688,11 @@ if st.session_state.current_page=="Accueil":
     if os.path.exists(archive_file):
         try:
             with open(archive_file,"r",encoding="utf-8") as f:
-                all_lots_graph += json.load(f)
-            total_cost_graph += sum(l.get("prix_achat",0.) for l in json.load(open(archive_file,"r",encoding="utf-8")))
-        except:
+                archives = json.load(f)
+                all_lots_graph += archives
+                total_cost_graph += sum(l.get("prix_achat",0.) for l in archives)
+        except Exception as e:
+            st.warning(f"Erreur lors de la lecture des archives: {e}")
             pass
 
     for lot_g in all_lots_graph:
@@ -3733,13 +2741,13 @@ if st.session_state.current_page=="Accueil":
             # Ligne 0
             fig.add_hline(y=0, line_dash="dash", line_color="#ee1515", line_width=1, opacity=0.5)
             fig.update_layout(
-                paper_bgcolor='white', plot_bgcolor='white',
-                font=dict(family='Inter', color='#1e293b'),
-                legend=dict(orientation='h', y=1.1),
-                margin=dict(l=20, r=20, t=20, b=20),
-                xaxis=dict(gridcolor='#f1f5f9', showgrid=True),
-                yaxis=dict(gridcolor='#f1f5f9', showgrid=True, ticksuffix='€'),
-                height=350
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(family='Plus Jakarta Sans', color='#0f172a', size=12),
+                legend=dict(orientation='h', y=1.12, font=dict(size=11)),
+                margin=dict(l=12, r=12, t=12, b=12),
+                xaxis=dict(gridcolor='#e2e8f0', showgrid=True, linecolor='#e2e8f0'),
+                yaxis=dict(gridcolor='#e2e8f0', showgrid=True, ticksuffix='€', linecolor='#e2e8f0'),
+                height=360,
             )
             st.plotly_chart(fig, width="stretch")
         except ImportError:
@@ -3752,7 +2760,10 @@ if st.session_state.current_page=="Accueil":
 
     # ── Recherche globale ──
     st.markdown("---")
-    st.markdown('<h2>🔍 Recherche globale</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Recherche globale", "Trouver une carte dans tous les lots", "🔍"),
+        unsafe_allow_html=True,
+    )
     search_global = st.text_input("🔍 Recherche", placeholder="Chercher une carte dans tous les lots...", key="global_search")
 
     if search_global and len(search_global) >= 2:
@@ -3827,7 +2838,10 @@ elif st.session_state.current_page=="Vente":
         })();
         </script>
         """, height=0)
-    st.markdown('<h2>💰 Vente / Échange</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Vente / Échange", "Vendre, négocier et gérer les échanges", "💰"),
+        unsafe_allow_html=True,
+    )
     
     tab2, tab3 = st.tabs(["💰 Vente", "🔄 Échange"])
 
@@ -4101,7 +3115,7 @@ elif st.session_state.current_page=="Vente":
         migrate_open_trade_cards(cd_sw)
         if json.dumps(cd_sw.get("lots", []), ensure_ascii=False, sort_keys=True) != trade_snapshot:
             sd(cd_sw)
-            cd_sw = ld()
+            # No need to reload - sd() updates the cache
 
         # ── Panier d'échange (cartes à donner) ──
         if "swap_cart_give" not in st.session_state:
@@ -4390,7 +3404,10 @@ elif st.session_state.current_page=="Vente":
 # PAGE LOTS
 # ============================================================
 elif st.session_state.current_page=="Lots":
-    st.markdown('<h2>Gestion des lots</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
+        unsafe_allow_html=True,
+    )
 
     cd = ld()  # Charger les données en premier
     lots_snapshot = json.dumps(cd.get("lots", []), ensure_ascii=False, sort_keys=True)
@@ -4398,7 +3415,7 @@ elif st.session_state.current_page=="Lots":
     migrate_open_trade_cards(cd)
     if json.dumps(cd.get("lots", []), ensure_ascii=False, sort_keys=True) != lots_snapshot:
         sd(cd)
-        cd = ld()
+        # No need to reload - sd() updates the cache
 
     # Bordures et ouverture rapide des lots sans charger tous les détails d'un coup.
     run_html("""<script>
@@ -5348,7 +4365,10 @@ elif st.session_state.current_page=="Lots":
 # PAGE HISTORIQUE
 # ============================================================
 elif st.session_state.current_page=="Collection":
-    st.markdown('<h2>Collection</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Collection", "Cartes conservées et pièces de collection", "🧾"),
+        unsafe_allow_html=True,
+    )
     st.caption("Cartes marquées comme Collection dans les lots ou créées depuis une estimation.")
 
     cd_collection = ld()
@@ -5390,7 +4410,10 @@ elif st.session_state.current_page=="Collection":
                     st.caption(f"📦 {lot.get('nom','Lot')} · x{int(card.get('quantity',1) or 1)} · {fp(float(card.get('suggested_price',0) or 0))}")
 
 elif st.session_state.current_page=="Estimations":
-    st.markdown('<h2>Estimations de lots</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Estimations de lots", "Calcul d'offre d'achat et conversion en lot", "📉"),
+        unsafe_allow_html=True,
+    )
     st.caption("Prépare un rachat avant d'acheter : ajoute les cartes, choisis le type d'achat, puis regarde le prix maximum conseillé.")
 
     edata = load_estimations()
@@ -5409,12 +4432,22 @@ elif st.session_state.current_page=="Estimations":
         box-shadow:0 3px 10px rgba(15,23,42,0.08);
     }
     .estimate-thumb {
-        width:72px;
-        height:72px;
+        width:112px;
+        height:138px;
         object-fit:cover;
         border-radius:8px;
         border:2px solid #e2e8f0;
         background:#f8fafc;
+    }
+    .estimate-thumb-pair {
+        display:flex;
+        gap:0.55rem;
+        align-items:center;
+        margin:0.35rem 0 0.8rem 2rem;
+    }
+    .estimate-thumb-pair .estimate-thumb {
+        width:112px;
+        height:138px;
     }
     .estimate-card-tile {
         margin-bottom:1rem;
@@ -5438,19 +4471,98 @@ elif st.session_state.current_page=="Estimations":
         background:#fef3c7;
         color:#92400e;
     }
+    [data-estimation-page-marker] ~ div button,
+    [data-testid="stElementContainer"]:has([data-estimation-page-marker]) ~ div button {
+        min-height:2.35rem !important;
+        height:auto !important;
+        padding:0.45rem 0.75rem !important;
+        border-radius:8px !important;
+        font-size:0.9rem !important;
+        box-shadow:none !important;
+        background-image:none !important;
+    }
+    main .stForm button,
+    main .stButton > button,
+    main button[kind="primary"],
+    main button[type="submit"] {
+        min-height:2.35rem !important;
+        height:auto !important;
+        padding:0.45rem 0.8rem !important;
+        border-radius:8px !important;
+        border-width:2px !important;
+        box-shadow:none !important;
+        background-image:none !important;
+        text-transform:none !important;
+    }
+    main .stForm button *,
+    main .stButton > button *,
+    main button[kind="primary"] *,
+    main button[type="submit"] * {
+        background:transparent !important;
+        background-color:transparent !important;
+        border:none !important;
+        box-shadow:none !important;
+        padding:0 !important;
+        color:inherit !important;
+    }
+    .stApp [data-testid="stForm"] button,
+    .stApp [data-testid="stForm"] button *,
+    .stApp [data-testid="stButton"] button,
+    .stApp [data-testid="stButton"] button * {
+        box-shadow:none !important;
+        background-image:none !important;
+    }
+    .stApp [data-testid="stForm"] button *,
+    .stApp [data-testid="stButton"] button * {
+        border:none !important;
+        outline:none !important;
+        padding:0 !important;
+    }
+    [data-testid="stElementContainer"]:has([data-estimation-page-marker]) ~ div [data-testid="stForm"] button {
+        max-width:22rem !important;
+    }
     @media (max-width:760px) {
-        .estimate-thumb { width:54px;height:54px; }
+        .estimate-thumb { width:68px;height:82px; }
+        .estimate-thumb-pair { margin:0 0 0.6rem 0.6rem; gap:0.35rem; }
+        .estimate-thumb-pair .estimate-thumb { width:68px;height:82px; }
         .estimate-card-row { padding:0.55rem 0.6rem; }
         .estimate-card-tile img { max-height:155px; object-fit:contain; }
     }
     </style>
     """, unsafe_allow_html=True)
+    st.markdown('<div data-estimation-page-marker="1"></div>', unsafe_allow_html=True)
 
     run_html("""
     <script>
     (function(){
         const doc = parent.document;
         const markerSelector = '[data-est-add-card-form-marker]';
+        function compactEstimateButtons(){
+            if (!doc.querySelector('[data-estimation-page-marker]')) return;
+            doc.querySelectorAll('main button').forEach(function(btn){
+                const txt = (btn.innerText || '').trim();
+                if (!txt) return;
+                btn.style.setProperty('min-height', '2.35rem', 'important');
+                btn.style.setProperty('height', 'auto', 'important');
+                btn.style.setProperty('padding', '0.45rem 0.75rem', 'important');
+                btn.style.setProperty('border-radius', '8px', 'important');
+                btn.style.setProperty('font-size', '0.9rem', 'important');
+                btn.style.setProperty('box-shadow', 'none', 'important');
+                btn.style.setProperty('background-image', 'none', 'important');
+                btn.style.setProperty('text-transform', 'none', 'important');
+                btn.querySelectorAll('*').forEach(function(child){
+                    child.style.setProperty('background', 'transparent', 'important');
+                    child.style.setProperty('background-color', 'transparent', 'important');
+                    child.style.setProperty('border', 'none', 'important');
+                    child.style.setProperty('box-shadow', 'none', 'important');
+                    child.style.setProperty('padding', '0', 'important');
+                    child.style.setProperty('color', 'inherit', 'important');
+                });
+                if (txt.includes('Sauvegarder') || txt.includes('Ajouter') || txt.includes('Créer')) {
+                    btn.style.setProperty('max-width', '22rem', 'important');
+                }
+            });
+        }
         function syncEstSticky(){
             const markers = Array.from(doc.querySelectorAll(markerSelector));
             markers.forEach(function(marker){
@@ -5474,6 +4586,7 @@ elif st.session_state.current_page=="Estimations":
                     part.style.setProperty('box-shadow', '0 2px 0 #dbeafe', 'important');
                 });
             });
+            compactEstimateButtons();
         }
         [100,300,700,1300,2500].forEach(function(delay){ setTimeout(syncEstSticky, delay); });
         if (!window.codexEstStickyObserver) {
@@ -5555,28 +4668,41 @@ elif st.session_state.current_page=="Estimations":
         uid = estimate.get("uid")
         active_open = st.session_state.get("active_estimation_uid") == uid
         totals = estimation_totals(estimate, settings)
-        thumb = estimate.get("listing_image_url", "")
-        if not thumb:
-            for card in estimate.get("cards", []):
-                if card.get("image_url"):
-                    thumb = card.get("image_url")
-                    break
+        listing_thumb = estimate.get("listing_image_url", "")
+        if not listing_thumb and estimate.get("listing_url"):
+            listing_thumb = fetch_listing_preview_image(estimate.get("listing_url", ""))
+            if listing_thumb:
+                estimate["listing_image_url"] = listing_thumb
+                save_estimations(edata)
+        top_card_thumb = ""
+        top_card = None
+        for card in estimate.get("cards", []):
+            if not card.get("image_url"):
+                continue
+            if top_card is None or float(card.get("cote", 0.) or 0.) > float(top_card.get("cote", 0.) or 0.):
+                top_card = card
+                top_card_thumb = card.get("image_url", "")
 
-        row_cols = st.columns([0.18, 1.6, 0.55, 0.55, 0.45])
-        with row_cols[0]:
-            if thumb:
-                st.markdown(f'<img class="estimate-thumb" src="{html.escape(proxy_img(thumb), quote=True)}">', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="estimate-thumb" style="display:flex;align-items:center;justify-content:center;">📦</div>', unsafe_allow_html=True)
-        row_cols[1].markdown(f"**{'▼' if active_open else '›'} {estimate.get('name','Estimation')}**  \n{estimate.get('source','Vinted')} · {estimate.get('status','En cours')}")
-        row_cols[2].metric("Cote revente", fp(totals["total_cote"]))
-        row_cols[3].metric("Rachat max", fp(totals["max_buy"]), f"{totals['pct']:.0f}%")
-        if row_cols[4].button("Ouvrir" if not active_open else "Fermer", key=f"open_est_{uid}", width="stretch"):
+        row_prefix = "▼" if active_open else "›"
+        row_label = (
+            f"{row_prefix} {estimate.get('name','Estimation')} - "
+            f"{estimate.get('source','Vinted')} · {estimate.get('status','En cours')} · "
+            f"Cote {fp(totals['total_cote'])} · Rachat max {fp(totals['max_buy'])}"
+        )
+        if st.button(row_label, key=f"open_est_{uid}", width="stretch"):
             if active_open:
                 st.session_state["active_estimation_uid"] = ""
             else:
                 st.session_state["active_estimation_uid"] = uid
             st.rerun()
+
+        thumbs_html = ""
+        if listing_thumb:
+            thumbs_html += f'<img class="estimate-thumb" title="Annonce" src="{html.escape(proxy_img(listing_thumb), quote=True)}">'
+        if top_card_thumb:
+            thumbs_html += f'<img class="estimate-thumb" title="Carte la plus chère" src="{html.escape(proxy_img(top_card_thumb), quote=True)}">'
+        if thumbs_html:
+            st.markdown(f'<div class="estimate-thumb-pair">{thumbs_html}</div>', unsafe_allow_html=True)
 
         if not active_open:
             continue
@@ -5641,11 +4767,14 @@ elif st.session_state.current_page=="Estimations":
                 card_qty = a4.text_input("Qté", value="1")
                 b1, b2, b3 = st.columns([1, 2, 2])
                 card_condition = b1.selectbox("État", ["NM", "EX", "GD", "LP", "PL", "POOR"])
-                card_specials = b2.multiselect("Spécial", ["Reverse", "1ère Éd", "Japonaise", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"])
+                card_specials = b2.multiselect("Spécial", ["Reverse", "1ère Éd", "Japonaise", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"])
                 card_note = b3.text_input("Note", placeholder="Photo floue, coin abîmé...")
-                keep_collection = st.checkbox("Carte collection / à garder", help="Elle sera affichée dans Collection et exclue du calcul du prix max de rachat.")
+                keep_collection = "Collection" in card_specials
+                clean_specials = [tag for tag in card_specials if tag != "Collection"]
+                if keep_collection:
+                    st.caption("Collection : cette carte sera affichée dans le menu Collection et exclue du calcul du prix max.")
                 if card_name.strip():
-                    cm_url = html.escape(cardmarket_search_url(card_name, card_number, card_condition, ", ".join(card_specials)), quote=True)
+                    cm_url = html.escape(cardmarket_search_url(card_name, card_number, card_condition, ", ".join(clean_specials)), quote=True)
                     st.markdown(f'<a href="{cm_url}" target="_blank" style="font-size:0.85rem;font-weight:800;color:#1d4ed8;text-decoration:none;">🔎 Chercher la cote sur Cardmarket</a>', unsafe_allow_html=True)
                 if st.form_submit_button("➕ Ajouter la carte"):
                     if not card_name.strip():
@@ -5659,14 +4788,14 @@ elif st.session_state.current_page=="Estimations":
                                 "cote": card_cote,
                                 "qty": card_qty,
                                 "condition": card_condition,
-                                "specials": card_specials,
+                                "specials": clean_specials,
                                 "note": card_note,
                                 "is_collection": keep_collection,
                                 "matches": matches[:12],
                             }
                             st.rerun()
                         else:
-                            add_estimation_card(estimate, card_name, card_number, card_cote, card_qty, card_condition, card_specials, card_note, keep_collection, matches[0] if matches else None)
+                            add_estimation_card(estimate, card_name, card_number, card_cote, card_qty, card_condition, clean_specials, card_note, keep_collection, matches[0] if matches else None)
                             save_estimations(edata)
                             st.session_state[ts_key] = time.time()
                             st.rerun()
@@ -5726,6 +4855,16 @@ elif st.session_state.current_page=="Estimations":
                                 st.caption(meta)
                             st.markdown(f'<span class="estimate-badge {badge_cls}">{badge_text}</span>', unsafe_allow_html=True)
                             st.caption(f"{fp(float(card.get('cote',0) or 0))} · x{int(card.get('quantity',1) or 1)}")
+                            cm_card_url = html.escape(cardmarket_search_url(
+                                card.get("name", ""),
+                                card.get("number", ""),
+                                card.get("condition", ""),
+                                card.get("special", ""),
+                            ), quote=True)
+                            st.markdown(
+                                f'<a href="{cm_card_url}" target="_blank" style="display:inline-block;margin:0.12rem 0 0.35rem 0;font-size:0.76rem;font-weight:800;color:#1d4ed8;text-decoration:none;">🔎 Cardmarket</a>',
+                                unsafe_allow_html=True,
+                            )
                             if st.button("🗑️", key=f"del_est_card_fast_{uid}_{card.get('uid')}"):
                                 estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
                                 save_estimations(edata)
@@ -5800,7 +4939,10 @@ elif st.session_state.current_page=="Estimations":
 
     st.stop()
 elif st.session_state.current_page=="Historique":
-    st.markdown('<h2>📋 Historique des ventes</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Historique des ventes", "Toutes vos transactions et leur rentabilité", "📋"),
+        unsafe_allow_html=True,
+    )
 
     cd_hist = ld()
 
@@ -6010,7 +5152,10 @@ elif st.session_state.current_page=="Historique":
 # PAGE ARCHIVÉS
 # ============================================================
 elif st.session_state.current_page=="Archivés":
-    st.markdown('<h2>Lots archivés</h2>', unsafe_allow_html=True)
+    st.markdown(
+        render_page_header("Lots archivés", "Lots clôturés et données historiques", "🗄️"),
+        unsafe_allow_html=True,
+    )
     
     archive_file="lots_archives.json"
     if os.path.exists(archive_file):
