@@ -1,17 +1,8 @@
 @echo off
-echo ========================================
-echo   Pokemon Lot Manager Pro - Lancement
-echo ========================================
-echo.
-echo Demarrage de Streamlit...
-echo.
+cd /d "C:\Users\User\Desktop\Appli des lots pokemon"
 
-REM Activer l'environnement virtuel si il existe
-if exist venv\Scripts\activate.bat (
-    call venv\Scripts\activate.bat
-)
+start http://localhost:8501
 
-REM Lancer Streamlit
 streamlit run app.py
 
 pause

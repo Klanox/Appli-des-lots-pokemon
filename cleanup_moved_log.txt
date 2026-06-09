@@ -1,0 +1,2 @@
+﻿C:\Users\User\Desktop\Appli des lots pokemon\mobile_cloud_setup.md -> C:\Users\User\Desktop\Appli des lots pokemon\docs\mobile_cloud_setup.md
+C:\Users\User\Desktop\Appli des lots pokemon\supabase_setup.sql -> C:\Users\User\Desktop\Appli des lots pokemon\docs\supabase_setup.sql

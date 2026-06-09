@@ -6,9 +6,11 @@ import json
 import os
 import time
 import shutil
+from datetime import datetime
 import streamlit as st
 from utils import safe_write_json, DATA, BACKUP_DIR, BACKUP_STATE_FILE
 from cloud import cloud_sync_enabled, load_cloud_json, save_cloud_json, SUPABASE_DATA_KEY
+from services.perf_service import perf_count, perf_log
 
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,36 +19,67 @@ LOTS_ARCHIVES_FILE = os.path.join(APP_DIR, "lots_archives.json")
 
 def ld():
     """Load data with caching and cloud sync support."""
-    # Cache en session_state pour éviter les relectures inutiles
-    if "data_cache" in st.session_state and not st.session_state.get("data_dirty", False):
-        if not cloud_sync_enabled():
-            return st.session_state["data_cache"]
-        last_cloud_load = float(st.session_state.get("data_cloud_loaded_at", 0) or 0)
-        if time.time() - last_cloud_load < 10:
-            return st.session_state["data_cache"]
-    
-    cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
+    perf_count("ld")
+    perf_start = time.perf_counter()
+    perf_source = "unknown"
     local_data = None
     if os.path.exists(DATA):
-        with open(DATA,"r",encoding="utf-8") as f:
+        with open(DATA, "r", encoding="utf-8") as f:
             local_data = json.load(f)
-    
-    # Merge strategy: prefer cloud if available and recent, otherwise use local
-    if isinstance(cloud_data, dict) and cloud_data.get("lots") is not None:
-        if local_data is not None:
-            # Both exist - use cloud but warn if local has more recent changes
-            cloud_updated = cloud_data.get("updated_at", "")
-            local_updated = local_data.get("updated_at", "")
-            if local_updated and cloud_updated and local_updated > cloud_updated:
-                st.warning("⚠️ Les données locales semblent plus récentes que le cloud. Synchronisation recommandée.")
+        perf_source = "file"
+    local_lots_count = len(local_data.get("lots", [])) if isinstance(local_data, dict) else 0
+
+    # Streamlit garde parfois un cache vide apres un rerun.
+    # Si le fichier local contient des lots, on ignore ce cache vide.
+    if "data_cache" in st.session_state and not st.session_state.get("data_dirty", False):
+        cached = st.session_state["data_cache"]
+        cached_lots_count = len(cached.get("lots", [])) if isinstance(cached, dict) else 0
+        if cached_lots_count == 0 and local_lots_count > 0:
+            st.session_state.pop("data_cache", None)
+        else:
+            if not cloud_sync_enabled():
+                perf_log("ld()", time.perf_counter() - perf_start, "cache")
+                return cached
+            last_cloud_load = float(st.session_state.get("data_cloud_loaded_at", 0) or 0)
+            if time.time() - last_cloud_load < 10:
+                perf_log("ld()", time.perf_counter() - perf_start, "cache/cloud_recent")
+                return cached
+
+    cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
+    cloud_lots_count = len(cloud_data.get("lots", [])) if isinstance(cloud_data, dict) else 0
+
+    # Protection anti-perte : un cloud vide ou plus petit ne doit pas remplacer un local rempli.
+    if (
+        isinstance(cloud_data, dict)
+        and cloud_data.get("lots") is not None
+        and cloud_lots_count > 0
+        and not (local_lots_count > 0 and cloud_lots_count < local_lots_count)
+    ):
         d = cloud_data
+        perf_source = "cloud"
         st.session_state["cloud_sync_active"] = True
         st.session_state["data_cloud_loaded_at"] = time.time()
+    elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count == 0 and local_lots_count > 0:
+        d = local_data
+        perf_source = "local/cloud_empty_ignored"
+        try:
+            st.warning("Cloud vide ignore : les donnees locales ont ete conservees.")
+        except Exception:
+            pass
+    elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count < local_lots_count and local_lots_count > 0:
+        d = local_data
+        perf_source = "local/cloud_smaller_ignored"
+        try:
+            st.warning("Cloud ignore : il contient moins de lots que le fichier local. Les donnees locales ont ete conservees.")
+        except Exception:
+            pass
     elif local_data is not None:
         d = local_data
+        perf_source = "local"
     else:
-        d = {"lots":[]}
-    
+        d = {"lots": []}
+        perf_source = "empty"
+
     data_changed = False
     if ensure_card_ids(d):
         data_changed = True
@@ -57,15 +90,28 @@ def ld():
     if data_changed:
         maybe_create_prewrite_backup()
         safe_write_json(DATA, d)
-        if cloud_sync_enabled():
-            save_cloud_json(SUPABASE_DATA_KEY, d)
+        # Ne pas pousser automatiquement vers le cloud pendant le chargement :
+        # cela evite qu'une correction locale au demarrage ecrase une version distante par accident.
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False
+    perf_log("ld()", time.perf_counter() - perf_start, perf_source)
     return d
 
 
 def sd(d):
     """Save data with cloud sync support."""
+    if not isinstance(d, dict) or not isinstance(d.get("lots"), list):
+        raise ValueError("Refus de sauvegarde : donnees invalides, cle 'lots' manquante.")
+    if os.path.exists(DATA):
+        try:
+            with open(DATA, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            existing_lots_count = len(existing.get("lots", [])) if isinstance(existing, dict) else 0
+        except Exception:
+            existing_lots_count = 0
+        new_lots_count = len(d.get("lots", []))
+        if existing_lots_count > 0 and new_lots_count == 0:
+            raise ValueError("Refus de sauvegarde : tentative d'ecraser un data.json rempli par 0 lot.")
     # Écriture sans indentation = 3x plus rapide
     maybe_create_prewrite_backup()
     safe_write_json(DATA, d)

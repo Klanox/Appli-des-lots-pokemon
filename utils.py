@@ -4,11 +4,11 @@ Utility functions for PokéStock application.
 
 import json
 import os
-import re
 import unicodedata
 import time
 import requests
-from datetime import datetime, timezone
+import tempfile
+from services.vinted_service import fetch_listing_preview_image as _fetch_vinted_listing_preview_image
 
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,11 +57,13 @@ def safe_write_json(path, data, indent=None):
     os.makedirs(folder, exist_ok=True)
     tmp_path = None
     try:
-        with open(path, "w", encoding="utf-8") as tmp:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder, delete=False, suffix=".tmp") as tmp:
             tmp_path = tmp.name
             json.dump(data, tmp, ensure_ascii=False, indent=indent)
             tmp.flush()
             os.fsync(tmp.fileno())
+        with open(tmp_path, "r", encoding="utf-8") as check:
+            json.load(check)
         os.replace(tmp_path, path)
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -108,18 +110,8 @@ def cardmarket_search_url(name, number="", condition="", special=""):
 
 
 def fetch_listing_preview_image(url):
-    """Fetch listing preview from Vinted URL."""
-    url = str(url or "").strip()
-    if not url:
-        return ""
-    try:
-        resp = requests.get(url, timeout=3)
-        if resp.status_code == 200:
-            return resp.json()
-    except (requests.RequestException, json.JSONDecodeError) as e:
-        print(f"Warning: Could not fetch listing preview from {url}: {e}")
-        pass
-    return None
+    """Fetch listing preview image from a listing URL."""
+    return _fetch_vinted_listing_preview_image(url)
 
 
 def new_uid(prefix=""):

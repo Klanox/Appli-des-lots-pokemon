@@ -8,6 +8,7 @@ import os
 import time
 from utils import fp, normalize_name, parse_float_input, parse_int_input, LOTS_ARCHIVES_FILE
 from data import ld, sd
+from services.perf_service import perf_count, perf_log
 
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -107,6 +108,8 @@ def calc_cout_lot(lot, valeur_estimee=None, lot_idx=None):
 @st.cache_data(ttl=30, show_spinner=False)
 def gst():
     """Calculate global statistics for the application."""
+    perf_count("gst")
+    perf_start = time.perf_counter()
     d = ld()
     tc = sc = rc = 0
     sv = tr = total_cost = 0.
@@ -122,8 +125,9 @@ def gst():
             csq = c.get("sold_quantity", 0)
             tc += cq
             sc += csq
-            rc += cq - csq
-            sv += (cq - csq) * c.get("suggested_price", 0.)
+            if not c.get("is_collection_keep"):
+                rc += cq - csq
+                sv += (cq - csq) * c.get("suggested_price", 0.)
             for s in c.get("sold_entries", []):
                 tr += s.get("price", 0.)
     
@@ -143,15 +147,16 @@ def gst():
                     csq = c.get("sold_quantity", 0)
                     tc += cq
                     sc += csq
-                    rc += cq - csq
-                    sv += (cq - csq) * c.get("suggested_price", 0.)
+                    if not c.get("is_collection_keep"):
+                        rc += cq - csq
+                        sv += (cq - csq) * c.get("suggested_price", 0.)
                     for s in c.get("sold_entries", []):
                         tr += s.get("price", 0.)
         except Exception as e:
             st.warning(f"Erreur lors de la lecture des archives dans gst(): {e}")
             pass
     
-    return {
+    result = {
         "total_cards": int(tc),
         "sold_cards": int(sc),
         "remaining_cards": int(rc),
@@ -160,6 +165,8 @@ def gst():
         "total_profit": tr - total_cost,
         "total_revenue_gross": tr
     }
+    perf_log("gst()", time.perf_counter() - perf_start, f"lots={len(d.get('lots', []))}")
+    return result
 
 
 def gsh():
@@ -187,7 +194,14 @@ def is_storage_lot(lot):
 
 def card_available_qty(card):
     """Get available quantity for a card."""
-    return max(int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0)), 0)
+    if card.get("is_collection_keep"):
+        return 0
+    return max(
+        int(card.get("quantity", 0))
+        - int(card.get("sold_quantity", 0))
+        - int(card.get("stored_quantity", 0)),
+        0,
+    )
 
 
 def resolve_card_ref(cd, item):
@@ -243,3 +257,148 @@ def migrate_open_trade_cards(cd):
                 kept_cards.append(card)
         lot["cards"] = kept_cards
     return moved
+
+
+def recent_sale_notes_for_card(name, num=None, limit=3):
+    """Return recent sale prices for a card."""
+    import os
+    if not name:
+        return []
+    target_name = normalize_name(name)
+    target_num = str(num or "").strip()
+    if not target_name:
+        return []
+    notes = []
+    try:
+        from data import ld
+        data = ld()
+        archives = []
+        if os.path.exists("lots_archives.json"):
+            with open("lots_archives.json", "r", encoding="utf-8") as f:
+                archives = json.load(f)
+        for lot in data.get("lots", []) + archives:
+            for card in lot.get("cards", []):
+                if normalize_name(card.get("name", "")) != target_name:
+                    continue
+                card_num = str(card.get("number", "") or "")
+                if target_num and not (
+                    card_num == target_num
+                    or card_num.zfill(3) == target_num.zfill(3)
+                    or card_num.lstrip("0") == target_num.lstrip("0")
+                ):
+                    continue
+                for sale in card.get("sold_entries", []):
+                    q = max(int(sale.get("quantity", 1) or 1), 1)
+                    price = float(sale.get("price", 0) or 0) / q
+                    if price <= 0:
+                        continue
+                    notes.append({
+                        "date": str(sale.get("date", ""))[:10],
+                        "price": price,
+                        "lot": lot.get("nom", ""),
+                    })
+    except Exception:
+        return []
+    notes.sort(key=lambda x: x.get("date", ""), reverse=True)
+    return notes[:limit]
+
+
+def lot_tracked_cote_value(lot):
+    """Calculate tracked cote value for a lot."""
+    value = 0.
+    for card in lot.get("cards", []):
+        sold_value, sold_qty = card_sold_cote(card)
+        unsold_qty = max(int(card.get("quantity", 0)) - sold_qty, 0)
+        value += sold_value + unsold_qty * float(card.get("suggested_price", 0.))
+    for v in lot.get("ventes", []):
+        if not v.get("is_exchange_benefit"):
+            value += float(v.get("price", 0.))
+    return value
+
+
+def sync_mixte_purchase_prices(d):
+    """Correct effective purchase prices for mixte lots."""
+    changed = False
+    for lot in d.get("lots", []):
+        if lot.get("is_mixte") and float(lot.get("valeur_totale", 0.) or 0.) > 0:
+            tracked_value = lot_tracked_cote_value(lot)
+            new_price = effective_purchase_price(lot)
+            if abs(float(lot.get("prix_achat", 0.) or 0.) - new_price) > 0.01:
+                lot["prix_achat"] = new_price
+                changed = True
+            if abs(float(lot.get("valeur_vente", 0.) or 0.) - tracked_value) > 0.01:
+                lot["valeur_vente"] = tracked_value
+                changed = True
+    return changed
+
+
+def consolidate_storage_cards(d):
+    """Merge duplicate cards in storage lot."""
+    changed = False
+    for lot in d.get("lots", []):
+        if not is_storage_lot(lot):
+            continue
+        merged = []
+        by_key = {}
+        for card in lot.get("cards", []):
+            key = (
+                str(card.get("id", "")), normalize_name(card.get("name", "")),
+                str(card.get("set", "")), str(card.get("number", "")),
+                round(float(card.get("suggested_price", 0.) or 0.), 2),
+                str(card.get("stored_from_lot_uid", "")),
+            )
+            if key in by_key and not card.get("sold_entries"):
+                target = by_key[key]
+                target["quantity"] = int(target.get("quantity", 0)) + int(card.get("quantity", 0))
+                target["sold_quantity"] = int(target.get("sold_quantity", 0)) + int(card.get("sold_quantity", 0))
+                target.setdefault("storage_entries", []).extend(card.get("storage_entries", []))
+                changed = True
+            else:
+                by_key[key] = card
+                merged.append(card)
+        lot["cards"] = merged
+    return changed
+
+
+def storage_remaining_for_lot(lots, lot):
+    """Calculate remaining cards in storage for a lot."""
+    lot_uid = lot.get("lot_uid")
+    if not lot_uid:
+        return 0
+    remaining = 0
+    for storage_lot in lots:
+        if not is_storage_lot(storage_lot):
+            continue
+        for card in storage_lot.get("cards", []):
+            if card.get("stored_from_lot_uid") == lot_uid:
+                remaining += card_available_qty(card)
+    return remaining
+
+
+def lot_remaining_including_storage(lots, lot):
+    """Calculate remaining cards including storage."""
+    return sum(card_available_qty(c) for c in lot.get("cards", [])) + storage_remaining_for_lot(lots, lot)
+
+
+def trade_stock_value_for_lot(lots, lot_idx):
+    """Calculate trade stock value attributed to a contributor lot."""
+    value = 0.
+    for trade_lot in lots:
+        if not is_trade_lot(trade_lot):
+            continue
+        for card in trade_lot.get("cards", []):
+            repartition = card.get("exchange_repartition", {})
+            if not repartition:
+                continue
+            remaining = max(int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0)), 0)
+            if remaining <= 0:
+                continue
+            total_repartition = sum(float(v) for v in repartition.values()) or 1.
+            part = float(repartition.get(str(lot_idx), 0.)) / total_repartition
+            value += remaining * float(card.get("suggested_price", 0.)) * part
+    return value
+
+
+def ilp(l):
+    """Check if lot is profitable."""
+    return cp(l) >= 0
