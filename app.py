@@ -193,20 +193,23 @@ def cloud_sync_status():
         st.session_state["cloud_sync_error"] = f"Test cloud impossible: {e}"
         return False, st.session_state["cloud_sync_error"]
 
-def load_cards_cache():
+def load_cards_cache(allow_network=True):
     """Charger toutes les cartes en mémoire (1 fois au démarrage)"""
     if "cards_index" in st.session_state:
         return st.session_state["cards_index"]
-    
+
     print("Chargement cache cartes...")
     start = time.time()
     cards_index = {}
 
-    cached_cards = load_cards_cache_from_disk()
+    cached_cards = load_cards_cache_from_disk(allow_stale=True)
     if cached_cards:
         st.session_state["cards_index"] = cached_cards
         print(f"Cache disque: {len(cached_cards)} noms, {time.time()-start:.1f}s")
         return cached_cards
+    if not allow_network:
+        print("Cache disque absent: chargement réseau différé jusqu'à une recherche.")
+        return {}
     
     try:
         r = requests.get("https://api.tcgdex.net/v2/fr/sets", timeout=5)
@@ -775,31 +778,50 @@ def check_url_exists(url):
 
 def proxy_img(url, url_en=""):
     """Passer les images TCGDex via un proxy pour uniformiser la taille"""
-    perf_count("images_proxy")
     if not url:
         return url
-    # Image locale uploadée
-    if url.startswith("card_images/"):
+
+    url = str(url)
+    if url.startswith("card_images/") or url.startswith("card_images\\"):
+        try:
+            cache_key = ("local", url, os.path.getmtime(url) if os.path.exists(url) else "missing")
+        except Exception:
+            cache_key = ("local", url, "unknown")
+    else:
+        cache_key = ("remote", url)
+
+    cache = st.session_state.setdefault("_proxy_img_cache", {})
+    if cache_key in cache:
+        perf_count("images_proxy_cache_hit")
+        return cache[cache_key]
+
+    perf_count("images_proxy")
+    if url.startswith("card_images/") or url.startswith("card_images\\"):
         try:
             import base64
             with open(url, "rb") as f:
                 data = base64.b64encode(f.read()).decode()
-            ext = url.split(".")[-1]
-            mime = "image/jpeg" if ext in ["jpg","jpeg"] else f"image/{ext}"
-            return f"data:{mime};base64,{data}"
-        except:
-            return ""
-    if "tcgdex.net" in url:
+            ext = url.split(".")[-1].lower()
+            mime = "image/jpeg" if ext in ["jpg", "jpeg"] else f"image/{ext}"
+            result = f"data:{mime};base64,{data}"
+        except Exception:
+            result = ""
+    elif "tcgdex.net" in url:
         if "/ja/" in url:
-            return url  # Images JA : URL directe
-        return f"https://wsrv.nl/?url={url}&w=400&fit=inside"
-    return url
+            result = url
+        else:
+            result = f"https://wsrv.nl/?url={url}&w=400&fit=inside"
+    else:
+        result = url
+
+    cache[cache_key] = result
+    return result
 
 def img_with_fallback(url, url_en="", width="100%", style="border-radius:12px;"):
     """Afficher une image avec fallback EN si FR échoue"""
     return img_with_fallback_html(url, url_en, width, style, proxy_img_func=proxy_img)
 
-def is_reliable_image_url(url):
+def is_reliable_image_url(url, allow_network=False):
     """Evite les icones cassees : une URL Collection doit vraiment pointer vers une image."""
     url = str(url or "").strip()
     if not url:
@@ -810,6 +832,11 @@ def is_reliable_image_url(url):
         return os.path.exists(url)
     if os.path.exists(url):
         return True
+
+    # En rendu normal, on ne teste pas les URLs distantes : le HTML onerror
+    # bascule deja vers le fallback/placeholder sans ralentir la page.
+    if not allow_network:
+        return url.startswith(("http://", "https://"))
 
     cache_key = f"image_ok::{url}"
     cache = st.session_state.setdefault("_image_reliability_cache", {})
@@ -875,19 +902,20 @@ def tcgdex_card_image_candidates(card_id, lang):
     return cleaned
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def resolve_collection_image_candidates(card_id, card_name, card_num, card_set, lang):
+def resolve_collection_image_candidates(card_id, card_name, card_num, card_set, lang, allow_network=False):
     """Resolve image candidates for a Collection card with caching to avoid repeated API calls."""
     candidates = []
     
     def add_candidate(url):
         url = str(url or "").strip()
-        if url and url not in candidates and is_reliable_image_url(url):
+        if url and url not in candidates and is_reliable_image_url(url, allow_network=allow_network):
             candidates.append(url)
     
-    # Try TCGDex candidates
-    for candidate_lang in [lang, "fr", "en"]:
-        for url in tcgdex_card_image_candidates(card_id, candidate_lang):
-            add_candidate(url)
+    if allow_network:
+        # Try TCGDex candidates only during an explicit resolution action.
+        for candidate_lang in [lang, "fr", "en"]:
+            for url in tcgdex_card_image_candidates(card_id, candidate_lang):
+                add_candidate(url)
     
     # Try direct URL construction
     if "-" in card_id:
@@ -899,12 +927,13 @@ def resolve_collection_image_candidates(card_id, card_name, card_num, card_set, 
             if series:
                 add_candidate(f"https://assets.tcgdex.net/{candidate_lang}/{series}/{set_id}/{local_id}/high.webp")
     
-    # Try fallback lookup
-    try:
-        fallback = get_image_fallback(card_name, card_num, card_set)
-        add_candidate(fallback)
-    except Exception:
-        pass
+    if allow_network:
+        # Try fallback lookup only during an explicit resolution action.
+        try:
+            fallback = get_image_fallback(card_name, card_num, card_set)
+            add_candidate(fallback)
+        except Exception:
+            pass
     
     # Try cache search
     try:
@@ -929,6 +958,17 @@ def resolve_collection_image_candidates(card_id, card_name, card_num, card_set, 
 
 def collection_cached_image_candidates(card):
     """Recherche locale stricte uniquement : jamais de Raichu normal pour Raichu GX."""
+    cache_key = "|".join([
+        normalize_name(card.get("name", "")),
+        str(card.get("number", "") or "").strip(),
+        normalize_name(card.get("set", "")),
+        str(card.get("id", "") or "").strip(),
+    ])
+    local_cache = st.session_state.setdefault("_collection_cached_image_candidates", {})
+    if cache_key in local_cache:
+        perf_count("collection_image_candidate_cache_hit")
+        return list(local_cache[cache_key])
+
     candidates = []
 
     def add(url):
@@ -946,6 +986,7 @@ def collection_cached_image_candidates(card):
     except Exception:
         pass
 
+    local_cache[cache_key] = list(candidates)
     return candidates
 
 def get_image_fallback(card_name, card_number, set_name):
@@ -1267,7 +1308,7 @@ require_app_password()
 
 if "cards_index" not in st.session_state:
     with st.spinner("Chargement des données..."):
-        load_cards_cache()
+        load_cards_cache(allow_network=False)
 
 load_activity_state()
 

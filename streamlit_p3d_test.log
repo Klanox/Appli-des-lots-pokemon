@@ -1,0 +1,75 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://127.0.0.1:8561
+
+Chargement cache cartes...
+Cache disque: 4188 noms, 0.0s
+[PERF] ld(): 0.007s / local
+[PERF] ld(): 0.011s / local
+[PERF] ld(): 0.006s / local
+[PERF] gst(): 0.009s / lots=19
+[PERF] gst() call: 0.012s
+[PERF] ld(): 0.005s / local
+[PERF] page Accueil: 0.042s
+[PERF] rerun summary: 0.068s / gst=1, gst_call=1, ld=2
+Chargement cache cartes...
+Cache disque: 4188 noms, 0.0s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.006s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] images Collection: 0.001s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] page Collection: 0.042s
+[PERF] rerun summary: 0.054s / cards_collection_rendered=17, gst_call=1, images_collection=17, images_proxy=18, images_proxy_cache_hit=1, ld=2
+Chargement cache cartes...
+Cache disque: 4188 noms, 0.0s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.006s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] page Lots: 0.041s
+[PERF] rerun summary: 0.052s / gst_call=1, ld=2
+Chargement cache cartes...
+Cache disque: 4188 noms, 0.0s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] page Vente / Echange: 0.460s
+[PERF] rerun summary: 0.471s / cards_sales_rendered=148, gst_call=1, images_proxy=143, images_proxy_cache_hit=29, ld=2
+Chargement cache cartes...
+Cache disque: 4188 noms, 0.0s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.006s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.005s / local
+[PERF] stats ld: 0.006s
+[PERF] stats collect sales: 0.002s / sales=413 months=4
+[PERF] stats chart CA: 0.001s
+[PERF] stats chart quantity: 0.001s
+[PERF] stats chart monthly benefit: 0.001s
+[PERF] stats chart trend: 0.001s
+[PERF] stats chart lot CA: 0.001s
+[PERF] stats chart lot benefit: 0.001s
+[PERF] page Statistiques: 0.482s
+[PERF] rerun summary: 0.492s / gst_call=1, images_proxy=1, ld=1

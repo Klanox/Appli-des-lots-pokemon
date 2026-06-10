@@ -11,6 +11,8 @@ import os
 from datetime import datetime
 
 import streamlit as st
+import plotly.graph_objects as go
+from services.perf_service import perf_log, perf_timer
 
 
 def render_statistics_page(
@@ -23,11 +25,10 @@ def render_statistics_page(
     lots_archives_path="lots_archives.json",
     monthly_goals_path="monthly_goals.json",
 ):
-    import plotly.graph_objects as go
-
     st.markdown("## 📊 Statistiques & Défis")
 
-    cd = ld_func()
+    with perf_timer("stats ld"):
+        cd = ld_func()
     now = datetime.now()
     current_month = now.strftime("%Y-%m")
     MOIS_FR = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",
@@ -51,6 +52,7 @@ def render_statistics_page(
         with open(lots_archives_path, "r", encoding="utf-8") as f:
             archives_list = json.load(f)
 
+    stats_collect_start = dt_module.datetime.now()
     for lot_idx_s, lot in enumerate(all_lots + archives_list):
         real_lot_idx = lot_idx_s if lot_idx_s < len(all_lots) else None
         ventes_avec_cout, valeur_est = calc_cout_lot_func(lot, lot_idx=real_lot_idx)
@@ -117,12 +119,16 @@ def render_statistics_page(
         benef_by_month[s["month"]] += s.get("benef", s["price"] - s.get("cost", 0))
 
     months_sorted = sorted(ca_by_month.keys())
+    perf_log(
+        "stats collect sales",
+        (dt_module.datetime.now() - stats_collect_start).total_seconds(),
+        f"sales={len(all_sales)} months={len(months_sorted)}",
+    )
 
     if not months_sorted:
         st.info("Aucune vente enregistrée pour le moment. Commence à vendre des cartes pour voir tes statistiques !")
         st.stop()
 
-    import datetime as dt_module
     prev_month = (now.replace(day=1) - dt_module.timedelta(days=1)).strftime("%Y-%m")
     ca_this = ca_by_month.get(current_month, 0)
     ca_prev = ca_by_month.get(prev_month, 0)
@@ -189,7 +195,8 @@ def render_statistics_page(
             xaxis=dict(showgrid=False),
             showlegend=False,
         )
-        st.plotly_chart(fig_bar, width="stretch")
+        with perf_timer("stats chart CA"):
+            st.plotly_chart(fig_bar, width="stretch")
 
     with col_g2:
         st.markdown("#### 🃏 Cartes vendues par mois")
@@ -208,7 +215,8 @@ def render_statistics_page(
             xaxis=dict(showgrid=False),
             showlegend=False,
         )
-        st.plotly_chart(fig_qty, width="stretch")
+        with perf_timer("stats chart quantity"):
+            st.plotly_chart(fig_qty, width="stretch")
 
     st.markdown("#### 💎 Bénéfice par mois")
     benef_values = [benef_by_month[m] for m in months_sorted]
@@ -227,7 +235,8 @@ def render_statistics_page(
         xaxis=dict(showgrid=False),
         showlegend=False,
     )
-    st.plotly_chart(fig_benef_month, width="stretch")
+    with perf_timer("stats chart monthly benefit"):
+        st.plotly_chart(fig_benef_month, width="stretch")
 
     with st.expander("🔎 Détail du bénéfice du mois"):
         detail_rows = []
@@ -265,7 +274,8 @@ def render_statistics_page(
             yaxis=dict(gridcolor="#f1f5f9"),
             xaxis=dict(showgrid=False),
         )
-        st.plotly_chart(fig_line, width="stretch")
+        with perf_timer("stats chart trend"):
+            st.plotly_chart(fig_line, width="stretch")
 
     # ── CA et bénéfice par lot — mois courant ──
     st.markdown("---")
@@ -293,7 +303,8 @@ def render_statistics_page(
             ))
             fig_ca.update_layout(height=280, margin=dict(t=10,b=0,l=0,r=0),
                                  paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-            st.plotly_chart(fig_ca, width="stretch")
+            with perf_timer("stats chart lot CA"):
+                st.plotly_chart(fig_ca, width="stretch")
         else:
             st.info("Aucune vente ce mois.")
 
@@ -320,7 +331,8 @@ def render_statistics_page(
                 yaxis=dict(showgrid=False),
                 showlegend=False,
             )
-            st.plotly_chart(fig_benef, width="stretch")
+            with perf_timer("stats chart lot benefit"):
+                st.plotly_chart(fig_benef, width="stretch")
         else:
             st.info("Aucune donnée de bénéfice ce mois.")
 

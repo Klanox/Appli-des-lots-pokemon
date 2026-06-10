@@ -1,0 +1,98 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://127.0.0.1:8539
+
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.006s / local
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.008s / lots=19
+[PERF] gst() call: 0.010s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] page Vente / Echange: 0.440s
+[PERF] rerun summary: 0.463s / cards_sales_rendered=148, gst=1, gst_call=1, images_proxy=172, ld=3
+Chargement cache cartes...
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.006s / lots=19
+[PERF] gst() call: 0.007s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] page Vente / Echange: 0.299s
+[PERF] rerun summary: 0.316s / cards_sales_rendered=148, gst=1, gst_call=1, images_proxy=172, ld=3
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.007s / lots=19
+[PERF] gst() call: 0.007s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] page Lots: 0.039s
+[PERF] rerun summary: 0.057s / gst=1, gst_call=1, ld=3
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] images Collection: 0.001s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] images Collection: 0.000s
+[PERF] page Collection: 0.039s
+[PERF] rerun summary: 0.050s / cards_collection_rendered=16, gst_call=1, images_collection=16, images_proxy=19, ld=2
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.006s / lots=19
+[PERF] gst() call: 0.007s
+[PERF] ld(): 0.005s / local
+[PERF] page Historique: 0.065s
+[PERF] rerun summary: 0.082s / gst=1, gst_call=1, images_proxy=40, ld=2
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.006s / local
+[PERF] page Statistiques: 2.648s
+[PERF] rerun summary: 2.659s / gst_call=1, images_proxy=1, ld=1
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.006s / local
+[PERF] ld(): 0.005s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.007s / lots=19
+[PERF] gst() call: 0.008s
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.006s / local
+[PERF] ld(): 0.006s / local
+[PERF] gst() call: 0.000s
+[PERF] ld(): 0.008s / local
+[PERF] page Accueil: 0.034s
+[PERF] rerun summary: 0.046s / gst_call=1, ld=1

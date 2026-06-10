@@ -148,7 +148,6 @@ def render_sales_page(context):
             if search_vente:
                 # Recherche active → toutes les cartes trouvées en une seule grille
                 all_found = []
-                rendered_sale_cards_count = 0
                 for li, lot in vente_lots_with_idx:
                     if selected_lot_idx is not None and li != selected_lot_idx:
                         continue
@@ -185,6 +184,7 @@ def render_sales_page(context):
                                 st.button("🛒 Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":cp(lot)>=0},))
             else:
                 # Pas de recherche → groupé par lot avec titre
+                rendered_sale_cards_count = 0
                 for li, lot in vente_lots_with_idx:
                     if selected_lot_idx is not None and li != selected_lot_idx:
                         continue

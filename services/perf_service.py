@@ -51,7 +51,7 @@ def perf_log(label, seconds=None, detail=""):
         message = f"[PERF] {label}: {seconds:.3f}s"
     if detail:
         message = f"{message} / {detail}"
-    print(message)
+    print(message, flush=True)
     _state().setdefault("events", []).append(message)
 
 

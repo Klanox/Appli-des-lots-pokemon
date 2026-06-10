@@ -1,0 +1,12 @@
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://127.0.0.1:8540
+
+Chargement cache cartes...
+Cache error: HTTPSConnectionPool(host='api.tcgdex.net', port=443): Max retries exceeded with url: /v2/fr/sets (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+[PERF] ld(): 0.012s / local
+[PERF] ld(): 0.006s / local
+[PERF] ld(): 0.005s / local
+[PERF] gst(): 0.009s / lots=19
+[PERF] gst() call: 0.011s

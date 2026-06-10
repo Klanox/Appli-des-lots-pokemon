@@ -77,6 +77,7 @@ def normalize_estimations_data(data):
 
 
 def load_estimations(estimations_file="lot_estimations.json"):
+    should_write_default = False
     cloud_data = load_cloud_json(SUPABASE_ESTIMATIONS_KEY) if cloud_sync_enabled() else None
     if isinstance(cloud_data, dict):
         data = cloud_data
@@ -87,10 +88,13 @@ def load_estimations(estimations_file="lot_estimations.json"):
         except (IOError, json.JSONDecodeError) as e:
             print(f"Warning: Could not load estimations file: {e}")
             data = default_estimations_data()
+            should_write_default = True
     else:
         data = default_estimations_data()
+        should_write_default = True
     data = normalize_estimations_data(data)
-    safe_write_json(estimations_file, data, indent=2)
+    if should_write_default:
+        safe_write_json(estimations_file, data, indent=2)
     return data
 
 
