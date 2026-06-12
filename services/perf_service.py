@@ -1,6 +1,7 @@
-"""Temporary performance instrumentation for Pokestock.
+"""Optional performance instrumentation for Pokestock.
 
-This module is intentionally small and easy to remove after P3.
+The helpers stay silent by default and only print logs when performance mode is
+enabled from the sidebar, with ?perf=1, or through POKESTOCK_PERF=1.
 """
 
 from contextlib import contextmanager

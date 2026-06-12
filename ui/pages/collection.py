@@ -137,10 +137,21 @@ def render_collection_page(
             item for item in collection_cards
             if normalize_name_func(search_collection) in normalize_name_func(item[3].get("name", ""))
         ]
+    total_collection_matches = len(collection_cards)
+    mobile = bool(is_mobile_mode_func())
+    if mobile and not search_collection:
+        collection_limit = int(st.session_state.get("collection_mobile_visible_limit", 24) or 24)
+        if len(collection_cards) > collection_limit:
+            collection_cards = collection_cards[:collection_limit]
+            st.caption(
+                f"Affichage mobile : {collection_limit} carte(s) sur {total_collection_matches}. "
+                "Utilise la recherche ou affiche la suite."
+            )
     if perf_count_func is not None:
+        perf_count_func("cards_collection_available", total_collection_matches)
         perf_count_func("cards_collection_rendered", len(collection_cards))
 
-    cols_per_row = 3 if is_mobile_mode_func() else 8
+    cols_per_row = 3 if mobile else 8
     for row_start in range(0, len(collection_cards), cols_per_row):
         cols = st.columns(cols_per_row)
         for col_idx, (lot_idx, card_idx, lot, card) in enumerate(collection_cards[row_start:row_start + cols_per_row]):
@@ -253,3 +264,10 @@ def render_collection_page(
                         if no_col.button("Non", key=f"no_unkeep_{action_key}"):
                             st.session_state.pop(confirm_key, None)
                             st.rerun()
+
+    if mobile and not search_collection and total_collection_matches > len(collection_cards):
+        if st.button("Afficher plus de cartes Collection", key="collection_mobile_show_more", width="stretch"):
+            st.session_state["collection_mobile_visible_limit"] = int(
+                st.session_state.get("collection_mobile_visible_limit", 24) or 24
+            ) + 24
+            st.rerun()

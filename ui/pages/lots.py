@@ -535,10 +535,12 @@ def render_lots_page(context):
                     help="Désactivé par défaut pour accélérer l'ajout quand le lot contient beaucoup de cartes."
                 )
                 if not show_all_cards:
-                    visible_stock_lot = cards_in_stock_lot[-48:]
-                    visible_sold_lot = cards_sold_lot[-24:]
-                    visible_stored_lot = cards_stored_lot[-24:]
-                    visible_collection_lot = cards_collection_lot[-24:]
+                    stock_quick_limit = 24 if is_mobile_mode() else 48
+                    secondary_quick_limit = 12 if is_mobile_mode() else 24
+                    visible_stock_lot = cards_in_stock_lot[-stock_quick_limit:]
+                    visible_sold_lot = cards_sold_lot[-secondary_quick_limit:]
+                    visible_stored_lot = cards_stored_lot[-secondary_quick_limit:]
+                    visible_collection_lot = cards_collection_lot[-secondary_quick_limit:]
                     hidden_cards_count = (
                         max(len(cards_in_stock_lot) - len(visible_stock_lot), 0)
                         + max(len(cards_sold_lot) - len(visible_sold_lot), 0)

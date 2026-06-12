@@ -129,6 +129,7 @@ from ui.pages.archives import render_archives_page
 from ui.pages.collection import render_collection_page
 from ui.pages.lots import render_lots_page
 from ui.pages.sales import render_sales_page
+from ui.pages.vinted_listings import render_vinted_listings_page
 from services.tcgdex_service import (
     normalized_tcgdex_image_url,
     tcgdex_series_from_set_id,
@@ -152,7 +153,7 @@ from services.estimations_service import (
     save_estimations,
 )
 
-APP_BUILD = "Codex 2026-06-05 estimations finalisees"
+APP_BUILD = "Codex 2026-06-12 drops search"
 
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
@@ -1634,6 +1635,9 @@ if "current_page" not in st.session_state:
         "collection": "Collection",
         "estimations": "Estimations",
         "estimation": "Estimations",
+        "annonces": "Annonces Vinted",
+        "annonces-vinted": "Annonces Vinted",
+        "vinted": "Annonces Vinted",
         "historique": "Historique",
         "stats": "Statistiques",
         "statistiques": "Statistiques",
@@ -1830,6 +1834,20 @@ elif st.session_state.current_page=="Estimations":
         new_uid_func=new_uid,
         is_mobile_mode_func=is_mobile_mode,
         ecd_func=ecd,
+        run_html_func=run_html,
+    )
+elif st.session_state.current_page=="Annonces Vinted":
+    render_with_perf(
+        "page Annonces Vinted",
+        render_vinted_listings_page,
+        ld_func=ld,
+        card_available_qty_func=card_available_qty,
+        is_collection_system_lot_func=is_collection_system_lot,
+        proxy_img_func=proxy_img,
+        render_page_header_func=render_page_header,
+        fp_func=fp,
+        is_mobile_mode_func=is_mobile_mode,
+        perf_count_func=perf_count,
         run_html_func=run_html,
     )
 elif st.session_state.current_page=="Historique":
