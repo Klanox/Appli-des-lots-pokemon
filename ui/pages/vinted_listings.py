@@ -609,7 +609,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
                 st.success("Drop supprimé.")
                 st.rerun()
 
-    _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func)
+    _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
     st.divider()
     _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
@@ -671,13 +671,13 @@ def render_vinted_listings_page(
             key="vinted_search_query",
             placeholder="Ex : Meganium, Dracaufeu 199/165, Rayquaza 89/90...",
         )
-        results = filter_cards_for_listing(cards, query, limit=24)
+        results = filter_cards_for_listing(cards, query, limit=12 if mobile else 24)
         if not query:
             st.info("Recherchez une carte pour commencer.")
         else:
             st.caption(f"{len(results)} résultat(s) affiché(s).")
             for card in results:
-                _render_search_result(card, listing_type, selected_keys, proxy_img_func, fp_func, drops_data, active_drop_id)
+                _render_search_result(card, listing_type, selected_keys, proxy_img_func, fp_func, drops_data, active_drop_id, mobile)
 
         selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
         prepared = _sync_listing_text(selected_cards, listing_type, fp_func)
@@ -692,6 +692,6 @@ def render_vinted_listings_page(
             if st.button("Réinitialiser", width="stretch"):
                 _reset_vinted_form()
 
-        _render_listing_preview(selected_cards, proxy_img_func, run_html_func)
+        _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
     else:
         _render_drops_manager(drops_data, cards, proxy_img_func, fp_func, mobile)

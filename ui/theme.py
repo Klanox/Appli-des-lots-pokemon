@@ -899,16 +899,64 @@ section[data-testid="stSidebar"] {
 }
 .main .block-container {
     max-width: 100% !important;
+    padding-left: 0.55rem !important;
+    padding-right: 0.55rem !important;
     padding-top: 0.75rem !important;
+}
+div[data-testid="stHorizontalBlock"] {
+    gap: 0.45rem !important;
+}
+div[data-testid="column"] {
+    min-width: 0 !important;
 }
 div[data-testid="stButton"] button {
     min-height: 2.75rem !important;
     width: 100% !important;
+    white-space: normal !important;
+    line-height: 1.15 !important;
+    padding-left: 0.45rem !important;
+    padding-right: 0.45rem !important;
 }
 div[data-testid="stNumberInput"] input,
-div[data-testid="stTextInput"] input {
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-baseweb="select"] {
     min-height: 2.65rem !important;
     font-size: 0.95rem !important;
+}
+img {
+    max-width: 100% !important;
+    height: auto;
+}
+.mobile-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.55rem !important;
+}
+.mobile-card-tile {
+    min-width: 0 !important;
+    padding: 0.35rem !important;
+}
+.mobile-card-imgbox {
+    min-height: 0 !important;
+}
+.mobile-card-imgbox img {
+    width: 100% !important;
+    max-height: 155px !important;
+    object-fit: contain !important;
+}
+.mobile-card-name {
+    font-size: 0.78rem !important;
+    line-height: 1.15 !important;
+}
+.mobile-card-meta {
+    font-size: 0.7rem !important;
+    line-height: 1.15 !important;
+}
+[data-testid="stDataFrame"],
+[data-testid="stTable"],
+.js-plotly-plot {
+    max-width: 100% !important;
+    overflow-x: auto !important;
 }
 [data-testid="stMetricValue"] {
     font-size: 1.35rem !important;
