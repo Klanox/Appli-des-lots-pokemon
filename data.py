@@ -62,17 +62,14 @@ def ld():
     elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count == 0 and local_lots_count > 0:
         d = local_data
         perf_source = "local/cloud_empty_ignored"
-        try:
-            st.warning("Cloud vide ignore : les donnees locales ont ete conservees.")
-        except Exception:
-            pass
+        st.session_state["cloud_sync_notice"] = "Cloud vide ignoré : les données locales ont été conservées."
     elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count < local_lots_count and local_lots_count > 0:
         d = local_data
         perf_source = "local/cloud_smaller_ignored"
-        try:
-            st.warning("Cloud ignore : il contient moins de lots que le fichier local. Les donnees locales ont ete conservees.")
-        except Exception:
-            pass
+        st.session_state["cloud_sync_notice"] = (
+            "Cloud ignoré : il contient moins de lots que le fichier local. "
+            "Les données locales ont été conservées."
+        )
     elif local_data is not None:
         d = local_data
         perf_source = "local"
@@ -88,10 +85,10 @@ def ld():
     if consolidate_storage_cards(d):
         data_changed = True
     if data_changed:
-        maybe_create_prewrite_backup()
-        safe_write_json(DATA, d)
-        # Ne pas pousser automatiquement vers le cloud pendant le chargement :
-        # cela evite qu'une correction locale au demarrage ecrase une version distante par accident.
+        st.session_state["data_autofix_pending"] = True
+        # Important: ld() ne doit jamais ecrire data.json au simple affichage.
+        # Les corrections restent en memoire et seront sauvegardees uniquement
+        # lors d'une vraie action utilisateur qui appelle sd().
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False
     perf_log("ld()", time.perf_counter() - perf_start, perf_source)
@@ -118,6 +115,12 @@ def sd(d):
     if cloud_sync_enabled():
         if save_cloud_json(SUPABASE_DATA_KEY, d):
             st.session_state["data_cloud_loaded_at"] = time.time()
+            st.session_state["cloud_sync_notice"] = "Données locales sauvegardées et cloud mis à jour."
+        else:
+            st.session_state["cloud_sync_notice"] = (
+                "Sauvegarde locale OK, mais la synchro cloud a échoué. "
+                f"{st.session_state.get('cloud_sync_error', '')}"
+            )
     # Mettre à jour le cache et marquer comme propre
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False

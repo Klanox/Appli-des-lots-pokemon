@@ -7,6 +7,8 @@ They do not read or write files, call Streamlit, or perform network requests.
 from utils import normalize_name
 
 
+import os
+
 COLLECTION_IMAGE_PLACEHOLDER = "__placeholder__"
 
 
@@ -30,6 +32,9 @@ def collection_current_value(card):
 
 
 def collection_purchase_price(card):
+    qty = max(int(card.get("quantity", 1) or 1), 1)
+    if card.get("collection_purchase_total") not in (None, ""):
+        return float(card.get("collection_purchase_total") or 0.) / qty
     return float(
         card.get(
             "collection_purchase_price",
@@ -44,6 +49,8 @@ def collection_purchase_price(card):
 def collection_paid_total(card, lot, *, calc_cout_lot_func=None, effective_purchase_price_func=None):
     """Total paid price for a Collection card, direct or estimated from its lot."""
     qty = max(int(card.get("quantity", 1) or 1), 1)
+    if card.get("collection_purchase_total") not in (None, ""):
+        return float(card.get("collection_purchase_total") or 0.)
     explicit = collection_purchase_price(card)
 
     if is_collection_system_lot(lot):
@@ -117,7 +124,9 @@ def collection_card_exact_match(target_card, candidate_card, candidate_set=""):
 
 
 def collection_has_manual_image(card):
-    return bool(str(card.get("manual_image_path", "") or "").strip() or str(card.get("manual_image_url", "") or "").strip())
+    manual_path = str(card.get("manual_image_path", "") or "").strip()
+    manual_url = str(card.get("manual_image_url", "") or "").strip()
+    return bool((manual_path and os.path.exists(manual_path)) or manual_url)
 
 
 def collection_uses_placeholder(card):
@@ -125,6 +134,9 @@ def collection_uses_placeholder(card):
 
 
 def collection_image_needs_manual(card):
+    manual_path = str(card.get("manual_image_path", "") or "").strip()
+    if manual_path and not os.path.exists(manual_path):
+        return True
     if collection_has_manual_image(card):
         return False
     if collection_uses_placeholder(card):

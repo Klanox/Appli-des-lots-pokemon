@@ -103,6 +103,29 @@ def load_cloud_json(key):
     return None
 
 
+def load_cloud_json_meta(key):
+    """Load lightweight cloud metadata for status display without saving anything."""
+    client = get_supabase_client()
+    if client is None:
+        return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state.get("cloud_sync_error", "")}
+    try:
+        res = client.table(SUPABASE_STATE_TABLE).select("data, updated_at").eq("key", key).limit(1).execute()
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return {"available": True, "lots_count": 0, "updated_at": "", "error": ""}
+        data = rows[0].get("data")
+        lots_count = len(data.get("lots", [])) if isinstance(data, dict) and isinstance(data.get("lots"), list) else None
+        return {
+            "available": True,
+            "lots_count": lots_count,
+            "updated_at": rows[0].get("updated_at", "") or "",
+            "error": "",
+        }
+    except Exception as e:
+        st.session_state["cloud_sync_error"] = f"Lecture statut cloud impossible: {e}"
+        return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state["cloud_sync_error"]}
+
+
 def save_cloud_json(key, data):
     """Save JSON data to cloud."""
     client = get_supabase_client()

@@ -1,6 +1,7 @@
 """Pure card display helpers."""
 
 import html
+import os
 
 
 def collection_placeholder_html(width="100%"):
@@ -50,20 +51,25 @@ def collection_image_html(
 
     def add_candidate(url):
         url = str(url or "").strip()
+        if not url or url == placeholder_token:
+            return
+        if url.startswith(("card_images/", "card_images\\")) or os.path.exists(url):
+            if not os.path.exists(url):
+                return
         if url and url != placeholder_token and url not in candidates:
             candidates.append(url)
 
     resolved = str(card.get("resolved_collection_image_url", "") or "").strip()
-    for key in (
-        "manual_image_path",
-        "manual_image_url",
-        "resolved_collection_image_url",
-        "local_image",
-        "image_path",
-        "photo_path",
-        "image_url",
-        "image_url_en",
-    ):
+    # Priority: manual local image, manual URL, resolved/cache, stored URLs, then placeholder.
+    for key in ("manual_image_path",):
+        add_candidate(card.get(key, ""))
+    for key in ("manual_image_url",):
+        add_candidate(card.get(key, ""))
+    for key in ("resolved_collection_image_url",):
+        add_candidate(card.get(key, ""))
+    for key in ("local_image", "image_path", "photo_path"):
+        add_candidate(card.get(key, ""))
+    for key in ("image_url", "image_url_en"):
         add_candidate(card.get(key, ""))
 
     if not candidates and resolved == placeholder_token:
@@ -78,7 +84,7 @@ def collection_image_html(
     safe_style = html.escape(style, quote=True)
     placeholder = (
         '<div class="collection-img-placeholder" '
-        'style="display:none;align-items:center;justify-content:center;aspect-ratio:0.72;'
+        'style="display:flex;align-items:center;justify-content:center;aspect-ratio:0.72;'
         'width:100%;border-radius:12px;background:#f8fafc;border:2px dashed #cbd5e1;color:#64748b;font-weight:800;">'
         'Image indisponible</div>'
     )
@@ -98,12 +104,13 @@ def collection_image_html(
             "const i=parseInt(this.dataset.fallbackIndex,10);"
             "if(i<f.length){this.dataset.fallbackIndex=i+1;this.src=f[i];return;}"
         )
-    onerror_parts.append("this.style.display='none';this.parentElement.querySelector('.collection-img-placeholder').style.display='flex';")
+    safe_placeholder_js = placeholder.replace("\\", "\\\\").replace("'", "\\'")
+    onerror_parts.append(f"this.style.display='none';this.parentElement.innerHTML='{safe_placeholder_js}';")
     onerror = html.escape("".join(onerror_parts), quote=True)
     result = (
         f'<div class="collection-img-wrap" style="width:{width};">'
         f'<img src="{src}" onerror="{onerror}" style="width:100%;{safe_style}">'
-        f'{placeholder}</div>'
+        f'</div>'
     )
     state[cache_key] = result
     return result

@@ -29,6 +29,8 @@ from utils import (
     ESTIMATIONS_FILE,
 )
 from cloud import (
+    get_supabase_client,
+    load_cloud_json_meta,
     save_cloud_json,
     SUPABASE_DATA_KEY,
     SUPABASE_ESTIMATIONS_KEY,
@@ -73,6 +75,7 @@ from core.collection import (
     is_collection_system_lot,
 )
 from core.collection_actions import (
+    add_collection_batch_cards,
     add_direct_collection_card,
     add_or_merge_collection_card,
     delete_collection_card_from_system,
@@ -130,6 +133,7 @@ from ui.pages.collection import render_collection_page
 from ui.pages.lots import render_lots_page
 from ui.pages.sales import render_sales_page
 from ui.pages.vinted_listings import render_vinted_listings_page
+from ui.pages.wrapped import render_wrapped_page
 from services.tcgdex_service import (
     normalized_tcgdex_image_url,
     tcgdex_series_from_set_id,
@@ -175,7 +179,7 @@ CARDS_CACHE_FILE = "cards_cache.json"
 CARDS_CACHE_TTL_SECONDS = 14 * 24 * 60 * 60
 
 def cloud_sync_status():
-    from cloud import _secret_value, get_supabase_client
+    from cloud import _secret_value
     has_url = bool(_secret_value("SUPABASE_URL"))
     has_key = bool(_secret_value("SUPABASE_KEY", "SUPABASE_ANON_KEY"))
     if not has_url and not has_key:
@@ -193,6 +197,18 @@ def cloud_sync_status():
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Test cloud impossible: {e}"
         return False, st.session_state["cloud_sync_error"]
+
+
+def load_local_data_file_for_cloud_push():
+    """Read the local data.json for an explicit manual cloud push."""
+    try:
+        with open(DATA, "r", encoding="utf-8") as f:
+            local_data = json.load(f)
+        if isinstance(local_data, dict) and isinstance(local_data.get("lots"), list):
+            return local_data
+    except Exception as e:
+        st.session_state["cloud_sync_error"] = f"Lecture locale impossible: {e}"
+    return None
 
 def load_cards_cache(allow_network=True):
     """Charger toutes les cartes en mémoire (1 fois au démarrage)"""
@@ -1347,7 +1363,7 @@ if st.session_state.get("current_page") != "Lots":
 if "system_lots_ready" not in st.session_state:
     cd_boot = ld()
     if ensure_system_lots(cd_boot):
-        sd(cd_boot)
+        st.session_state["system_lots_autofix_pending"] = True
     st.session_state["system_lots_ready"] = True
 
 if st.session_state.pop("scroll_top_once", False):
@@ -1356,8 +1372,9 @@ if st.session_state.pop("scroll_top_once", False):
 # Réparer les images manquantes une seule fois (pas à chaque démarrage)
 if "images_fixed" not in st.session_state:
     st.session_state["images_fixed"] = True
-    fix_missing_images()
-    st.rerun()
+    # Ne pas reparer/sauvegarder automatiquement au demarrage : cela ecrivait
+    # data.json au simple affichage. Les corrections d'images doivent rester
+    # declenchees par une vraie action utilisateur.
 
 # JS : soumettre les champs de recherche à chaque frappe
 run_html("""
@@ -1418,10 +1435,20 @@ try:
 except:
     logo_src = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png"
 
-st.markdown(
-    render_app_header(logo_src, mobile=is_mobile_mode()),
-    unsafe_allow_html=True,
+try:
+    _early_query_page = str(st.query_params.get("page", "")).lower()
+except Exception:
+    _early_query_page = ""
+wrapped_story_active = (
+    st.session_state.get("wrapped_open", False)
+    and (st.session_state.get("current_page") == "Wrapped" or _early_query_page in {"wrapped", "pokestock-wrapped"})
 )
+
+if not wrapped_story_active:
+    st.markdown(
+        render_app_header(logo_src, mobile=is_mobile_mode()),
+        unsafe_allow_html=True,
+    )
 
 st.markdown(inject_theme(mobile=is_mobile_mode()), unsafe_allow_html=True)
 if is_mobile_mode():
@@ -1641,6 +1668,8 @@ if "current_page" not in st.session_state:
         "historique": "Historique",
         "stats": "Statistiques",
         "statistiques": "Statistiques",
+        "wrapped": "Wrapped",
+        "pokestock-wrapped": "Wrapped",
         "compteurs": "Compteurs",
         "archives": "Archivés",
     }
@@ -1648,72 +1677,92 @@ if "current_page" not in st.session_state:
 
 perf_reset_rerun()
 
-with st.sidebar:
-    st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
-    with perf_timer("gst() call", counter="gst_call"):
-        sts = gst()
-    sidebar_stats = [
-        ("Vendues", str(sts["sold_cards"])),
-        ("En stock", str(sts["remaining_cards"])),
-        ("Valeur stock", fp(sts["stock_value"])),
-        ("CA", fp(sts["total_revenue"])),
-        ("Bénéfice", fp(sts["total_profit"])),
-    ]
-    with st.container():
-        for label, value in sidebar_stats:
-            st.metric(label, value)
-    for section in NAV_SECTIONS:
-        st.markdown(
-            f'<div class="ps-nav-section-label">{section["label"]}</div>',
-            unsafe_allow_html=True,
-        )
-        for page, label, icon in section["items"]:
-            btn_type = "primary" if st.session_state.current_page == page else "secondary"
-            st.button(
-                f"{icon}  {label}",
-                width="stretch",
-                key=f"nav_{page.lower()}",
-                type=btn_type,
-                on_click=set_current_page,
-                args=(page,),
+if not wrapped_story_active:
+    with st.sidebar:
+        st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
+        with perf_timer("gst() call", counter="gst_call"):
+            sts = gst()
+        sidebar_stats = [
+            ("Vendues", str(sts["sold_cards"])),
+            ("En stock", str(sts["remaining_cards"])),
+            ("Valeur stock", fp(sts["stock_value"])),
+            ("CA", fp(sts["total_revenue"])),
+            ("Bénéfice", fp(sts["total_profit"])),
+        ]
+        with st.container():
+            for label, value in sidebar_stats:
+                st.metric(label, value)
+        for section in NAV_SECTIONS:
+            st.markdown(
+                f'<div class="ps-nav-section-label">{section["label"]}</div>',
+                unsafe_allow_html=True,
             )
-    st.markdown("---")
-    with st.expander("⚙️ Paramètres", expanded=False):
-        st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
-        st.toggle(
-            "Logs performance console",
-            key="perf_debug_enabled",
-            help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
-        )
-        cloud_ready, cloud_message = cloud_sync_status()
-        if cloud_ready:
-            st.caption(f"☁️ {cloud_message}")
-            if st.button("☁️ Envoyer vers le cloud", width="stretch", key="push_data_to_cloud"):
-                if save_cloud_json(SUPABASE_DATA_KEY, ld()):
-                    st.success("Données envoyées dans le cloud.")
-                else:
-                    st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
-        else:
-            st.caption(f"☁️ Cloud non prêt : {cloud_message}")
-            if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
-                st.session_state.pop("cloud_sync_error", None)
-                get_supabase_client.clear()
-                st.rerun()
-        backup_state = _load_backup_state()
-        last_weekly_path = backup_state.get("last_weekly_backup_path", "")
-        if st.session_state.get("last_auto_backup_message"):
-            st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
-        elif last_weekly_path:
-            st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
-        else:
-            st.caption("🛡️ Sauvegarde locale prête")
-        if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
-            try:
-                path, copied = create_local_backup("manual", include_images=True)
-                cleanup_old_backups()
-                st.success(f"Sauvegarde créée : {os.path.basename(path)}")
-            except Exception as e:
-                st.error(f"Sauvegarde impossible : {e}")
+            for page, label, icon in section["items"]:
+                btn_type = "primary" if st.session_state.current_page == page else "secondary"
+                st.button(
+                    f"{icon}  {label}",
+                    width="stretch",
+                    key=f"nav_{page.lower()}",
+                    type=btn_type,
+                    on_click=set_current_page,
+                    args=(page,),
+                )
+        st.markdown("---")
+        with st.expander("⚙️ Paramètres", expanded=False):
+            st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
+            st.toggle(
+                "Logs performance console",
+                key="perf_debug_enabled",
+                help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
+            )
+            cloud_notice = st.session_state.get("cloud_sync_notice")
+            if cloud_notice and not st.session_state.get("cloud_sync_notice_seen", False):
+                st.caption(f"Cloud protégé : {cloud_notice}")
+                st.session_state["cloud_sync_notice_seen"] = True
+            cloud_ready, cloud_message = cloud_sync_status()
+            if cloud_ready:
+                local_lots_count = len((st.session_state.get("data_cache") or {}).get("lots", []))
+                cloud_meta = load_cloud_json_meta(SUPABASE_DATA_KEY)
+                cloud_lots = cloud_meta.get("lots_count")
+                cloud_lots_label = "?" if cloud_lots is None else str(cloud_lots)
+                updated_at = cloud_meta.get("updated_at") or "date inconnue"
+                st.caption(f"☁️ {cloud_message} · local {local_lots_count} lot(s) · cloud {cloud_lots_label} lot(s)")
+                st.caption(f"Dernière synchro cloud : {updated_at}")
+                if cloud_lots is not None and local_lots_count > 0 and cloud_lots < local_lots_count:
+                    st.caption("Protection active : le cloud est plus petit, il ne remplacera pas le local.")
+                confirm_cloud_push = st.checkbox(
+                    "Confirmer l'envoi des données locales vers le cloud",
+                    key="confirm_push_data_to_cloud",
+                    help="Utilise ce bouton seulement quand le PC contient la version complète à envoyer au téléphone.",
+                )
+                if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
+                    local_data_for_cloud = load_local_data_file_for_cloud_push()
+                    if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
+                        st.success("Données envoyées dans le cloud.")
+                    else:
+                        st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
+            else:
+                st.caption(f"☁️ Cloud non prêt : {cloud_message}")
+                if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
+                    st.session_state.pop("cloud_sync_error", None)
+                    if hasattr(get_supabase_client, "clear"):
+                        get_supabase_client.clear()
+                    st.rerun()
+            backup_state = _load_backup_state()
+            last_weekly_path = backup_state.get("last_weekly_backup_path", "")
+            if st.session_state.get("last_auto_backup_message"):
+                st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
+            elif last_weekly_path:
+                st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
+            else:
+                st.caption("🛡️ Sauvegarde locale prête")
+            if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
+                try:
+                    path, copied = create_local_backup("manual", include_images=True)
+                    cleanup_old_backups()
+                    st.success(f"Sauvegarde créée : {os.path.basename(path)}")
+                except Exception as e:
+                    st.error(f"Sauvegarde impossible : {e}")
 
 if st.session_state.get("current_page") != "Vente":
     run_html("""
@@ -1771,6 +1820,11 @@ elif st.session_state.current_page=="Collection":
             sd_func=sd,
             acm_func=acm,
         ),
+        add_collection_batch_func=lambda **kwargs: add_collection_batch_cards(
+            **kwargs,
+            ld_func=ld,
+            sd_func=sd,
+        ),
         delete_collection_card_func=lambda lot_idx, card_idx, card_uid: delete_collection_card_from_system(
             lot_idx,
             card_idx,
@@ -1810,6 +1864,7 @@ elif st.session_state.current_page=="Collection":
         fp_func=fp,
         is_mobile_mode_func=is_mobile_mode,
         perf_count_func=perf_count,
+        search_in_cache_func=search_in_cache,
     )
 
 elif st.session_state.current_page=="Estimations":
@@ -1906,6 +1961,23 @@ elif st.session_state.current_page == "Statistiques":
         proxy_img_func=proxy_img,
         lots_archives_path="lots_archives.json",
         monthly_goals_path="monthly_goals.json",
+    )
+
+
+# ============================================================
+# PAGE WRAPPED
+# ============================================================
+elif st.session_state.current_page == "Wrapped":
+    render_with_perf(
+        "page Wrapped",
+        render_wrapped_page,
+        ld_func=ld,
+        calc_cout_lot_func=calc_cout_lot,
+        effective_purchase_price_func=effective_purchase_price,
+        fp_func=fp,
+        proxy_img_func=proxy_img,
+        lots_archives_path="lots_archives.json",
+        set_current_page_func=set_current_page,
     )
 
 

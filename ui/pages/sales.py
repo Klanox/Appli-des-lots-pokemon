@@ -4,6 +4,60 @@ This module contains the existing sales/exchange page body. It receives app.py
 globals as context to preserve behavior while moving the large page out of app.py.
 """
 
+import html
+import os
+
+
+def _sale_image_html(card, *, in_cart=False, width="100%"):
+    """Render a sale card image with a clean fallback instead of a broken icon."""
+    proxy = globals().get("proxy_img", lambda value, *_: value)
+    candidates = []
+    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url", "image_url", "image_url_en"):
+        url = str(card.get(key) or "").strip()
+        if not url or url == "__placeholder__":
+            continue
+        if (url.startswith(("card_images/", "card_images\\")) or os.path.exists(url)) and not os.path.exists(url):
+            continue
+        if url not in candidates:
+            candidates.append(url)
+    placeholder = (
+        '<div class="sale-img-placeholder" '
+        'style="display:flex;align-items:center;justify-content:center;aspect-ratio:0.72;'
+        'width:100%;border-radius:12px;background:#f8fafc;border:2px dashed #cbd5e1;'
+        'color:#64748b;font-weight:800;text-align:center;padding:0.4rem;">'
+        'Image indisponible</div>'
+    )
+    if not candidates:
+        return placeholder
+
+    proxied = [html.escape(proxy(url), quote=True) for url in candidates]
+    fallback_chain = proxied[1:]
+    onerror_parts = []
+    if fallback_chain:
+        js_array = "[" + ",".join("'" + url.replace("'", "\\'") + "'" for url in fallback_chain) + "]"
+        onerror_parts.append(
+            "this.dataset.fallbackIndex=this.dataset.fallbackIndex||0;"
+            f"const f={js_array};"
+            "const i=parseInt(this.dataset.fallbackIndex,10);"
+            "if(i<f.length){this.dataset.fallbackIndex=i+1;this.src=f[i];return;}"
+        )
+    safe_placeholder_js = placeholder.replace("\\", "\\\\").replace("'", "\\'")
+    onerror_parts.append(f"this.style.display='none';this.parentElement.innerHTML='{safe_placeholder_js}';")
+    onerror = html.escape("".join(onerror_parts), quote=True)
+    border = "border:4px solid #22c55e;" if in_cart else ""
+    badge = (
+        '<div style="position:absolute;top:5px;right:5px;background:#22c55e;color:white;'
+        'border-radius:50%;width:24px;height:24px;display:flex;align-items:center;'
+        'justify-content:center;font-weight:900;font-size:0.75rem;">OK</div>'
+        if in_cart
+        else ""
+    )
+    return (
+        f'<div style="position:relative;width:{html.escape(str(width), quote=True)};">'
+        f'<img src="{proxied[0]}" onerror="{onerror}" style="width:100%;border-radius:12px;{border}">'
+        f'{badge}</div>'
+    )
+
 
 def render_sales_page(context):
     globals().update(context)
@@ -176,24 +230,18 @@ def render_sales_page(context):
                     for col_idx, (li, ci, card, lot, stock) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
                         in_cart = card.get("card_uid") in cart_keys
                         with cols[col_idx]:
-                            if card.get("image_url"):
-                                if in_cart:
-                                    st.markdown(f'<div style="position:relative"><img src="{proxy_img(card["image_url"])}" style="width:100%;border-radius:12px;border:4px solid #22c55e;"><div style="position:absolute;top:5px;right:5px;background:#22c55e;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:0.8rem;">?</div></div>', unsafe_allow_html=True)
-                                else:
-                                    st.image(proxy_img(card["image_url"]), width="stretch")
-                            else:
-                                st.markdown("??")
+                            st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
                             st.markdown(f"**{card['name']}**")
-                            st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} ? #{card.get('number','')}")
-                            st.caption(f"?? {fp(card.get('suggested_price', 0))} ? ?? {stock}")
+                            st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
+                            st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
                             if not is_mobile_mode():
-                                st.caption(f"??? {lot['nom']}")
+                                st.caption(f"Lot {lot['nom']}")
                             q_key = card.get("card_uid") or f"{li}_{ci}"
-                            q_add = st.number_input("Qt?", 1, stock, 1, key=f"bulk_q_{q_key}")
+                            q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
                             if in_cart:
-                                st.button("? Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
                             else:
-                                st.button("?? Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+                                st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
             else:
                 # Pas de recherche : rendu progressif si tous les lots sont affiches.
                 rendered_sale_cards_count = 0
@@ -222,29 +270,23 @@ def render_sales_page(context):
 
                     rendered_sale_cards_count += len(cards_to_render)
                     if cards_to_render:
-                        st.markdown(f"### ?? {lot['nom']}")
+                        st.markdown(f"### Lot {lot['nom']}")
                         COLS_PER_ROW = 3 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_to_render), COLS_PER_ROW):
                             cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
                             for col_idx, (ci, card, stock) in enumerate(cards_to_render[row_start:row_start + COLS_PER_ROW]):
                                 in_cart = card.get("card_uid") in cart_keys
                                 with cols[col_idx]:
-                                    if card.get("image_url"):
-                                        if in_cart:
-                                            st.markdown(f'<div style="position:relative"><img src="{proxy_img(card["image_url"])}" style="width:100%;border-radius:12px;border:4px solid #22c55e;"><div style="position:absolute;top:5px;right:5px;background:#22c55e;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:0.8rem;">?</div></div>', unsafe_allow_html=True)
-                                        else:
-                                            st.image(proxy_img(card["image_url"]), width="stretch")
-                                    else:
-                                        st.markdown("??")
+                                    st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
                                     st.markdown(f"**{card['name']}**")
-                                    st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} ? #{card.get('number','')}")
-                                    st.caption(f"?? {fp(card.get('suggested_price', 0))} ? ?? {stock}")
+                                    st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
+                                    st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
                                     q_key = card.get("card_uid") or f"{li}_{ci}"
-                                    q_add = st.number_input("Qt?", 1, stock, 1, key=f"bulk_q_{q_key}")
+                                    q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
                                     if in_cart:
-                                        st.button("? Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                        st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
                                     else:
-                                        st.button("?? Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+                                        st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
                         st.markdown("---")
 
                 if "perf_count" in globals():
@@ -291,7 +333,13 @@ def render_sales_page(context):
                     if st.session_state.get("negociated_price_base_ref") != total_base_ref:
                         st.session_state["negociated_price"] = total_base_ref
                         st.session_state["negociated_price_base_ref"] = total_base_ref
-                    negociated_price = st.number_input("💰 Prix négocié", 0., float(total_base)*2, float(st.session_state.get("negociated_price", total_base)), 0.5, key="negociated_price")
+                    negociated_price = st.number_input(
+                        "💰 Prix négocié",
+                        min_value=0.0,
+                        max_value=float(total_base) * 2,
+                        step=0.5,
+                        key="negociated_price",
+                    )
                     st.button("🤝 Vendre au prix négocié", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
 
                 # Dialog canal pour vente en lot

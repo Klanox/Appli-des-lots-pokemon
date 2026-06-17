@@ -13,6 +13,7 @@ import requests
 
 from core.collection import (
     collection_current_value,
+    collection_paid_total,
     collection_purchase_price,
     is_collection_system_lot,
     same_collection_card,
@@ -30,8 +31,8 @@ def add_or_merge_collection_card(cd, lot_idx, new_card):
             old_qty = max(int(existing.get("quantity", 0) or 0), 1)
             new_qty = max(int(new_card.get("quantity", 1) or 1), 1)
             merged_qty = old_qty + new_qty
-            old_paid_total = collection_purchase_price(existing) * old_qty
-            new_paid_total = collection_purchase_price(new_card) * new_qty
+            old_paid_total = collection_paid_total(existing, lot)
+            new_paid_total = collection_paid_total(new_card, lot)
             old_value_total = collection_current_value(existing) * old_qty
             new_value_total = collection_current_value(new_card) * new_qty
             existing["quantity"] = merged_qty
@@ -46,6 +47,7 @@ def add_or_merge_collection_card(cd, lot_idx, new_card):
                 existing[list_key] = merged_list
             existing["collection_current_value"] = (old_value_total + new_value_total) / merged_qty if merged_qty else 0.
             existing["collection_purchase_price"] = (old_paid_total + new_paid_total) / merged_qty if merged_qty else 0.
+            existing["collection_purchase_total"] = old_paid_total + new_paid_total
             existing["purchase_price"] = existing["collection_purchase_price"]
             existing["suggested_price"] = existing["collection_current_value"]
             return "merged"
@@ -105,6 +107,116 @@ def add_direct_collection_card(
         special_tag=collection_special_tag,
         collection_keep=True,
     )
+
+
+def calculate_collection_batch_allocations(rows, total_paid):
+    cleaned = []
+    for row in rows:
+        name = str(row.get("name", "") or "").strip()
+        if not name:
+            continue
+        qty = max(int(row.get("quantity", 1) or 1), 1)
+        current_value = max(float(row.get("current_value", 0.) or 0.), 0.)
+        cleaned.append({**row, "name": name, "quantity": qty, "current_value": current_value})
+
+    weighted_total = sum(row["current_value"] * row["quantity"] for row in cleaned)
+    if not cleaned or weighted_total <= 0:
+        return cleaned, weighted_total, []
+
+    total_paid = round(float(total_paid or 0.), 2)
+    allocations = []
+    allocated = 0.
+    for idx, row in enumerate(cleaned):
+        if idx == len(cleaned) - 1:
+            line_paid_total = round(total_paid - allocated, 2)
+        else:
+            line_paid_total = round((row["current_value"] * row["quantity"] / weighted_total) * total_paid, 2)
+            allocated = round(allocated + line_paid_total, 2)
+        unit_paid = round(line_paid_total / row["quantity"], 2) if row["quantity"] else 0.
+        allocations.append({**row, "line_paid_total": line_paid_total, "unit_paid": unit_paid})
+
+    return cleaned, weighted_total, allocations
+
+
+def add_collection_batch_cards(
+    *,
+    batch_name,
+    total_paid,
+    note,
+    batch_date,
+    rows,
+    ld_func,
+    sd_func,
+):
+    cleaned, weighted_total, allocations = calculate_collection_batch_allocations(rows, total_paid)
+    if not cleaned:
+        return False, "Ajoute au moins une carte dans le lot Collection."
+    if weighted_total <= 0:
+        return False, "Renseigne au moins une cote supérieure à 0 pour répartir le prix payé."
+
+    cd_batch = ld_func()
+    collection_lot_ix = get_or_create_collection_lot(cd_batch)
+    batch_id = f"collection_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    batch_name = str(batch_name or "").strip() or "Lot Collection"
+    batch_date = str(batch_date or "").strip()
+    note = str(note or "").strip()
+    added = 0
+    merged = 0
+
+    for row in allocations:
+        specials = [str(value).strip() for value in (row.get("specials", []) or []) if str(value).strip()]
+        is_reverse = "Reverse" in specials
+        is_ed1 = any(value in specials for value in ("1ère édition", "1ère Éd", "1ere edition", "1ere Ed"))
+        is_japanese = "Japonaise" in specials
+        special_tag = ", ".join(
+            value
+            for value in specials
+            if value not in ("Reverse", "1ère édition", "1ère Éd", "1ere edition", "1ere Ed", "Japonaise")
+        )
+        new_card = {
+            "name": row["name"],
+            "set": str(row.get("set", "") or "").strip(),
+            "number": str(row.get("number", "") or "").strip(),
+            "id": str(row.get("id", "") or "").strip(),
+            "quantity": row["quantity"],
+            "sold_quantity": 0,
+            "stored_quantity": 0,
+            "condition": str(row.get("condition", "") or "").strip() or "NM",
+            "is_reverse": is_reverse,
+            "is_ed1": is_ed1,
+            "lang": "ja" if is_japanese else "fr",
+            "special_tag": special_tag,
+            "suggested_price": row["current_value"],
+            "collection_current_value": row["current_value"],
+            "collection_purchase_price": row["unit_paid"],
+            "collection_purchase_total": row["line_paid_total"],
+            "purchase_price": row["unit_paid"],
+            "is_collection_keep": True,
+            "collection_batch_id": batch_id,
+            "collection_batch_name": batch_name,
+            "collection_batch_note": note,
+            "collection_added_at": datetime.now().isoformat(),
+            "sold_entries": [],
+        }
+        if row.get("image_url"):
+            new_card["image_url"] = str(row.get("image_url") or "").strip()
+        if row.get("image_url_en"):
+            new_card["image_url_en"] = str(row.get("image_url_en") or "").strip()
+        if batch_date:
+            new_card["collection_batch_date"] = batch_date
+        result = add_or_merge_collection_card(cd_batch, collection_lot_ix, new_card)
+        if result == "merged":
+            merged += 1
+        else:
+            added += 1
+
+    sd_func(cd_batch)
+    parts = []
+    if added:
+        parts.append(f"{added} carte(s) ajoutée(s)")
+    if merged:
+        parts.append(f"{merged} carte(s) fusionnée(s)")
+    return True, "Lot Collection enregistré : " + ", ".join(parts) + "."
 
 
 def delete_collection_card_from_system(lot_idx, card_idx, card_uid, *, ld_func, sd_func, backup_func):

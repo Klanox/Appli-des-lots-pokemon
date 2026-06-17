@@ -561,6 +561,47 @@ def render_lots_page(context):
                     )
                 
                 def render_card_grid(card_list_with_idx, sold=False, collection=False):
+                    def lot_image_markup(img_url, img_url_en="", *, img_style="", wrapper_style=""):
+                        candidates = []
+                        for raw_url in (img_url, img_url_en):
+                            raw_url = str(raw_url or "").strip()
+                            if not raw_url or raw_url == "__placeholder__":
+                                continue
+                            if (raw_url.startswith(("card_images/", "card_images\\")) or os.path.exists(raw_url)) and not os.path.exists(raw_url):
+                                continue
+                            if raw_url and raw_url not in candidates:
+                                candidates.append(raw_url)
+                        placeholder = (
+                            '<div class="mobile-card-placeholder" '
+                            'style="display:flex;align-items:center;justify-content:center;aspect-ratio:0.72;'
+                            'width:100%;border-radius:12px;background:#f8fafc;border:2px dashed #cbd5e1;'
+                            'color:#64748b;font-weight:800;text-align:center;padding:0.4rem;">'
+                            'Image indisponible</div>'
+                        )
+                        if not candidates:
+                            return placeholder
+                        proxied = [html.escape(proxy_img(url), quote=True) for url in candidates]
+                        src = proxied[0]
+                        fallback_chain = proxied[1:]
+                        fallback_js = ""
+                        if fallback_chain:
+                            js_array = "[" + ",".join("'" + url.replace("'", "\\'") + "'" for url in fallback_chain) + "]"
+                            fallback_js = (
+                                "this.dataset.fallbackIndex=this.dataset.fallbackIndex||0;"
+                                f"const f={js_array};"
+                                "const i=parseInt(this.dataset.fallbackIndex,10);"
+                                "if(i<f.length){this.dataset.fallbackIndex=i+1;this.src=f[i];return;}"
+                            )
+                        onerror = html.escape(
+                            fallback_js + "this.style.display='none';this.parentElement.innerHTML='" + placeholder.replace("\\", "\\\\").replace("'", "\\'") + "';",
+                            quote=True,
+                        )
+                        return (
+                            f'<div style="{wrapper_style}">'
+                            f'<img src="{src}" onerror="{onerror}" style="{img_style}">'
+                            f'</div>'
+                        )
+
                     if is_mobile_mode():
                         tiles = []
                         for real_cix, crd in card_list_with_idx:
@@ -568,11 +609,7 @@ def render_lots_page(context):
                             name = html.escape(str(crd.get("name", "Carte")))
                             price = float(crd.get("suggested_price", 0.) or 0.)
                             img_url = crd.get("image_url", "")
-                            if img_url:
-                                src = html.escape(proxy_img(img_url), quote=True)
-                                img_html = f'<img src="{src}" alt="{name}">'
-                            else:
-                                img_html = '<div class="mobile-card-placeholder">?</div>'
+                            img_html = lot_image_markup(img_url, crd.get("image_url_en", ""), img_style="width:100%;border-radius:12px;")
                             past_note_html = ""
                             if not sold and not collection:
                                 past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
@@ -604,13 +641,14 @@ def render_lots_page(context):
                             with cols[col_idx]:
                                 # Image
                                 img_url = crd.get("image_url","")
-                                if img_url:
+                                img_url_en = crd.get("image_url_en", "")
+                                if img_url or img_url_en:
                                     if sold:
-                                        st.markdown(f'<div style="opacity:0.35;filter:grayscale(100%)"><img src="{proxy_img(img_url)}" style="width:100%;border-radius:12px;border:3px solid #e2e8f0;"></div>', unsafe_allow_html=True)
+                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"), unsafe_allow_html=True)
                                     elif collection:
-                                        st.markdown(f'<div style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"><img src="{proxy_img(img_url)}" style="width:100%;border-radius:10px;"></div>', unsafe_allow_html=True)
+                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
                                     else:
-                                        st.markdown(f'<img src="{proxy_img(img_url)}" style="width:100%;border-radius:12px;">', unsafe_allow_html=True)
+                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"), unsafe_allow_html=True)
                                         past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
                                         if past_notes:
                                             st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
