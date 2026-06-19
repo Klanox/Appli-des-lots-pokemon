@@ -4,34 +4,7 @@
       "id": "c5d89f4f724343bc97a7a36b870ce1fc",
       "name": "Drop vinted Juin 2026",
       "created_at": "2026-06-10T16:47:57",
-      "cards": [
-        {
-          "lot_uid": "lot_96edc1ece4684c6294b13057145701d6",
-          "card_uid": "card_568afc2156b04939b2816a81457f008e",
-          "lot_idx": 17,
-          "card_idx": 5,
-          "name": "M-Alakazam EX",
-          "number": "118",
-          "set": "Impact des Destins",
-          "image_url": "https://assets.tcgdex.net/fr/xy/xy10/118/high.webp",
-          "price_at_add": 130.0,
-          "added_at": "2026-06-10T18:23:05",
-          "listing_posted": false,
-          "listing_posted_at": ""
-        },
-        {
-          "lot_uid": "lot_7b4b8052ca8744aa8ace0d88ae42fa8e",
-          "card_uid": "card_075e4b50d05445e2959b6f0c1bca01bf",
-          "lot_idx": 15,
-          "card_idx": 4,
-          "name": "Noctali",
-          "number": "86",
-          "set": "Indomptable",
-          "image_url": "https://assets.tcgdex.net/fr/hgss/hgss3/86/high.webp",
-          "price_at_add": 250.0,
-          "added_at": "2026-06-10T18:23:30"
-        }
-      ]
+      "cards": []
     }
   ]
 }
