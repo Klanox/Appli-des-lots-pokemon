@@ -1,4 +1,5 @@
 streamlit
+streamlit-keyup
 pillow
 requests
 plotly

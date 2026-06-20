@@ -156,6 +156,7 @@ from services.estimations_service import (
     load_estimations,
     save_estimations,
 )
+from services.estimations_cache_enrichment import enrich_estimations_card_cache
 
 APP_BUILD = "Codex 2026-06-12 drops search"
 
@@ -1890,6 +1891,7 @@ elif st.session_state.current_page=="Estimations":
         is_mobile_mode_func=is_mobile_mode,
         ecd_func=ecd,
         run_html_func=run_html,
+        cache_enrichment_func=enrich_estimations_card_cache,
     )
 elif st.session_state.current_page=="Annonces Vinted":
     render_with_perf(
