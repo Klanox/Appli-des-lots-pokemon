@@ -9,7 +9,16 @@ import shutil
 from datetime import datetime
 import streamlit as st
 from utils import safe_write_json, DATA, BACKUP_DIR, BACKUP_STATE_FILE
-from cloud import cloud_sync_enabled, load_cloud_json, save_cloud_json, SUPABASE_DATA_KEY
+from cloud import (
+    cloud_sync_enabled,
+    load_cloud_json,
+    save_cloud_json,
+    SUPABASE_DATA_KEY,
+    cloud_sync_entry,
+    json_fingerprint,
+    update_cloud_sync_state,
+    utc_now_iso,
+)
 from services.perf_service import perf_count, perf_log
 
 # Constants
@@ -17,15 +26,63 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 LOTS_ARCHIVES_FILE = os.path.join(APP_DIR, "lots_archives.json")
 
 
+def _read_local_data_file():
+    if not os.path.exists(DATA):
+        return None
+    with open(DATA, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _valid_data_snapshot(data):
+    return isinstance(data, dict) and isinstance(data.get("lots"), list)
+
+
+def _data_summary(data):
+    lots = data.get("lots", []) if isinstance(data, dict) else []
+    collection_lots = sum(1 for lot in lots if lot.get("is_collection_system") or lot.get("is_collection_lot") or lot.get("nom") == "Collection")
+    return {"lots": len(lots), "collection_lots": collection_lots}
+
+
+def _set_cloud_status(*, source, status, message="", cloud_data=None, local_data=None):
+    st.session_state["cloud_sync_status"] = {
+        "source": source,
+        "status": status,
+        "message": message,
+        "cloud": _data_summary(cloud_data) if cloud_data is not None else None,
+        "local": _data_summary(local_data) if local_data is not None else None,
+        "at": utc_now_iso(),
+    }
+
+
+def _write_local_cloud_snapshot(data):
+    safe_write_json(DATA, data)
+    update_cloud_sync_state(SUPABASE_DATA_KEY, data=data, source="cloud", dirty=False, last_read=utc_now_iso())
+    st.session_state["data_cloud_loaded_at"] = time.time()
+    st.session_state["data_cache"] = data
+    st.session_state["data_dirty"] = False
+
+
+def pull_data_from_cloud():
+    """Explicit user action: replace local data.json with latest valid cloud data."""
+    if not cloud_sync_enabled():
+        return {"ok": False, "message": "Synchronisation cloud désactivée.", "summary": None}
+    cloud_data = load_cloud_json(SUPABASE_DATA_KEY)
+    if not _valid_data_snapshot(cloud_data) or len(cloud_data.get("lots", [])) == 0:
+        _set_cloud_status(source="local", status="pull_failed", message="Cloud vide ou invalide.", cloud_data=cloud_data)
+        return {"ok": False, "message": "Cloud vide ou invalide.", "summary": _data_summary(cloud_data) if isinstance(cloud_data, dict) else None}
+    _write_local_cloud_snapshot(cloud_data)
+    _set_cloud_status(source="cloud", status="manual_pull_success", message="Dernière version cloud récupérée.", cloud_data=cloud_data)
+    print(f"[Cloud Sync] pull status=success files=data lots={len(cloud_data.get('lots', []))}", flush=True)
+    return {"ok": True, "message": "Dernière version cloud récupérée.", "summary": _data_summary(cloud_data)}
+
+
 def ld():
     """Load data with caching and cloud sync support."""
     perf_count("ld")
     perf_start = time.perf_counter()
     perf_source = "unknown"
-    local_data = None
-    if os.path.exists(DATA):
-        with open(DATA, "r", encoding="utf-8") as f:
-            local_data = json.load(f)
+    local_data = _read_local_data_file()
+    if local_data is not None:
         perf_source = "file"
     local_lots_count = len(local_data.get("lots", [])) if isinstance(local_data, dict) else 0
 
@@ -46,36 +103,73 @@ def ld():
                 return cached
 
     cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
-    cloud_lots_count = len(cloud_data.get("lots", [])) if isinstance(cloud_data, dict) else 0
+    cloud_valid = _valid_data_snapshot(cloud_data)
+    cloud_lots_count = len(cloud_data.get("lots", [])) if cloud_valid else 0
 
-    # Protection anti-perte : un cloud vide ou plus petit ne doit pas remplacer un local rempli.
-    if (
-        isinstance(cloud_data, dict)
-        and cloud_data.get("lots") is not None
-        and cloud_lots_count > 0
-        and not (local_lots_count > 0 and cloud_lots_count < local_lots_count)
-    ):
-        d = cloud_data
-        perf_source = "cloud"
-        st.session_state["cloud_sync_active"] = True
-        st.session_state["data_cloud_loaded_at"] = time.time()
-    elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count == 0 and local_lots_count > 0:
+    if cloud_valid and cloud_lots_count > 0:
+        local_hash = json_fingerprint(local_data) if _valid_data_snapshot(local_data) else ""
+        cloud_hash = json_fingerprint(cloud_data)
+        sync_entry = cloud_sync_entry(SUPABASE_DATA_KEY)
+        local_dirty = bool(sync_entry.get("local_dirty"))
+        if local_dirty and local_hash and local_hash != cloud_hash:
+            d = local_data
+            perf_source = "local/cloud_conflict"
+            st.session_state["cloud_sync_conflict"] = {
+                "message": "Des modifications locales non envoyées existent. Le cloud n'a pas remplacé automatiquement le local.",
+                "local": _data_summary(local_data),
+                "cloud": _data_summary(cloud_data),
+                "at": utc_now_iso(),
+            }
+            _set_cloud_status(
+                source="local",
+                status="conflict",
+                message="Cloud disponible, mais modifications locales non envoyées détectées.",
+                cloud_data=cloud_data,
+                local_data=local_data,
+            )
+            print(
+                f"[Cloud Sync] startup source=local status=conflict local_lots={local_lots_count} cloud_lots={cloud_lots_count}",
+                flush=True,
+            )
+        else:
+            d = cloud_data
+            perf_source = "cloud"
+            st.session_state["cloud_sync_active"] = True
+            st.session_state.pop("cloud_sync_conflict", None)
+            if local_hash != cloud_hash:
+                _write_local_cloud_snapshot(cloud_data)
+            else:
+                st.session_state["data_cloud_loaded_at"] = time.time()
+            _set_cloud_status(
+                source="cloud",
+                status="loaded",
+                message="Dernière version cloud chargée.",
+                cloud_data=cloud_data,
+                local_data=local_data,
+            )
+            print(
+                f"[Cloud Sync] startup source=cloud status=loaded local_lots={local_lots_count} cloud_lots={cloud_lots_count}",
+                flush=True,
+            )
+    elif cloud_valid and cloud_lots_count == 0 and local_lots_count > 0:
         d = local_data
-        perf_source = "local/cloud_empty_ignored"
-        st.session_state["cloud_sync_notice"] = "Cloud vide ignoré : les données locales ont été conservées."
-    elif isinstance(cloud_data, dict) and cloud_data.get("lots") is not None and cloud_lots_count < local_lots_count and local_lots_count > 0:
-        d = local_data
-        perf_source = "local/cloud_smaller_ignored"
-        st.session_state["cloud_sync_notice"] = (
-            "Cloud ignoré : il contient moins de lots que le fichier local. "
-            "Les données locales ont été conservées."
-        )
+        perf_source = "local/cloud_empty"
+        _set_cloud_status(source="local", status="cloud_empty", message="Cloud vide : données locales conservées.", cloud_data=cloud_data, local_data=local_data)
+        st.session_state["cloud_sync_notice"] = "Cloud vide : les données locales ont été conservées."
     elif local_data is not None:
         d = local_data
-        perf_source = "local"
+        perf_source = "local/cloud_unavailable" if cloud_sync_enabled() else "local/cloud_disabled"
+        _set_cloud_status(
+            source="local",
+            status="cloud_unavailable" if cloud_sync_enabled() else "cloud_disabled",
+            message="Cloud indisponible : données locales utilisées." if cloud_sync_enabled() else "Cloud désactivé : données locales utilisées.",
+            cloud_data=cloud_data if isinstance(cloud_data, dict) else None,
+            local_data=local_data,
+        )
     else:
         d = {"lots": []}
         perf_source = "empty"
+        _set_cloud_status(source="empty", status="empty", message="Aucune donnée locale ou cloud disponible.")
 
     data_changed = False
     if ensure_card_ids(d):
@@ -116,11 +210,19 @@ def sd(d):
         if save_cloud_json(SUPABASE_DATA_KEY, d):
             st.session_state["data_cloud_loaded_at"] = time.time()
             st.session_state["cloud_sync_notice"] = "Données locales sauvegardées et cloud mis à jour."
+            update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=False, last_save=utc_now_iso())
+            _set_cloud_status(source="local", status="saved_to_cloud", message="Sauvegarde locale et cloud OK.", local_data=d, cloud_data=d)
+            print(f"[Cloud Sync] save status=success files=data lots={len(d.get('lots', []))}", flush=True)
         else:
             st.session_state["cloud_sync_notice"] = (
                 "Sauvegarde locale OK, mais la synchro cloud a échoué. "
                 f"{st.session_state.get('cloud_sync_error', '')}"
             )
+            update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=True)
+            _set_cloud_status(source="local", status="cloud_save_failed", message="Sauvegarde locale OK, cloud non mis à jour.", local_data=d)
+            print("[Cloud Sync] save status=failed local_preserved=yes", flush=True)
+    else:
+        update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=True)
     # Mettre à jour le cache et marquer comme propre
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False

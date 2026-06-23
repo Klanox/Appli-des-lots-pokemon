@@ -5,7 +5,10 @@ Cloud sync functions for PokéStock application using Supabase.
 import streamlit as st
 import tomllib
 import os
+import json
+import hashlib
 from datetime import datetime, timezone
+from utils import safe_write_json
 
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +16,66 @@ LOCAL_SECRETS_FILE = os.path.join(APP_DIR, ".streamlit", "secrets.toml")
 SUPABASE_STATE_TABLE = "app_state"
 SUPABASE_DATA_KEY = "data"
 SUPABASE_ESTIMATIONS_KEY = "lot_estimations"
+SUPABASE_MARKET_PRICE_CACHE_KEY = "estimation_market_price_cache"
+CLOUD_SYNC_STATE_FILE = os.path.join(APP_DIR, "cloud_sync_state.json")
+
+
+def utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def json_fingerprint(data):
+    """Stable fingerprint for sync comparisons without logging content."""
+    try:
+        payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        payload = str(type(data))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_cloud_sync_state():
+    if not os.path.exists(CLOUD_SYNC_STATE_FILE):
+        return {"files": {}}
+    try:
+        with open(CLOUD_SYNC_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            data.setdefault("files", {})
+            return data
+    except Exception as e:
+        try:
+            st.session_state["cloud_sync_error"] = f"Etat cloud local illisible: {e}"
+        except Exception:
+            pass
+    return {"files": {}}
+
+
+def save_cloud_sync_state(state):
+    if not isinstance(state, dict):
+        state = {"files": {}}
+    state.setdefault("files", {})
+    safe_write_json(CLOUD_SYNC_STATE_FILE, state, indent=2)
+
+
+def update_cloud_sync_state(key, *, data=None, source="", dirty=None, last_read=None, last_save=None):
+    state = load_cloud_sync_state()
+    entry = state.setdefault("files", {}).setdefault(key, {})
+    if data is not None:
+        entry["fingerprint"] = json_fingerprint(data)
+    if source:
+        entry["source"] = source
+    if dirty is not None:
+        entry["local_dirty"] = bool(dirty)
+    if last_read:
+        entry["last_read_at"] = last_read
+    if last_save:
+        entry["last_save_at"] = last_save
+    save_cloud_sync_state(state)
+    return entry
+
+
+def cloud_sync_entry(key):
+    return load_cloud_sync_state().get("files", {}).get(key, {})
 
 
 @st.cache_resource(show_spinner=False)

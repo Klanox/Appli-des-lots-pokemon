@@ -1,4 +1,4 @@
-"""Estimations page renderer for Pokestock."""
+﻿"""Estimations page renderer for Pokestock."""
 
 from __future__ import annotations
 
@@ -9,10 +9,28 @@ import json
 import os
 import re
 import time
+import unicodedata
+import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import streamlit as st
 from st_keyup import st_keyup
+
+from services.estimations_service import (
+    QUICK_BULK_PURCHASE_UNIT_PRICE,
+    QUICK_BULK_RESALE_UNIT_PRICE,
+)
+from services.market_price_cache_service import (
+    apply_market_price_to_card,
+    build_market_alerts,
+    import_estimations_history,
+    load_market_price_cache,
+    mark_manual_price,
+    market_price_badge,
+    refresh_estimation_prices,
+    save_market_price_cache,
+    upsert_market_price,
+)
 
 
 _ESTIMATION_LOG_SIGNATURES = set()
@@ -22,6 +40,7 @@ _ESTIMATION_SEARCH_INDEX = []
 _ESTIMATION_SEARCH_INDEX_SOURCE_ID = None
 _ESTIMATION_KEYUP_DEBOUNCE_MS = 80
 ESTIMATIONS_DEBUG = str(os.environ.get("POKESTOCK_ESTIMATIONS_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
+_KNOWN_ART_RARE_CARD_IDS = {"sv06.5-066"}
 _INVALID_IMAGE_VALUES = {"", "0", "none", "null", "false", "nan"}
 _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 _RARITY_TAG_ALIASES = {
@@ -56,6 +75,53 @@ _STATIC_SET_TAG_ALIASES = {
     "cri": ["crimson", "invasion carmin"],
     "obf": ["obsidian flames", "flammes obsidiennes"],
 }
+_ESTIMATION_STATUS_OPTIONS = [
+    "À analyser",
+    "Photos demandées",
+    "En négociation",
+    "Offre envoyée",
+    "Acceptée",
+    "Achetée",
+    "Refusée",
+    "Expirée",
+    "À suivre",
+]
+_LEGACY_STATUS_MAP = {
+    "En cours": "À analyser",
+    "À surveiller": "À suivre",
+    "Achetée": "Achetée",
+    "Refusée": "Refusée",
+}
+_DEFAULT_CHECKLIST_ITEMS = [
+    "Photos recto reçues",
+    "Photos verso reçues",
+    "Coins vérifiés",
+    "Rayures vérifiées",
+    "Cartes les plus chères confirmées",
+    "État général confirmé",
+    "Prix négocié",
+    "Frais de port vérifiés",
+    "Paiement sécurisé",
+    "Lot acheté / refusé / en attente",
+]
+_SPECIAL_VALUE_TAGS = {
+    "AR",
+    "FA",
+    "ALT",
+    "SAR",
+    "RAINBOW",
+    "HYPER_RARE",
+    "SECRET_RARE",
+    "TG",
+    "GG",
+    "PROMO",
+    "EX",
+    "GX",
+    "V",
+    "VMAX",
+    "VSTAR",
+    "GOLD",
+}
 
 
 def _safe_float(value, default=0.0):
@@ -72,7 +138,36 @@ def _safe_int(value, default=1):
         return default
 
 
+def _safe_non_negative_int(value, default=0):
+    try:
+        return max(int(value or default), 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_quick_bulk_entry(card):
+    return isinstance(card, dict) and card.get("entry_type") == "quick_bulk"
+
+
+def _quick_bulk_purchase_unit(card):
+    return _safe_float(card.get("purchase_unit_price"), QUICK_BULK_PURCHASE_UNIT_PRICE)
+
+
+def _quick_bulk_resale_unit(card):
+    return _safe_float(card.get("resale_unit_price"), QUICK_BULK_RESALE_UNIT_PRICE)
+
+
+def _quick_bulk_purchase_total(card):
+    return _quick_bulk_purchase_unit(card) * _safe_int(card.get("quantity"))
+
+
+def _quick_bulk_resale_total(card):
+    return _quick_bulk_resale_unit(card) * _safe_int(card.get("quantity"))
+
+
 def _card_weight(card):
+    if _is_quick_bulk_entry(card):
+        return _quick_bulk_resale_total(card)
     return _safe_float(card.get("cote")) * _safe_int(card.get("quantity"))
 
 
@@ -115,7 +210,7 @@ def _tone_for_status(label, status=""):
 
 
 def _best_card(estimate):
-    cards = estimate.get("cards", []) or []
+    cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
     if not cards:
         return {}
     return max(cards, key=_card_weight)
@@ -133,14 +228,605 @@ def _all_cards_value(estimate):
     return sum(_card_weight(card) for card in estimate.get("cards", []) or [])
 
 
+def _regular_cards_value(estimate):
+    return sum(_card_weight(card) for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card))
+
+
 def _estimated_paid_for_card(card, estimate):
+    if _is_quick_bulk_entry(card):
+        qty = _safe_int(card.get("quantity"))
+        total = _quick_bulk_purchase_total(card)
+        return total, total / qty if qty else total
     seller_price = _safe_float(estimate.get("seller_price"))
-    total_value = _all_cards_value(estimate)
+    total_value = _regular_cards_value(estimate)
     if seller_price <= 0 or total_value <= 0:
         return 0.0, 0.0
     qty = _safe_int(card.get("quantity"))
     line_paid = seller_price * (_card_weight(card) / total_value)
     return line_paid, line_paid / qty if qty else line_paid
+
+
+def _estimation_tracking_status(estimate):
+    raw = str((estimate or {}).get("workflow_status") or (estimate or {}).get("status") or "").strip()
+    return _LEGACY_STATUS_MAP.get(raw, raw) if raw else "À analyser"
+
+
+def _card_metadata_tag_set(card, normalize_name_func):
+    if _is_quick_bulk_entry(card):
+        return set()
+    tags = set(str(tag).upper() for tag in (card.get("metadata_tags") or []) if tag)
+    text = _card_strict_rarity_text(card, normalize_name_func)
+    name_text = f" {normalize_name_func(card.get('name', ''))} "
+    for tag in _SPECIAL_VALUE_TAGS:
+        requested = {
+            "HYPER_RARE": "rainbow",
+            "SECRET_RARE": "secret",
+        }.get(tag, tag.lower())
+        if tag == "AR" and str((card or {}).get("id") or "").strip().lower() in _KNOWN_ART_RARE_CARD_IDS:
+            tags.add("AR")
+            continue
+        if _contains_type(text, requested):
+            tags.add(tag)
+    if " vmax " in name_text or "vmax" in name_text:
+        tags.add("VMAX")
+    if " vstar " in name_text or "vstar" in name_text:
+        tags.add("VSTAR")
+    if "-ex" in name_text or " ex " in name_text:
+        tags.add("EX")
+    if "-gx" in name_text or " gx " in name_text:
+        tags.add("GX")
+    if " pokemon v " in name_text or name_text.strip().endswith(" v"):
+        tags.add("V")
+    number = _normalized_card_number(card)
+    if number.startswith("TG"):
+        tags.add("TG")
+    if number.startswith("GG"):
+        tags.add("GG")
+    if number.startswith(("SWSH", "SM", "SVP", "MEP")):
+        tags.add("PROMO")
+    return tags
+
+
+def _card_is_special_for_analysis(card, normalize_name_func):
+    return bool(_card_metadata_tag_set(card, normalize_name_func) & _SPECIAL_VALUE_TAGS)
+
+
+def _card_is_recent_for_analysis(card):
+    text = " ".join(
+        str((card or {}).get(key) or "")
+        for key in ("set_id", "id", "set", "number")
+    ).lower()
+    return any(token in text for token in ("sv", "ev", "swsh", "eb", "me", "mew", "svp", "twm", "ssp", "obf", "mep"))
+
+
+def _card_is_old_for_analysis(card):
+    text = " ".join(str((card or {}).get(key) or "") for key in ("set_id", "id", "set")).lower()
+    return any(token in text for token in ("base", "jungle", "fossil", "rocket", "neo", "ex", "dp", "hgss", "platinum", "wizards"))
+
+
+def _card_has_reliable_image(card):
+    return _resolve_estimation_card_image(card, log=False).get("source") != "placeholder"
+
+
+def _card_is_manual_estimation(card):
+    return not (card.get("id") or card.get("card_id") or card.get("set_id") or card.get("image_url") or card.get("cached_image_path"))
+
+
+def _card_condition_is_uncertain(card):
+    condition = str((card or {}).get("condition") or "").strip().upper()
+    note = str((card or {}).get("note") or "").lower()
+    return (
+        not condition
+        or condition in {"?", "UNKNOWN", "INCERTAIN", "À VÉRIFIER", "A VERIFIER"}
+        or any(token in note for token in ("etat", "état", "verifier", "vérifier", "flou", "abim", "abîm"))
+    )
+
+
+def _card_number_is_uncertain(card):
+    number = str((card or {}).get("number") or "").strip()
+    return not number or number in {"?", "??"} or len(number) <= 1
+
+
+def _estimation_reliability(estimate, normalize_name_func):
+    cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+    total_qty = sum(_safe_int(card.get("quantity")) for card in cards)
+    if not cards or total_qty <= 0:
+        return {
+            "score": 0,
+            "recognized": 0,
+            "total": total_qty,
+            "missing_cote": 0,
+            "missing_image": 0,
+            "manual": 0,
+            "uncertain_number": 0,
+            "uncertain_condition": 0,
+            "missing_tags": 0,
+            "lines": ["Aucune carte analysable pour le moment"],
+        }
+    recognized = sum(1 for card in cards if not _card_is_manual_estimation(card))
+    missing_cote = sum(1 for card in cards if _safe_float(card.get("cote")) <= 0)
+    missing_image = sum(1 for card in cards if not _card_has_reliable_image(card))
+    manual = sum(1 for card in cards if _card_is_manual_estimation(card))
+    uncertain_number = sum(1 for card in cards if _card_number_is_uncertain(card))
+    uncertain_condition = sum(1 for card in cards if _card_condition_is_uncertain(card))
+    missing_tags = sum(1 for card in cards if not _card_metadata_tag_set(card, normalize_name_func))
+    line_count = max(len(cards), 1)
+    score = 100
+    score -= missing_cote / line_count * 25
+    score -= missing_image / line_count * 15
+    score -= manual / line_count * 18
+    score -= uncertain_number / line_count * 14
+    score -= uncertain_condition / line_count * 12
+    score -= missing_tags / line_count * 8
+    score = int(max(0, min(100, round(score))))
+    lines = [
+        f"{recognized} cartes reconnues sur {len(cards)}",
+        f"{missing_cote} cartes sans cote",
+        f"{missing_image} cartes sans image",
+        f"{manual} cartes ajoutées manuellement",
+        f"{uncertain_number} numéros à confirmer",
+    ]
+    return {
+        "score": score,
+        "recognized": recognized,
+        "total": total_qty,
+        "missing_cote": missing_cote,
+        "missing_image": missing_image,
+        "manual": manual,
+        "uncertain_number": uncertain_number,
+        "uncertain_condition": uncertain_condition,
+        "missing_tags": missing_tags,
+        "lines": lines,
+    }
+
+
+def _estimation_analysis(estimate, totals, normalize_name_func):
+    cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+    line_count = max(len(cards), 1)
+    total_value = _safe_float(totals.get("total_cote"))
+    seller_price = _safe_float(totals.get("seller_price"))
+    margin = _safe_float(totals.get("theoretical_margin"))
+    real_pct = _safe_float(totals.get("real_pct"))
+    reliability = _estimation_reliability(estimate, normalize_name_func)
+    special_count = sum(1 for card in cards if _card_is_special_for_analysis(card, normalize_name_func))
+    recent_count = sum(1 for card in cards if _card_is_recent_for_analysis(card))
+    old_count = sum(1 for card in cards if _card_is_old_for_analysis(card))
+    risky_count = reliability["missing_cote"] + reliability["missing_image"] + reliability["manual"] + reliability["uncertain_condition"]
+    top_cards = sorted(cards, key=_card_weight, reverse=True)[:5]
+    top_value = sum(_card_weight(card) for card in top_cards[:2])
+    concentration = (top_value / total_value * 100) if total_value > 0 else 0.0
+    special_ratio = special_count / line_count
+    recent_ratio = recent_count / line_count
+    old_ratio = old_count / line_count
+
+    score = 50
+    factors = []
+    if total_value > 0 and seller_price > 0:
+        if real_pct <= 55:
+            score += 22
+            factors.append("+ Prix demandé bas")
+        elif real_pct <= 65:
+            score += 14
+            factors.append("+ Prix demandé raisonnable")
+        elif real_pct <= 80:
+            score += 4
+            factors.append("+ Prix encore comparable à la cote")
+        else:
+            score -= 18
+            factors.append("- Prix demandé élevé")
+    else:
+        score -= 12
+        factors.append("- Prix ou cote à compléter")
+    if margin > 0:
+        score += min(18, margin / max(total_value, 1) * 28)
+        factors.append("+ Marge potentielle positive")
+    else:
+        score -= 18
+        factors.append("- Marge potentielle faible ou négative")
+    if reliability["score"] >= 75:
+        score += 10
+        factors.append("+ Informations plutôt fiables")
+    elif reliability["score"] < 55:
+        score -= 14
+        factors.append(f"- Fiabilité limitée ({reliability['score']} %)")
+    if special_ratio >= 0.45:
+        score += 8
+        factors.append("+ Beaucoup de cartes spéciales")
+    if recent_ratio >= 0.55:
+        score += 6
+        factors.append("+ Lot plutôt récent")
+    if old_ratio >= 0.35:
+        score -= 8
+        factors.append("- Cartes anciennes à contrôler")
+    if risky_count:
+        score -= min(18, risky_count * 3)
+        factors.append(f"- {risky_count} points à vérifier")
+    if concentration >= 65:
+        score -= 8
+        factors.append("- Valeur concentrée sur peu de cartes")
+    score = int(max(0, min(100, round(score))))
+    if score >= 82:
+        verdict = "Très bonne affaire"
+    elif score >= 70:
+        verdict = "Bonne affaire"
+    elif score >= 58:
+        verdict = "À négocier"
+    elif score >= 45:
+        verdict = "Marge faible"
+    elif score >= 32:
+        verdict = "Trop cher"
+    else:
+        verdict = "À éviter"
+
+    if recent_ratio >= 0.55 and special_ratio >= 0.35 and reliability["score"] >= 60:
+        risk_profile = "récent / cartes spéciales"
+        risk_message = "Achat prudent conseillé autour de 55 % de la cote."
+        prudent_pct, good_pct, max_pct = 55, 63, 70
+    elif old_ratio >= 0.30 or reliability["score"] < 55 or risky_count >= 5:
+        risk_profile = "ancien / état variable"
+        risk_message = "Attention : prix d'achat à sécuriser davantage."
+        prudent_pct, good_pct, max_pct = 45, 52, 58
+    else:
+        risk_profile = "mixte / à confirmer"
+        risk_message = "Analyse correcte, mais garde une marge de sécurité."
+        prudent_pct, good_pct, max_pct = 50, 58, 65
+    if concentration >= 65:
+        prudent_pct -= 3
+        good_pct -= 3
+        max_pct -= 3
+    if reliability["missing_cote"] > 0:
+        prudent_pct -= 2
+        good_pct -= 2
+    prudent_pct = max(30, prudent_pct)
+    good_pct = max(prudent_pct, good_pct)
+    max_pct = max(good_pct, max_pct)
+    prices = {
+        "prudent_pct": prudent_pct,
+        "good_pct": good_pct,
+        "max_pct": max_pct,
+        "prudent": total_value * prudent_pct / 100 if total_value else 0.0,
+        "good": total_value * good_pct / 100 if total_value else 0.0,
+        "max": total_value * max_pct / 100 if total_value else 0.0,
+    }
+    return {
+        "score": score,
+        "verdict": verdict,
+        "factors": factors[:8],
+        "reliability": reliability,
+        "risk_profile": risk_profile,
+        "risk_message": risk_message,
+        "prices": prices,
+        "special_ratio": special_ratio,
+        "recent_ratio": recent_ratio,
+        "old_ratio": old_ratio,
+        "concentration": concentration,
+        "top_cards": top_cards,
+    }
+
+
+def _card_warning_reasons(card, estimate, total_value, normalize_name_func):
+    if _is_quick_bulk_entry(card):
+        return []
+    reasons = []
+    if _safe_float(card.get("cote")) <= 0:
+        reasons.append("cote manquante")
+    if not _card_has_reliable_image(card):
+        reasons.append("image manquante")
+    if _card_is_manual_estimation(card):
+        reasons.append("carte manuelle")
+    if _card_number_is_uncertain(card):
+        reasons.append("numéro à confirmer")
+    if _card_condition_is_uncertain(card):
+        reasons.append("état à confirmer")
+    if _card_is_old_for_analysis(card):
+        reasons.append("carte ancienne")
+    if _card_is_japanese(card) and not _exact_cardmarket_url(card):
+        reasons.append("japonaise sans lien exact")
+    if total_value > 0 and _card_weight(card) / total_value >= 0.35:
+        reasons.append("grosse part de la valeur")
+    return reasons
+
+
+def _cards_to_verify(estimate, normalize_name_func, limit=8):
+    cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+    total_value = _all_cards_value(estimate)
+    rows = []
+    for card in cards:
+        reasons = _card_warning_reasons(card, estimate, total_value, normalize_name_func)
+        if reasons:
+            rows.append((card, reasons))
+    rows.sort(key=lambda item: (_card_weight(item[0]), len(item[1])), reverse=True)
+    return rows[:limit]
+
+
+def _priority_resale_cards(estimate, normalize_name_func, limit=5):
+    cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+    scored = []
+    for card in cards:
+        score = _card_weight(card)
+        if _card_is_special_for_analysis(card, normalize_name_func):
+            score += 35
+        if _card_is_recent_for_analysis(card):
+            score += 15
+        if _card_has_reliable_image(card):
+            score += 8
+        if card.get("set") and card.get("number") and _safe_float(card.get("cote")) > 0:
+            score += 10
+        scored.append((score, card))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [card for _, card in scored[:limit]]
+
+
+def _duplicate_signature(card, normalize_name_func):
+    special_text = " ".join(
+        str(value or "")
+        for value in [
+            card.get("special"),
+            card.get("special_tag"),
+            card.get("rarity"),
+            " ".join(str(tag) for tag in card.get("metadata_tags", []) or []),
+            " ".join(str(tag) for tag in card.get("tags", []) or []),
+        ]
+    )
+    number = str(card.get("number") or "").strip().upper().replace(" ", "")
+    number = number.split("/", 1)[0].lstrip("0") or number
+    return (
+        normalize_name_func(card.get("name", "")),
+        number,
+        normalize_name_func(card.get("set") or card.get("set_id") or ""),
+        normalize_name_func(card.get("lang") or card.get("language") or ""),
+        normalize_name_func(special_text),
+        bool(card.get("is_reverse")),
+        bool(card.get("is_ed1")),
+        bool(card.get("promo")),
+        normalize_name_func(card.get("condition") or "NM"),
+    )
+
+
+def _find_duplicate_card(estimate, candidate, normalize_name_func):
+    candidate_signature = _duplicate_signature(candidate, normalize_name_func)
+    if not candidate_signature[0]:
+        return None
+    for card in estimate.get("cards", []) or []:
+        if _duplicate_signature(card, normalize_name_func) == candidate_signature:
+            return card
+    return None
+
+
+def _pending_duplicate_key(uid):
+    return f"est_duplicate_pending_{uid}"
+
+
+def _store_duplicate_pending(uid, duplicate, payload):
+    payload["duplicate_uid"] = duplicate.get("uid")
+    payload["duplicate_title"] = _card_title(duplicate)
+    st.session_state[_pending_duplicate_key(uid)] = payload
+
+
+def _add_estimation_card_from_payload(estimate, payload, add_estimation_card_func):
+    params = payload.get("params", {})
+    before_count = len(estimate.get("cards", []) or [])
+    add_estimation_card_func(
+        estimate,
+        params.get("name", ""),
+        params.get("number", ""),
+        params.get("cote", "0,00"),
+        params.get("qty", "1"),
+        params.get("condition", "NM"),
+        params.get("specials", []),
+        params.get("note", ""),
+        params.get("is_collection", False),
+        payload.get("match"),
+    )
+    _apply_selected_card_details(estimate, payload.get("details"))
+    return len(estimate.get("cards", []) or []) > before_count
+
+
+def _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key):
+    pending = st.session_state.get(_pending_duplicate_key(uid))
+    if not pending:
+        return
+    st.warning(f"Cette carte est déjà présente dans cette estimation : {pending.get('duplicate_title', 'carte existante')}.")
+    c1, c2, c3 = st.columns(3)
+    qty_to_add = _safe_int((pending.get("params") or {}).get("qty"))
+    if c1.button("Ajouter à la quantité existante", key=f"est_dup_merge_{uid}", width="stretch"):
+        for card in estimate.get("cards", []) or []:
+            if card.get("uid") == pending.get("duplicate_uid"):
+                old_qty = _safe_int(card.get("quantity"))
+                card["quantity"] = old_qty + qty_to_add
+                print(
+                    f'[Estimations Duplicate] card="{card.get("name", "Carte")}" action=merge old_qty={old_qty} new_qty={card["quantity"]}',
+                    flush=True,
+                )
+                break
+        save_estimations_func(edata)
+        st.session_state.pop(_pending_duplicate_key(uid), None)
+        st.session_state[pending_reset_key] = True
+        st.rerun()
+    if c2.button("Créer une entrée séparée", key=f"est_dup_separate_{uid}", width="stretch"):
+        added = _add_estimation_card_from_payload(estimate, pending, add_estimation_card_func)
+        save_estimations_func(edata)
+        st.session_state.pop(_pending_duplicate_key(uid), None)
+        if added:
+            st.session_state[pending_reset_key] = True
+        st.rerun()
+    if c3.button("Annuler", key=f"est_dup_cancel_{uid}", width="stretch"):
+        st.session_state.pop(_pending_duplicate_key(uid), None)
+        st.rerun()
+
+
+def _parse_bulk_line(line):
+    raw = str(line or "").strip()
+    if not raw:
+        return None
+    qty = 1
+    qty_match = re.search(r"(?:^|\s)x\s*(\d+)\s*$", raw, re.IGNORECASE)
+    if qty_match:
+        qty = max(int(qty_match.group(1)), 1)
+        raw = raw[: qty_match.start()].strip()
+    else:
+        trailing_qty = re.search(r"\s+(\d{1,2})\s*$", raw)
+        if trailing_qty and len(raw[: trailing_qty.start()].strip().split()) >= 2:
+            qty = max(int(trailing_qty.group(1)), 1)
+            raw = raw[: trailing_qty.start()].strip()
+    tokens = raw.split()
+    number = ""
+    if tokens:
+        last = tokens[-1]
+        if any(ch.isdigit() for ch in last) and len(tokens) > 1:
+            number = last
+            tokens = tokens[:-1]
+    name = " ".join(tokens).strip() or raw
+    return {"raw": line, "name": name, "number": number, "qty": qty}
+
+
+def _bulk_preview_key(uid):
+    return f"est_bulk_preview_{uid}"
+
+
+def _render_checklist_section(uid, estimate, edata, save_estimations_func):
+    current = estimate.get("purchase_checklist") or {}
+    done = sum(1 for item in _DEFAULT_CHECKLIST_ITEMS if bool(current.get(item)))
+    with st.expander(f"Checklist avant achat · {done} / {len(_DEFAULT_CHECKLIST_ITEMS)} terminée", expanded=False):
+        with st.form(f"est_checklist_form_{uid}"):
+            values = {}
+            for item in _DEFAULT_CHECKLIST_ITEMS:
+                values[item] = st.checkbox(item, value=bool(current.get(item)), key=f"est_check_{uid}_{_safe_image_filename({'uid': uid}, item)}")
+            if st.form_submit_button("Sauvegarder la checklist", width="stretch"):
+                estimate["purchase_checklist"] = values
+                save_estimations_func(edata)
+                print(f'[Estimations Checklist] estimate="{estimate.get("name", "Estimation")}" done={sum(1 for v in values.values() if v)}', flush=True)
+                st.rerun()
+
+
+def _render_negotiation_history_section(uid, estimate, edata, save_estimations_func, parse_float_input_func, fp_func):
+    history = list(estimate.get("negotiation_history") or [])
+    with st.expander(f"Historique de négociation · {len(history)} événement(s)", expanded=False):
+        if history:
+            for idx, event in enumerate(history):
+                c1, c2 = st.columns([5, 1])
+                amount = _safe_float(event.get("amount"))
+                amount_text = f" — {fp_func(amount)}" if amount > 0 else ""
+                c1.markdown(f"**{html.escape(str(event.get('date', '')))} — {html.escape(str(event.get('type', 'Note')))}{amount_text}**  \n{html.escape(str(event.get('note', '')))}")
+                if c2.button("Supprimer", key=f"est_hist_delete_{uid}_{idx}", width="stretch"):
+                    estimate["negotiation_history"] = [item for j, item in enumerate(history) if j != idx]
+                    save_estimations_func(edata)
+                    print(f'[Estimations Negotiation] estimate="{estimate.get("name", "Estimation")}" action=delete index={idx}', flush=True)
+                    st.rerun()
+        with st.form(f"est_history_form_{uid}"):
+            h1, h2 = st.columns([1, 1])
+            event_type = h1.selectbox(
+                "Type",
+                ["Prix demandé initial", "Offre envoyée", "Contre-offre", "Offre finale", "Réduction annoncée", "Message reçu", "Décision", "Note libre"],
+                key=f"est_hist_type_{uid}",
+            )
+            amount_raw = h2.text_input("Montant optionnel (€)", value="", key=f"est_hist_amount_{uid}")
+            note = st.text_input("Note optionnelle", key=f"est_hist_note_{uid}")
+            if st.form_submit_button("Ajouter à l'historique", width="stretch"):
+                event = {
+                    "uid": uuid.uuid4().hex,
+                    "date": datetime.now().isoformat()[:10],
+                    "type": event_type,
+                    "amount": parse_float_input_func(amount_raw, 0.0) if str(amount_raw or "").strip() else 0.0,
+                    "note": note.strip(),
+                }
+                estimate.setdefault("negotiation_history", []).append(event)
+                save_estimations_func(edata)
+                print(f'[Estimations Negotiation] estimate="{estimate.get("name", "Estimation")}" action=add type="{event_type}"', flush=True)
+                st.rerun()
+
+
+def _render_bulk_add_section(
+    uid,
+    estimate,
+    edata,
+    save_estimations_func,
+    add_estimation_card_func,
+    search_in_cache_func,
+    ecd_func,
+    normalize_name_func,
+    pending_reset_key,
+):
+    with st.expander("Ajout en masse", expanded=False):
+        raw_list = st.text_area(
+            "Liste à analyser",
+            placeholder="Démolosse 066 x1\nPikachu TG05 x2\nDracaufeu 199 x1",
+            key=f"est_bulk_text_{uid}",
+            height=130,
+        )
+        if st.button("Analyser la liste", key=f"est_bulk_analyze_{uid}", width="stretch"):
+            preview = []
+            for line in raw_list.splitlines():
+                parsed = _parse_bulk_line(line)
+                if not parsed:
+                    continue
+                suggestions = _card_suggestions(parsed["name"], parsed["number"], search_in_cache_func, ecd_func, normalize_name_func, limit=5)
+                preview.append({**parsed, "suggestions": suggestions})
+            st.session_state[_bulk_preview_key(uid)] = preview
+            _log_once("bulk_parse", f"{uid}|{len(preview)}", f'[Estimations Bulk] estimate="{estimate.get("name", "")}" parsed={len(preview)}')
+            st.rerun()
+        preview = st.session_state.get(_bulk_preview_key(uid)) or []
+        if not preview:
+            st.caption("Colle une liste puis lance l'analyse. Aucune donnée n'est ajoutée à cette étape.")
+            return
+        valid_count = 0
+        selected_payloads = []
+        for idx, item in enumerate(preview):
+            suggestions = item.get("suggestions") or []
+            st.markdown(f"**{html.escape(str(item.get('raw', '')))}**")
+            if not suggestions:
+                st.caption("Non reconnue")
+                continue
+            options = []
+            for suggestion in suggestions:
+                card = suggestion.get("card", {})
+                options.append(f"{card.get('name', 'Carte')} #{card.get('number', '')} · {card.get('set', '')}")
+            selected_label = st.selectbox("Suggestion", options, key=f"est_bulk_choice_{uid}_{idx}")
+            selected_index = options.index(selected_label)
+            chosen = suggestions[selected_index]
+            details = _selected_card_details(chosen.get("card", {}))
+            selected_payloads.append(
+                {
+                    "params": {
+                        "name": details.get("name") or item.get("name"),
+                        "number": details.get("number") or item.get("number"),
+                        "cote": "0,00",
+                        "qty": str(item.get("qty") or 1),
+                        "condition": "NM",
+                        "specials": [],
+                        "note": f"Ajout en masse : {item.get('raw', '')}",
+                        "is_collection": False,
+                    },
+                    "details": details,
+                    "match": chosen.get("match"),
+                }
+            )
+            valid_count += 1
+        st.caption(f"{valid_count} ligne(s) prêtes à ajouter. Les lignes sans suggestion sont ignorées.")
+        if st.button("Ajouter les cartes validées", key=f"est_bulk_add_{uid}", width="stretch"):
+            added = 0
+            merged = 0
+            skipped = 0
+            for payload in selected_payloads:
+                candidate = {**(payload.get("details") or {}), "condition": "NM"}
+                duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
+                if duplicate:
+                    duplicate["quantity"] = _safe_int(duplicate.get("quantity")) + _safe_int((payload.get("params") or {}).get("qty"))
+                    merged += 1
+                    continue
+                if _add_estimation_card_from_payload(estimate, payload, add_estimation_card_func):
+                    added += 1
+                else:
+                    skipped += 1
+            save_estimations_func(edata)
+            st.session_state.pop(_bulk_preview_key(uid), None)
+            if added or merged:
+                st.session_state[pending_reset_key] = True
+            print(
+                f'[Estimations Bulk Add] estimate="{estimate.get("name", "Estimation")}" added={added} merged={merged} skipped={skipped}',
+                flush=True,
+            )
+            st.rerun()
 
 
 def _log_once(namespace, signature, message):
@@ -173,9 +859,29 @@ def _clean_image_value(value):
     return text
 
 
+def _is_streamlit_temp_image_source(value):
+    text = _clean_image_value(value)
+    if not text:
+        return False
+    lower = text.lower().replace("\\", "/")
+    parsed = urlsplit(text)
+    path = (parsed.path or lower).lower()
+    host = (parsed.netloc or "").lower()
+    return (
+        "/_stcore/" in path
+        or path.startswith("/media/")
+        or "/media/" in path
+        or "mediafilehandler" in lower
+        or "streamlit" in host and "/media/" in path
+        or host.startswith(("localhost", "127.0.0.1", "0.0.0.0")) and "/media/" in path
+    )
+
+
 def _normalize_image_source(value):
     text = _clean_image_value(value)
     if not text:
+        return ""
+    if _is_streamlit_temp_image_source(text):
         return ""
     lower = text.lower()
     if lower.startswith(("http://", "https://")):
@@ -184,8 +890,6 @@ def _normalize_image_source(value):
             return ""
         if "tcgdex.net" in lower and not lower.endswith(_IMAGE_EXTENSIONS):
             return f"{text.rstrip('/')}/high.webp"
-        return text
-    if lower.startswith("data:image/"):
         return text
     full_path = text if os.path.isabs(text) else os.path.join(os.getcwd(), text)
     if os.path.exists(full_path):
@@ -220,6 +924,49 @@ def _image_file_to_data_uri(path):
         return f"data:{mime};base64,{encoded}"
     except OSError:
         return ""
+
+
+def _estimation_image_cache_dir():
+    folder = os.path.join(os.getcwd(), "images", "estimation_cache")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _cache_image_filename(card, url):
+    seed = "_".join(
+        str(card.get(key, "") or "")
+        for key in ("id", "card_id", "name", "number", "set_id")
+    )
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", seed).strip("_") or uuid.uuid4().hex
+    ext = os.path.splitext(urlsplit(str(url or "")).path)[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        ext = ".webp"
+    return f"{safe[:90]}{ext}"
+
+
+def _download_estimation_image(card, sources):
+    for source in sources or []:
+        url = _normalize_image_source(source)
+        if not url or not url.startswith(("http://", "https://")):
+            continue
+        try:
+            import requests
+
+            response = requests.get(url, timeout=8)
+            response.raise_for_status()
+            content_type = str(response.headers.get("content-type") or "").lower()
+            if "image" not in content_type and not url.lower().endswith(_IMAGE_EXTENSIONS):
+                continue
+            if len(response.content or b"") < 512:
+                continue
+            folder = _estimation_image_cache_dir()
+            path = os.path.join(folder, _cache_image_filename(card, url))
+            with open(path, "wb") as image_file:
+                image_file.write(response.content)
+            return os.path.relpath(path, os.getcwd()).replace("\\", "/")
+        except Exception:
+            continue
+    return ""
 
 
 def _image_source_for_html(value):
@@ -270,6 +1017,12 @@ def _estimation_card_badges(card, normalize_name_func):
         ("GG", ["galarian gallery", "galerie de galar", "gg"]),
     ]
     explicit_parts = _estimation_card_specials(card)
+    for key in ("metadata_tags", "tags", "card_tags", "subtypes", "types"):
+        raw_tags = card.get(key) or []
+        if isinstance(raw_tags, (list, tuple, set)):
+            explicit_parts.extend(str(tag) for tag in raw_tags)
+        elif raw_tags:
+            explicit_parts.append(str(raw_tags))
     if card.get("is_reverse"):
         explicit_parts.append("reverse")
     if card.get("is_ed1"):
@@ -323,43 +1076,120 @@ def _safe_image_filename(card, uploaded_name):
     return base or f"estimation_card_{int(time.time())}.webp"
 
 
+def _fold_text(value):
+    text = str(value or "").strip().lower()
+    text = "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
+    return text
+
+
+def _flatten_metadata(value, depth=0):
+    if depth > 3:
+        return []
+    if isinstance(value, dict):
+        parts = []
+        for key, nested in value.items():
+            parts.append(str(key))
+            parts.extend(_flatten_metadata(nested, depth + 1))
+        return parts
+    if isinstance(value, (list, tuple, set)):
+        parts = []
+        for item in value:
+            parts.extend(_flatten_metadata(item, depth + 1))
+        return parts
+    return [str(value or "")]
+
+
 def is_pokemon_pocket_card(card):
     card = card or {}
     set_name = str(card.get("set") or card.get("set_name") or "").strip().lower()
     set_id = str(card.get("set_id") or "").strip().lower()
     card_id = str(card.get("id") or card.get("card_id") or "").strip().lower()
-    image_blob = " ".join(
-        str(card.get(key) or "")
-        for key in ("image", "image_url", "image_url_en", "image_url_ja", "imageUrl")
-    ).lower()
-    metadata_blob = " ".join(
-        str(card.get(key) or "")
-        for key in ("game", "product", "source", "series", "category", "tcg", "tags")
-    ).lower()
-    explicit_blob = f" {set_name} {set_id} {card_id} {image_blob} {metadata_blob} "
+    image_blob = " ".join(str(card.get(key) or "") for key in ("image", "image_url", "image_url_en", "image_url_ja", "imageUrl"))
+    metadata_blob = " ".join(_flatten_metadata({key: card.get(key) for key in ("game", "product", "source", "series", "category", "tcg", "tags", "metadata", "set", "set_id", "set_name", "format", "type")}))
+    explicit_blob = f" {_fold_text(set_name)} {_fold_text(set_id)} {_fold_text(card_id)} {_fold_text(image_blob)} {_fold_text(metadata_blob)} "
     pocket_set_names = {
-        "puissance génétique",
+        "puissance genetique",
         "puissance genetique",
         "ile fabuleuse",
-        "île fabuleuse",
         "choc spatio-temporel",
         "choc spatio temporel",
-        "lumière triomphale",
         "lumiere triomphale",
         "gardiens astraux",
         "crise extra-dimensionnelle",
         "crise extra dimensionnelle",
         "sagesse entre ciel et mer",
     }
-    pocket_id_match = bool(re.match(r"^(a|pa)\d+[a-z]?[-_]", card_id))
+    folded_set_name = _fold_text(set_name)
+    pocket_id_match = bool(re.match(r"^(a|pa)\d+[a-z]?[-_]", card_id) or re.match(r"^(a|pa)\d+[a-z]?$", set_id))
     return (
         "/tcgp/" in explicit_blob
         or "tcg pocket" in explicit_blob
         or "pokemon trading card game pocket" in explicit_blob
-        or "pokémon trading card game pocket" in explicit_blob
         or "ptcgp" in explicit_blob
-        or (pocket_id_match and set_name in pocket_set_names)
+        or " tcgp " in explicit_blob
+        or (pocket_id_match and (folded_set_name in pocket_set_names or set_id.startswith(("a", "pa"))))
     )
+
+
+def is_physical_pokemon_tcg_card(card):
+    return not is_pokemon_pocket_card(card or {})
+
+
+def _metadata_values_for_tags(card):
+    card = card or {}
+    values = []
+    for key in ("name", "rarity", "category", "special", "special_tag", "variant"):
+        values.append(card.get(key, ""))
+    for key in ("tags", "card_tags", "subtypes", "types"):
+        raw = card.get(key)
+        if isinstance(raw, (list, tuple, set)):
+            values.extend(raw)
+        else:
+            values.append(raw)
+    variants = card.get("variants")
+    if isinstance(variants, dict):
+        values.extend(key for key, enabled in variants.items() if enabled)
+    return values
+
+
+def _normalized_card_metadata_tags(card, normalize_name_func):
+    text = f" {normalize_name_func(' '.join(str(value or '') for value in _metadata_values_for_tags(card)))} "
+    tag_rules = {
+        "AR": [" art rare ", " illustration rare ", " rare illustration "],
+        "FA": [" full art ", " ultra rare ", " rare ultra "],
+        "ALT": [" alternative art ", " alt art ", " special illustration ", " illustration speciale "],
+        "SAR": [" special art rare ", " special illustration ", " illustration speciale "],
+        "RAINBOW": [" rainbow rare ", " rainbow ", " hyper rare "],
+        "HYPER_RARE": [" hyper rare "],
+        "SECRET_RARE": [" secret rare ", " secrete ", " secrete rare "],
+        "TG": [" trainer gallery ", " galerie des dresseurs "],
+        "GG": [" galarian gallery ", " galerie de galar "],
+        "PROMO": [" promo ", " promotional "],
+        "GOLD": [" gold ", " gold rare ", " or "],
+        "EX": [" ex ", "-ex"],
+        "GX": [" gx ", "-gx"],
+        "V": [" pokemon v ", " v "],
+        "VMAX": [" vmax ", " v max "],
+        "VSTAR": [" vstar ", " v star "],
+    }
+    tags = []
+    for tag, needles in tag_rules.items():
+        if any(needle in text for needle in needles):
+            tags.append(tag)
+    number = _normalized_card_number(card)
+    if number.startswith("TG"):
+        tags.append("TG")
+    if number.startswith("GG"):
+        tags.append("GG")
+    if number.startswith(("SWSH", "SM", "SVP", "MEP")):
+        tags.append("PROMO")
+    seen = set()
+    result = []
+    for tag in tags:
+        if tag not in seen:
+            seen.add(tag)
+            result.append(tag)
+    return result
 
 
 def _cardmarket_min_condition(condition):
@@ -457,10 +1287,30 @@ def _selected_card_details(enriched):
         "card_id": enriched.get("card_id") or enriched.get("id", ""),
         "image_url": image_info.get("url", ""),
         "image_url_en": image_info.get("url_en", ""),
+        "image_fallbacks": image_info.get("fallbacks", []),
     }
-    for key in ("image_url_ja", "image_url_jp", "image_url_japanese", "lang", "language", "special_tag"):
+    for key in (
+        "image_url_ja",
+        "image_url_jp",
+        "image_url_japanese",
+        "lang",
+        "language",
+        "special",
+        "special_tag",
+        "tags",
+        "card_tags",
+        "subtypes",
+        "types",
+        "variants",
+        "promo",
+        "is_reverse",
+        "is_ed1",
+    ):
         if enriched.get(key):
             details[key] = enriched.get(key)
+    metadata_tags = _normalized_card_metadata_tags(enriched, _fold_text)
+    if metadata_tags:
+        details["metadata_tags"] = metadata_tags
     for key in ("cardmarket_url", "cardmarket_link", "market_url", "cardmarket_product_url", "product_url"):
         if enriched.get(key):
             details[key] = enriched.get(key)
@@ -485,9 +1335,20 @@ def _apply_selected_card_details(estimate, details):
         "image_url_ja",
         "image_url_jp",
         "image_url_japanese",
+        "cached_image_path",
         "lang",
         "language",
+        "special",
         "special_tag",
+        "tags",
+        "card_tags",
+        "metadata_tags",
+        "subtypes",
+        "types",
+        "variants",
+        "promo",
+        "is_reverse",
+        "is_ed1",
         "cardmarket_url",
         "cardmarket_link",
         "market_url",
@@ -496,12 +1357,19 @@ def _apply_selected_card_details(estimate, details):
     ):
         if details.get(key):
             card[key] = details[key]
+    if not card.get("manual_image_path") and not card.get("cached_image_path"):
+        cached_path = _download_estimation_image(
+            card,
+            [details.get("image_url"), details.get("image_url_en"), *(details.get("image_fallbacks") or [])],
+        )
+        if cached_path:
+            card["cached_image_path"] = cached_path
 
 
 def _estimation_image_html(url, url_en="", *, style="", placeholder_class="est-card-placeholder compact", fallbacks=None, proxy_img_func=None):
     raw_sources = [url, url_en, *(fallbacks or [])]
     sources = []
-    proxy = proxy_img_func or (lambda value: value)
+    proxy = proxy_img_func if callable(proxy_img_func) else (lambda value: value)
     for source in raw_sources:
         resolved = _image_source_for_html(source)
         if not resolved:
@@ -571,13 +1439,18 @@ def _number_matches(card_number, requested_number):
     card_value = str(card_number or "").strip().upper().replace(" ", "")
     if not card_value:
         return False
+    card_primary = card_value.split("/", 1)[0]
+    requested_primary = requested.split("/", 1)[0]
     card_digits = "".join(ch for ch in card_value if ch.isdigit())
     req_digits = "".join(ch for ch in requested if ch.isdigit())
+    card_primary_digits = "".join(ch for ch in card_primary if ch.isdigit())
+    req_primary_digits = "".join(ch for ch in requested_primary if ch.isdigit())
     return (
         card_value == requested
         or card_value.startswith(requested)
+        or (req_primary_digits and card_primary_digits.lstrip("0") == req_primary_digits.lstrip("0"))
+        or (req_primary_digits and card_primary_digits.zfill(3) == req_primary_digits.zfill(3))
         or (req_digits and card_digits == req_digits)
-        or (req_digits and card_digits.zfill(3) == req_digits.zfill(3))
     )
 
 
@@ -603,7 +1476,7 @@ def _query_parts(query, normalize_name_func, known_set_tags=None):
                 requested_set_tags.append(token)
             elif not number:
                 number = token
-            else:
+            elif "/" not in raw:
                 searchable_tokens.append(token)
             continue
         if token in _RARITY_TAG_ALIASES:
@@ -668,6 +1541,8 @@ def _special_card_strength(enriched, normalize_name_func):
     number = _normalized_card_number(enriched)
     if number.startswith(("TG", "GG", "SV", "SWSH", "SM", "SVP", "MEP", "XY")):
         strength = max(strength, 48)
+    if str((enriched or {}).get("id") or "").strip().lower() in _KNOWN_ART_RARE_CARD_IDS:
+        strength = max(strength, 70)
     if _numeric_card_number(number) >= 150:
         strength = max(strength, 25)
     return strength
@@ -787,11 +1662,17 @@ def _strict_rarity_requested_types(requested_types):
 
 
 def _card_strict_rarity_text(enriched, normalize_name_func):
-    tags = enriched.get("tags") or enriched.get("card_tags") or enriched.get("set_tags") or []
-    if isinstance(tags, (list, tuple, set)):
-        tags_text = " ".join(str(tag) for tag in tags)
-    else:
-        tags_text = str(tags or "")
+    tag_values = []
+    for key in ("tags", "card_tags", "metadata_tags", "subtypes", "types"):
+        tags = enriched.get(key) or []
+        if isinstance(tags, (list, tuple, set)):
+            tag_values.extend(str(tag) for tag in tags)
+        else:
+            tag_values.append(str(tags or ""))
+    variants = enriched.get("variants") or {}
+    if isinstance(variants, dict):
+        tag_values.extend(str(key) for key, enabled in variants.items() if enabled)
+    tags_text = " ".join(tag_values)
     return normalize_name_func(
         " ".join(
             str(enriched.get(key, "") or "")
@@ -806,7 +1687,10 @@ def _card_matches_strict_rarity(enriched, requested_type, normalize_name_func):
     text = _card_strict_rarity_text(enriched, normalize_name_func)
     padded = f" {text} "
     number = _normalized_card_number(enriched)
+    card_id = str((enriched or {}).get("id") or (enriched or {}).get("card_id") or "").strip().lower()
     if requested_type == "ar":
+        if card_id in _KNOWN_ART_RARE_CARD_IDS:
+            return True
         return any(term in text for term in ("art rare", "illustration rare", "rare illustration"))
     if requested_type == "fa":
         return any(term in text for term in ("full art", "ultra rare", "rare ultra"))
@@ -975,6 +1859,44 @@ def _resolve_estimation_card_image(card, *, log=True):
     return {"url": "", "url_en": "", "fallbacks": [], "source": "placeholder"}
 
 
+_ESTIMATION_IMAGE_FIELDS = (
+    "manual_image_path",
+    "manual_image_url",
+    "local_image",
+    "image_path",
+    "photo_path",
+    "cached_image_path",
+    "resolved_collection_image_url",
+    "image_url_ja",
+    "image_url_jp",
+    "image_url_japanese",
+    "image_ja",
+    "image_jp",
+    "image_url",
+    "image_url_en",
+    "image",
+    "imageUrl",
+)
+
+
+def _invalid_estimation_image_refs(card):
+    invalid = []
+    for key in _ESTIMATION_IMAGE_FIELDS:
+        value = (card or {}).get(key)
+        if not _clean_image_value(value):
+            continue
+        if _is_streamlit_temp_image_source(value) or not _normalize_image_source(value):
+            invalid.append(key)
+    return invalid
+
+
+def _drop_invalid_estimation_image_refs(card):
+    invalid = _invalid_estimation_image_refs(card)
+    for key in invalid:
+        card.pop(key, None)
+    return invalid
+
+
 def _raw_card_image_url(card):
     if not isinstance(card, dict):
         return ""
@@ -1086,13 +2008,26 @@ def _build_search_index(cards_index, normalize_name_func):
                     "number": number,
                     "rarity": card.get("rarity", ""),
                     "category": card.get("category", ""),
+                    "special": card.get("special", ""),
+                    "special_tag": card.get("special_tag", ""),
+                    "tags": card.get("tags") or card.get("card_tags") or [],
+                    "card_tags": card.get("card_tags") or [],
+                    "metadata_tags": card.get("metadata_tags") or [],
+                    "subtypes": card.get("subtypes") or [],
+                    "types": card.get("types") or [],
+                    "variants": card.get("variants") or {},
+                    "promo": card.get("promo", ""),
+                    "is_reverse": card.get("is_reverse", False),
+                    "is_ed1": card.get("is_ed1", False),
                     "image_url": image_info.get("url", ""),
                     "image_url_en": image_info.get("url_en", ""),
                     "image_url_ja": card.get("image_url_ja") or card.get("image_url_jp") or card.get("image_url_japanese") or "",
                     "lang": card.get("lang", ""),
                     "language": card.get("language", ""),
-                    "special_tag": card.get("special_tag", ""),
                 }
+                metadata_tags = _normalized_card_metadata_tags(enriched, normalize_name_func)
+                if metadata_tags:
+                    enriched["metadata_tags"] = sorted(set((enriched.get("metadata_tags") or []) + metadata_tags))
                 set_tags = _set_tags_for_card(enriched, set_id, normalize_name_func)
                 enriched["set_tags"] = set_tags
                 for cm_key in ("cardmarket_url", "cardmarket_link", "market_url", "cardmarket_product_url", "product_url"):
@@ -1107,6 +2042,12 @@ def _build_search_index(cards_index, normalize_name_func):
                             enriched.get("set"),
                             enriched.get("rarity"),
                             enriched.get("category"),
+                            enriched.get("special"),
+                            enriched.get("special_tag"),
+                            " ".join(str(tag) for tag in enriched.get("tags", []) or []),
+                            " ".join(str(tag) for tag in enriched.get("metadata_tags", []) or []),
+                            " ".join(str(tag) for tag in enriched.get("subtypes", []) or []),
+                            " ".join(str(tag) for tag in enriched.get("types", []) or []),
                             enriched.get("id"),
                             enriched.get("set_id"),
                             " ".join(set_tags),
@@ -1122,7 +2063,7 @@ def _build_search_index(cards_index, normalize_name_func):
                     "set_tags": set_tags,
                 })
     if pocket_hidden:
-        _event_log_once(
+        _log_once(
             "pocket_filter",
             f"{source_id}|{pocket_hidden}",
             f"[Estimations Pocket Filter] hidden={pocket_hidden}",
@@ -1389,6 +2330,8 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
         if not _candidate_matches_index_item(item, terms, requested_types, raw_norm, requested_set_tags):
             continue
         enriched = item["card"]
+        if not is_physical_pokemon_tcg_card(enriched):
+            continue
         if number:
             item_number = str(enriched.get("number", ""))
             if not _number_matches(item_number, number):
@@ -1411,6 +2354,8 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
                 fallback_match = raw_norm in search_text or name_norm.startswith(raw_norm[:1])
             if fallback_match:
                 enriched = item["card"]
+                if not is_physical_pokemon_tcg_card(enriched):
+                    continue
                 score = _suggestion_score(enriched, keywords, terms, number, requested_types, requested_set_tags, normalize_name_func) - 40
                 strict_match = _card_matches_all_strict_rarities(enriched, requested_types, normalize_name_func) if strict_types else False
                 if strict_match:
@@ -1532,6 +2477,8 @@ def _kpi(label, value, tone="neutral", accent=None):
 
 
 def _card_unit_value(card):
+    if _is_quick_bulk_entry(card):
+        return 0.0
     for key in ("cote", "current_value", "estimated_value", "value", "suggested_price"):
         value = _safe_float((card or {}).get(key))
         if value > 0:
@@ -1540,7 +2487,7 @@ def _card_unit_value(card):
 
 
 def _estimate_cover_card(estimate):
-    candidates = [card for card in estimate.get("cards", []) or [] if _card_unit_value(card) > 0]
+    candidates = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card) and _card_unit_value(card) > 0]
     if not candidates:
         return {}
     return max(candidates, key=_card_unit_value)
@@ -1639,6 +2586,143 @@ def _render_tracked_card(card, estimate, fp_func, img_with_fallback_func, cardma
     }
 
 
+def _quick_bulk_label(card):
+    bulk_type = str((card or {}).get("bulk_type") or "ex").upper()
+    return "EX" if bulk_type == "EX" else "V"
+
+
+def _new_quick_bulk_entry(bulk_type, quantity, new_uid_func):
+    bulk = "v" if str(bulk_type).lower() == "v" else "ex"
+    label = bulk.upper()
+    return {
+        "uid": new_uid_func("estbulk"),
+        "entry_type": "quick_bulk",
+        "bulk_type": bulk,
+        "name": f"Lot {label} basiques",
+        "quantity": max(int(quantity or 0), 0),
+        "purchase_unit_price": QUICK_BULK_PURCHASE_UNIT_PRICE,
+        "resale_unit_price": QUICK_BULK_RESALE_UNIT_PRICE,
+        "cote": QUICK_BULK_RESALE_UNIT_PRICE,
+        "condition": "",
+        "special": "Lot rapide",
+        "note": "Revente prévue personnalisée",
+        "is_collection": False,
+    }
+
+
+def _render_quick_bulk_card(card, fp_func):
+    qty = _safe_int(card.get("quantity"))
+    bulk_label = _quick_bulk_label(card)
+    purchase_unit = _quick_bulk_purchase_unit(card)
+    resale_unit = _quick_bulk_resale_unit(card)
+    purchase_total = _quick_bulk_purchase_total(card)
+    resale_total = _quick_bulk_resale_total(card)
+    margin = resale_total - purchase_total
+    st.markdown(
+        f"""
+        <div class="est-quick-bulk-card">
+            <div class="est-quick-bulk-head">
+                <span>Lot rapide</span>
+                <span>{html.escape(bulk_label)}</span>
+            </div>
+            <h4>Lot {html.escape(bulk_label)} basiques · x{qty}</h4>
+            <p>Revente prévue personnalisée</p>
+            <div class="est-quick-bulk-grid">
+                <div><span>Achat unité</span><strong>{html.escape(fp_func(purchase_unit))}</strong></div>
+                <div><span>Revente unité</span><strong>{html.escape(fp_func(resale_unit))}</strong></div>
+                <div><span>Coût estimé</span><strong>{html.escape(fp_func(purchase_total))}</strong></div>
+                <div><span>Valeur prévue</span><strong>{html.escape(fp_func(resale_total))}</strong></div>
+                <div class="good"><span>Marge estimée</span><strong>{html.escape(fp_func(margin))}</strong></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _apply_market_price_suggestion(card, market_cache):
+    if not card:
+        return {"applied": False, "reason": "missing_card", "entry": None}
+    if _safe_float(card.get("cote")) > 0 and not card.get("market_price_origin"):
+        card["manual_price"] = _safe_float(card.get("cote"))
+        card["market_price_origin"] = "legacy_manual"
+        return {"applied": False, "reason": "legacy_manual_preserved", "entry": None}
+    if _safe_float(card.get("cote")) <= 0:
+        return apply_market_price_to_card(card, market_cache)
+    return {"applied": False, "reason": "manual_or_existing_preserved", "entry": None}
+
+
+def _market_badge_html(card, market_cache):
+    entry = None
+    try:
+        from services.market_price_cache_service import lookup_market_price
+
+        entry = lookup_market_price(market_cache, card)
+    except Exception:
+        entry = None
+    label = market_price_badge(card, entry)
+    css = "manual" if "Manuelle" in label else "review" if "vérifier" in label or "ancienne" in label else "auto" if "Auto" in label else "none"
+    return f'<span class="est-market-badge {css}">{html.escape(label)}</span>'
+
+
+def _render_market_alerts(market_cache, edata, fp_func):
+    alerts = build_market_alerts(market_cache, edata, st.session_state.get("data_cache"))
+    if not alerts:
+        return
+    with st.expander("Alertes de marché", expanded=True):
+        for alert in alerts[:8]:
+            scope_note = (
+                f'Vérifier dans l’estimation « {alert["context"]} »'
+                if alert.get("scope") == "estimation"
+                else "Ton prix d’étiquette reste inchangé."
+            )
+            st.markdown(
+                f"""
+                <div class="est-market-alert">
+                    <strong>{html.escape(str(alert.get("card") or "Carte"))} {html.escape(str(alert.get("number") or ""))}</strong>
+                    <span>Référence marché : {html.escape(fp_func(alert.get("previous", 0)))} → {html.escape(fp_func(alert.get("current", 0)))}</span>
+                    <em>Variation : {alert.get("pct", 0):+.1f}% · {scope_note}</em>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def _render_market_cache_tools(market_cache, edata):
+    with st.expander("Mémoire de cotes", expanded=False):
+        st.caption(
+            "Cette mémoire est séparée du stock. Elle sert seulement aux Estimations et aux alertes informatives."
+        )
+        settings = market_cache.setdefault("settings", {})
+        c1, c2, c3 = st.columns([1, 1, 1])
+        min_pct = c1.text_input("Alerte variation (%)", value=str(settings.get("alert_min_pct", 15.0)).replace(".", ","), key="market_alert_min_pct")
+        min_eur = c2.text_input("Alerte écart (€)", value=str(settings.get("alert_min_eur", 3.0)).replace(".", ","), key="market_alert_min_eur")
+        if c3.button("Sauvegarder les seuils", key="market_alert_save_settings", width="stretch"):
+            settings["alert_min_pct"] = _safe_float(min_pct, 15.0)
+            settings["alert_min_eur"] = _safe_float(min_eur, 3.0)
+            save_market_price_cache(market_cache)
+            st.session_state["market_price_cache"] = market_cache
+            st.success("Seuils d’alerte sauvegardés.")
+            st.rerun()
+        if st.button("Initialiser la mémoire de cotes depuis mes estimations", key="market_cache_import_history", width="stretch"):
+            updated_cache, result = import_estimations_history(market_cache, edata)
+            save_result = save_market_price_cache(updated_cache)
+            st.session_state["market_price_cache"] = updated_cache
+            st.success(
+                "Historique importé : "
+                f"{result.get('imported', 0)} · Cartes ambiguës : {result.get('ambiguous', 0)} · "
+                f"Entrées plus fiables conservées : {result.get('preserved', 0)} · "
+                "Aucune carte de stock modifiée"
+            )
+            print(
+                "[Market Price Cache] "
+                f"history_imported={result.get('imported', 0)} ambiguous={result.get('ambiguous', 0)} "
+                f"preserved={result.get('preserved', 0)} storage={save_result.get('storage')}",
+                flush=True,
+            )
+            st.rerun()
+
+
 def _render_suggestion_card(enriched, proxy_img_func=None):
     image_info = _resolve_estimation_card_image(enriched)
     image = _estimation_image_html(
@@ -1668,6 +2752,97 @@ def _render_suggestion_card(enriched, proxy_img_func=None):
     )
 
 
+def _render_estimation_analysis_blocks(estimate, totals, analysis, fp_func, normalize_name_func, proxy_img_func=None):
+    reliability = analysis["reliability"]
+    prices = analysis["prices"]
+    factors_html = "".join(f"<li>{html.escape(str(factor))}</li>" for factor in analysis["factors"])
+    st.markdown(
+        f"""
+        <div class="est-analysis-shell">
+            <div class="est-analysis-hero">
+                <span>Analyse de l'opportunité</span>
+                <strong>{analysis["score"]}/100</strong>
+                <em>{html.escape(analysis["verdict"])}</em>
+            </div>
+            <div class="est-analysis-grid">
+                <div><span>Prix demandé</span><strong>{html.escape(fp_func(_safe_float(totals.get("seller_price"))))}</strong></div>
+                <div><span>Valeur estimée</span><strong>{html.escape(fp_func(_safe_float(totals.get("total_cote"))))}</strong></div>
+                <div><span>Marge brute</span><strong>{html.escape(fp_func(_safe_float(totals.get("theoretical_margin"))))}</strong></div>
+                <div><span>Fiabilité</span><strong>{reliability["score"]} %</strong></div>
+            </div>
+            <ul class="est-analysis-factors">{factors_html}</ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="est-risk-price-grid">
+            <div class="est-risk-card">
+                <span>Profil de risque du lot</span>
+                <strong>{html.escape(analysis["risk_profile"])}</strong>
+                <p>{html.escape(analysis["risk_message"])}</p>
+                <small>{reliability["lines"][0]} · {reliability["missing_cote"]} sans cote · {reliability["missing_image"]} sans image</small>
+            </div>
+            <div class="est-risk-card price">
+                <span>Prix d'achat conseillé</span>
+                <div><b>Achat prudent</b><strong>{html.escape(fp_func(prices["prudent"]))}</strong><em>{prices["prudent_pct"]}% cote</em></div>
+                <div><b>Bon achat</b><strong>{html.escape(fp_func(prices["good"]))}</strong><em>{prices["good_pct"]}% cote</em></div>
+                <div><b>Maximum à ne pas dépasser</b><strong>{html.escape(fp_func(prices["max"]))}</strong><em>{prices["max_pct"]}% cote</em></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    top_cards = analysis.get("top_cards", [])[:5]
+    if top_cards:
+        st.markdown("##### Cartes qui font la valeur du lot")
+        cols = st.columns(1 if len(top_cards) == 1 else min(len(top_cards), 5))
+        total_value = _safe_float(totals.get("total_cote"))
+        for idx, card in enumerate(top_cards):
+            with cols[idx % len(cols)]:
+                image_info = _resolve_estimation_card_image(card, log=False)
+                image_html = _estimation_image_html(
+                    image_info.get("url", ""),
+                    image_info.get("url_en", ""),
+                    style="height:120px;object-fit:contain;border-radius:10px;",
+                    fallbacks=image_info.get("fallbacks", []),
+                    proxy_img_func=proxy_img_func,
+                )
+                line_value = _card_weight(card)
+                contribution = line_value / total_value * 100 if total_value else 0
+                status = "Valeur confirmée" if _safe_float(card.get("cote")) > 0 and image_info.get("source") != "placeholder" else "À vérifier"
+                st.markdown(
+                    f"""
+                    <div class="est-value-card">
+                        <div class="est-value-img">{image_html}</div>
+                        <strong>{html.escape(_card_title(card))}</strong>
+                        <span>{html.escape(fp_func(_safe_float(card.get("cote"))))} x{_safe_int(card.get("quantity"))}</span>
+                        <em>Contribution : {html.escape(fp_func(line_value))} · {contribution:.0f}%</em>
+                        <small>{html.escape(status)}</small>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+    priority_cards = _priority_resale_cards(estimate, normalize_name_func)
+    warnings = _cards_to_verify(estimate, normalize_name_func)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("##### Priorité de revente indicative")
+        if priority_cards:
+            for card in priority_cards:
+                st.markdown(f"- **{html.escape(_card_title(card))}** · {html.escape(fp_func(_card_weight(card)))}")
+        else:
+            st.caption("Ajoute des cotes pour obtenir une priorité plus fiable.")
+    with c2:
+        st.markdown("##### Points à vérifier")
+        if warnings:
+            for card, reasons in warnings:
+                st.markdown(f"- **{html.escape(_card_title(card))}** : {html.escape(', '.join(reasons[:3]))}")
+        else:
+            st.caption("Aucun point bloquant évident avec les informations actuelles.")
+
+
 def _estimation_card_filter_text(card, normalize_name_func):
     return normalize_name_func(
         " ".join(
@@ -1690,15 +2865,17 @@ def _estimation_card_filter_text(card, normalize_name_func):
 
 def _filtered_estimation_cards(cards, query, normalize_name_func):
     query_norm = normalize_name_func(query)
-    display_cards = list(reversed(list(cards or [])))
+    regular_cards = [card for card in cards or [] if not _is_quick_bulk_entry(card)]
+    quick_cards = [card for card in cards or [] if _is_quick_bulk_entry(card)]
+    display_cards = list(reversed(regular_cards))
     if not query_norm:
-        return display_cards
+        return display_cards + quick_cards
     terms = [term for term in query_norm.split() if term]
     return [card for card in display_cards if all(term in _estimation_card_filter_text(card, normalize_name_func) for term in terms)]
 
 
 def _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func=None):
-    if not card:
+    if not card or _is_quick_bulk_entry(card):
         return False
     status, candidates = _manual_add_exact_match(card.get("name", ""), card.get("number", ""), normalize_name_func)
     chosen = candidates[0]["card"] if status == "exact" and candidates else None
@@ -1719,8 +2896,10 @@ def _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_f
 def _cards_missing_estimation_image(cards):
     missing = []
     for card in cards or []:
+        if _is_quick_bulk_entry(card):
+            continue
         image_info = _resolve_estimation_card_image(card, log=False)
-        if image_info.get("source") == "placeholder":
+        if image_info.get("source") == "placeholder" or _invalid_estimation_image_refs(card):
             missing.append(card)
     return missing
 
@@ -1728,16 +2907,18 @@ def _cards_missing_estimation_image(cards):
 def _repair_missing_estimation_images(estimate, normalize_name_func, cache_enrichment_func=None):
     missing = _cards_missing_estimation_image(estimate.get("cards", []) or [])
     repaired = 0
+    invalid_refs = 0
     for card in missing:
+        invalid_refs += len(_drop_invalid_estimation_image_refs(card))
         if _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func):
             repaired += 1
     unresolved = max(len(missing) - repaired, 0)
     print(
         f'[Estimations Image Repair] estimate="{estimate.get("name", "Estimation")}" '
-        f"missing={len(missing)} repaired={repaired} unresolved={unresolved}",
+        f"missing={len(missing)} invalid_refs={invalid_refs} repaired={repaired} unresolved={unresolved}",
         flush=True,
     )
-    return {"missing": len(missing), "repaired": repaired, "unresolved": unresolved}
+    return {"missing": len(missing), "invalid_refs": invalid_refs, "repaired": repaired, "unresolved": unresolved}
 
 
 def _save_estimation_manual_image(card, uploaded_file):
@@ -1993,6 +3174,142 @@ def _render_css():
             font-size:clamp(1.1rem,2.4vw,1.55rem);
             color:#0f172a;
         }
+        .est-analysis-shell {
+            border:1px solid rgba(99,102,241,0.20);
+            border-radius:16px;
+            background:linear-gradient(135deg,#f8fafc,#eef2ff 55%,#ecfeff);
+            padding:0.9rem;
+            margin:0.6rem 0 0.85rem 0;
+            box-shadow:0 14px 30px rgba(79,70,229,0.08);
+        }
+        .est-analysis-hero {
+            display:grid;
+            grid-template-columns:minmax(0,1fr) auto;
+            gap:0.25rem 0.7rem;
+            align-items:end;
+        }
+        .est-analysis-hero span {
+            color:#64748b;
+            font-size:0.78rem;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:0;
+        }
+        .est-analysis-hero strong {
+            grid-row:1 / span 2;
+            grid-column:2;
+            color:#312e81;
+            font-size:clamp(2rem,5vw,3.3rem);
+            line-height:0.95;
+        }
+        .est-analysis-hero em {
+            color:#0f172a;
+            font-size:clamp(1.15rem,2.4vw,1.65rem);
+            font-weight:950;
+            font-style:normal;
+            line-height:1.1;
+        }
+        .est-analysis-grid,
+        .est-risk-price-grid {
+            display:grid;
+            grid-template-columns:repeat(4,minmax(0,1fr));
+            gap:0.55rem;
+            margin-top:0.75rem;
+        }
+        .est-analysis-grid div,
+        .est-risk-card {
+            border:1px solid rgba(148,163,184,0.22);
+            background:rgba(255,255,255,0.76);
+            border-radius:13px;
+            padding:0.65rem;
+            min-width:0;
+        }
+        .est-analysis-grid span,
+        .est-risk-card span {
+            display:block;
+            color:#64748b;
+            font-size:0.72rem;
+            font-weight:850;
+        }
+        .est-analysis-grid strong,
+        .est-risk-card strong {
+            display:block;
+            color:#0f172a;
+            font-size:clamp(0.98rem,1.8vw,1.25rem);
+            line-height:1.16;
+            margin-top:0.1rem;
+            overflow-wrap:anywhere;
+        }
+        .est-analysis-factors {
+            margin:0.75rem 0 0 0;
+            padding-left:1.05rem;
+            color:#334155;
+            font-size:0.88rem;
+            font-weight:720;
+        }
+        .est-risk-price-grid {
+            grid-template-columns:1fr 1fr;
+            margin:0.5rem 0 1rem 0;
+        }
+        .est-risk-card p {
+            margin:0.45rem 0;
+            color:#334155;
+            font-weight:700;
+        }
+        .est-risk-card small {
+            color:#64748b;
+            font-weight:750;
+        }
+        .est-risk-card.price div {
+            display:grid;
+            grid-template-columns:minmax(0,1fr) auto;
+            gap:0.1rem 0.55rem;
+            padding:0.38rem 0;
+            border-bottom:1px solid #e2e8f0;
+        }
+        .est-risk-card.price div:last-child { border-bottom:0; }
+        .est-risk-card.price b {
+            color:#334155;
+            font-size:0.82rem;
+        }
+        .est-risk-card.price strong {
+            color:#4338ca;
+            font-size:1rem;
+            text-align:right;
+        }
+        .est-risk-card.price em {
+            grid-column:1 / span 2;
+            color:#64748b;
+            font-size:0.72rem;
+            font-style:normal;
+            font-weight:760;
+        }
+        .est-value-card {
+            border:1px solid #e2e8f0;
+            background:#ffffff;
+            border-radius:13px;
+            padding:0.55rem;
+            min-width:0;
+            box-shadow:0 10px 20px rgba(15,23,42,0.05);
+        }
+        .est-value-img {
+            height:126px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+        }
+        .est-value-card strong,
+        .est-value-card span,
+        .est-value-card em,
+        .est-value-card small {
+            display:block;
+            overflow-wrap:anywhere;
+            line-height:1.15;
+        }
+        .est-value-card strong { color:#0f172a; font-size:0.82rem; margin-top:0.35rem; }
+        .est-value-card span { color:#334155; font-size:0.76rem; font-weight:850; margin-top:0.16rem; }
+        .est-value-card em { color:#4f46e5; font-size:0.72rem; font-style:normal; font-weight:850; margin-top:0.12rem; }
+        .est-value-card small { color:#64748b; font-size:0.68rem; font-weight:760; margin-top:0.12rem; }
         .est-tracked-card-shell {
             border:0;
             border-radius:12px;
@@ -2002,9 +3319,13 @@ def _render_css():
             display:flex;
             flex-direction:column;
             gap:0;
+            width:100%;
+            max-width:100%;
+            min-width:0;
         }
         .est-tracked-image {
-            height:158px;
+            width:100%;
+            height:clamp(188px,18vw,236px);
             border-radius:10px;
             background:transparent;
             display:flex;
@@ -2029,6 +3350,8 @@ def _render_css():
             justify-content:center;
         }
         [data-testid="stElementContainer"]:has(.est-tracked-bubble-marker) + div [data-testid="stVerticalBlockBorderWrapper"] {
+            width:100% !important;
+            max-width:100% !important;
             border:1px solid #e2e8f0 !important;
             border-radius:12px !important;
             background:#ffffff !important;
@@ -2037,6 +3360,9 @@ def _render_css():
             margin-top:0.28rem !important;
         }
         [data-testid="stElementContainer"]:has(.est-tracked-bubble-marker) + div [data-testid="stVerticalBlock"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
             gap:0.22rem !important;
             padding:0.42rem !important;
         }
@@ -2085,6 +3411,67 @@ def _render_css():
             font-size:0.55rem;
             font-weight:850;
             line-height:1.05;
+        }
+        .est-market-badge-row {
+            display:flex;
+            margin-top:0.24rem;
+            max-width:100%;
+        }
+        .est-market-badge {
+            display:inline-flex;
+            align-items:center;
+            max-width:100%;
+            border-radius:999px;
+            padding:0.14rem 0.38rem;
+            font-size:0.56rem;
+            line-height:1.1;
+            font-weight:850;
+            overflow-wrap:anywhere;
+            white-space:normal;
+        }
+        .est-market-badge.auto {
+            color:#047857;
+            background:#ecfdf5;
+            border:1px solid #bbf7d0;
+        }
+        .est-market-badge.review {
+            color:#92400e;
+            background:#fffbeb;
+            border:1px solid #fde68a;
+        }
+        .est-market-badge.manual {
+            color:#4338ca;
+            background:#eef2ff;
+            border:1px solid #c7d2fe;
+        }
+        .est-market-badge.none {
+            color:#64748b;
+            background:#f8fafc;
+            border:1px solid #e2e8f0;
+        }
+        .est-market-alert {
+            border:1px solid #dbe4ff;
+            border-radius:12px;
+            background:linear-gradient(135deg,#f8fafc,#eef2ff);
+            padding:0.65rem 0.8rem;
+            margin:0.45rem 0;
+            display:flex;
+            flex-direction:column;
+            gap:0.16rem;
+        }
+        .est-market-alert strong {
+            color:#111827;
+            font-size:0.95rem;
+        }
+        .est-market-alert span {
+            color:#334155;
+            font-weight:800;
+        }
+        .est-market-alert em {
+            color:#6d28d9;
+            font-style:normal;
+            font-size:0.82rem;
+            font-weight:800;
         }
         .est-suggestions-grid {
             display:grid;
@@ -2180,6 +3567,72 @@ def _render_css():
         .est-card-mini-grid div.good {
             background:#ecfdf5;
             border-color:#bbf7d0;
+        }
+        .est-quick-bulk-card {
+            border:1px solid #c7d2fe;
+            border-radius:12px;
+            background:linear-gradient(135deg,#f8fafc,#eef2ff);
+            padding:0.62rem;
+            box-shadow:0 8px 16px rgba(49,46,129,0.08);
+            max-width:100%;
+            min-width:0;
+        }
+        .est-quick-bulk-head {
+            display:flex;
+            flex-wrap:wrap;
+            gap:0.25rem;
+            margin-bottom:0.35rem;
+        }
+        .est-quick-bulk-head span {
+            border-radius:999px;
+            padding:0.15rem 0.42rem;
+            background:#312e81;
+            color:#ffffff;
+            font-size:0.58rem;
+            font-weight:900;
+            letter-spacing:0;
+        }
+        .est-quick-bulk-card h4 {
+            margin:0;
+            color:#111827;
+            font-size:0.82rem;
+            line-height:1.16;
+            overflow-wrap:anywhere;
+        }
+        .est-quick-bulk-card p {
+            margin:0.16rem 0 0.45rem 0;
+            color:#6d28d9;
+            font-size:0.66rem;
+            font-weight:850;
+        }
+        .est-quick-bulk-grid {
+            display:grid;
+            grid-template-columns:repeat(2,minmax(0,1fr));
+            gap:0.24rem;
+        }
+        .est-quick-bulk-grid div {
+            border:1px solid #dbe4ff;
+            border-radius:8px;
+            background:#ffffff;
+            padding:0.3rem;
+            min-width:0;
+        }
+        .est-quick-bulk-grid div.good {
+            grid-column:1 / -1;
+            background:#ecfdf5;
+            border-color:#bbf7d0;
+        }
+        .est-quick-bulk-grid span {
+            display:block;
+            color:#64748b;
+            font-size:0.58rem;
+            font-weight:850;
+        }
+        .est-quick-bulk-grid strong {
+            display:block;
+            color:#0f172a;
+            font-size:0.76rem;
+            line-height:1.1;
         }
         .est-card-mini-grid div.bad {
             background:#fff1f2;
@@ -2288,6 +3741,17 @@ def _render_css():
             .est-detail-kpis {
                 grid-template-columns:repeat(2,minmax(0,1fr));
             }
+            .est-analysis-grid,
+            .est-risk-price-grid {
+                grid-template-columns:1fr;
+            }
+            .est-analysis-hero {
+                grid-template-columns:1fr;
+            }
+            .est-analysis-hero strong {
+                grid-row:auto;
+                grid-column:auto;
+            }
             .est-kpi {
                 padding:0.5rem;
             }
@@ -2297,6 +3761,9 @@ def _render_css():
             }
             .est-suggestions-grid {
                 grid-template-columns:1fr;
+            }
+            .est-tracked-image {
+                height:clamp(230px,70vw,330px);
             }
         }
         </style>
@@ -2321,6 +3788,73 @@ def _build_opportunities(estimates, settings, estimation_totals_func):
         )
     opportunities.sort(key=lambda item: item["score"], reverse=True)
     return opportunities
+
+
+def _render_estimations_comparison(opportunities, fp_func, normalize_name_func):
+    if len(opportunities) < 2:
+        return
+    with st.expander("Comparer les estimations", expanded=False):
+        labels = [
+            f"{item['estimate'].get('name', 'Estimation')} · {_estimation_tracking_status(item['estimate'])}"
+            for item in opportunities
+        ]
+        selected = st.multiselect(
+            "Estimations à comparer",
+            labels,
+            default=labels[: min(3, len(labels))],
+            key="est_compare_selection",
+        )
+        selected_set = set(selected)
+        sort_by = st.selectbox(
+            "Trier par",
+            ["Score", "Marge", "% cote", "Fiabilité", "Achat prudent"],
+            key="est_compare_sort",
+        )
+        rows = []
+        label_to_uid = {}
+        for label, item in zip(labels, opportunities):
+            if label not in selected_set:
+                continue
+            estimate = item["estimate"]
+            totals = item["totals"]
+            analysis = _estimation_analysis(estimate, totals, normalize_name_func)
+            label_to_uid[label] = estimate.get("uid")
+            rows.append(
+                {
+                    "Estimation": estimate.get("name", "Estimation"),
+                    "Statut": _estimation_tracking_status(estimate),
+                    "Prix demandé": fp_func(_safe_float(totals.get("seller_price"))),
+                    "Cote totale": fp_func(_safe_float(totals.get("total_cote"))),
+                    "% cote": f"{_safe_float(totals.get('real_pct')):.1f}%" if _safe_float(totals.get("real_pct")) else "À vérifier",
+                    "Marge": fp_func(_safe_float(totals.get("theoretical_margin"))),
+                    "Fiabilité": f"{analysis['reliability']['score']}%",
+                    "Score": analysis["score"],
+                    "Achat prudent": fp_func(analysis["prices"]["prudent"]),
+                    "_sort_score": analysis["score"],
+                    "_sort_margin": _safe_float(totals.get("theoretical_margin")),
+                    "_sort_pct": _safe_float(totals.get("real_pct")) or 999,
+                    "_sort_reliability": analysis["reliability"]["score"],
+                    "_sort_prudent": analysis["prices"]["prudent"],
+                }
+            )
+        sort_key = {
+            "Score": "_sort_score",
+            "Marge": "_sort_margin",
+            "% cote": "_sort_pct",
+            "Fiabilité": "_sort_reliability",
+            "Achat prudent": "_sort_prudent",
+        }[sort_by]
+        reverse = sort_by != "% cote"
+        rows.sort(key=lambda row: row.get(sort_key, 0), reverse=reverse)
+        display_rows = [{k: v for k, v in row.items() if not k.startswith("_")} for row in rows]
+        if display_rows:
+            st.dataframe(display_rows, hide_index=True, use_container_width=True)
+            open_label = st.selectbox("Ouvrir depuis la comparaison", [""] + selected, key="est_compare_open")
+            if open_label and st.button("Ouvrir cette estimation", key="est_compare_open_btn", width="stretch"):
+                st.session_state["active_estimation_uid"] = label_to_uid.get(open_label, "")
+                st.rerun()
+        else:
+            st.caption("Sélectionne au moins une estimation à comparer.")
 
 
 def _bind_estimation_box_clicks(run_html_func):
@@ -2403,6 +3937,13 @@ def render_estimations_page(
     edata = load_estimations_func()
     settings = edata["settings"]
     estimates = edata["estimations"]
+    market_cache = st.session_state.get("market_price_cache")
+    if not isinstance(market_cache, dict):
+        market_cache = load_market_price_cache()
+        st.session_state["market_price_cache"] = market_cache
+
+    _render_market_alerts(market_cache, edata, fp_func)
+    _render_market_cache_tools(market_cache, edata)
 
     st.markdown(
         '<div class="est-create-card"><strong>Créer une nouvelle estimation</strong><br><span>Ajoute un prix demandé, puis complète avec les cartes à comparer.</span></div>',
@@ -2433,7 +3974,7 @@ def render_estimations_page(
                         "seller_price": parse_float_input_func(new_est_price, 0.0),
                         "listing_url": new_est_url.strip(),
                         "listing_image_url": fetch_listing_preview_image_func(new_est_url) if new_est_url.strip() else "",
-                        "status": "En cours",
+                        "status": "À analyser",
                         "created_at": datetime.now().isoformat()[:10],
                         "cards": [],
                     }
@@ -2447,11 +3988,28 @@ def render_estimations_page(
         return
 
     opportunities = _build_opportunities(estimates, settings, estimation_totals_func)
+    status_counts = {status: 0 for status in _ESTIMATION_STATUS_OPTIONS}
+    for estimate in estimates:
+        status_counts[_estimation_tracking_status(estimate)] = status_counts.get(_estimation_tracking_status(estimate), 0) + 1
+    st.caption(
+        " · ".join(
+            part
+            for part in [
+                f"{status_counts.get('En négociation', 0)} négociations en cours",
+                f"{status_counts.get('Offre envoyée', 0)} offres envoyées",
+                f"{status_counts.get('À analyser', 0)} lots à analyser",
+            ]
+            if not part.startswith("0 ")
+        )
+        or "Aucun statut actif à signaler"
+    )
+    _render_estimations_comparison(opportunities, fp_func, normalize_name_func)
 
-    f1, f2, f3 = st.columns([2, 1, 1])
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
     search = f1.text_input("Rechercher une estimation", placeholder="Nom, carte, source...", key="est_box_search")
-    status_filter = f2.selectbox("État", ["Tous", "Très intéressant", "Intéressant", "Correct", "Trop cher", "À vérifier"], key="est_box_status_filter")
-    max_budget_raw = f3.text_input("Budget max (€)", value="", placeholder="Ex: 120", key="est_box_budget")
+    status_filter = f2.selectbox("Intérêt", ["Tous", "Très intéressant", "Intéressant", "Correct", "Trop cher", "À vérifier"], key="est_box_status_filter")
+    workflow_filter = f3.selectbox("Statut", ["Tous", *_ESTIMATION_STATUS_OPTIONS], key="est_box_workflow_filter")
+    max_budget_raw = f4.text_input("Budget max (€)", value="", placeholder="Ex: 120", key="est_box_budget")
     max_budget = parse_float_input_func(max_budget_raw, 0.0) if max_budget_raw.strip() else 0.0
 
     filtered = []
@@ -2470,6 +4028,8 @@ def render_estimations_page(
         if query and query not in normalize_name_func(searchable):
             continue
         if status_filter != "Tous" and item["label"] != status_filter:
+            continue
+        if workflow_filter != "Tous" and _estimation_tracking_status(estimate) != workflow_filter:
             continue
         if max_budget > 0 and _safe_float(totals.get("seller_price")) > max_budget:
             continue
@@ -2515,6 +4075,7 @@ def render_estimations_page(
                 ecd_func=ecd_func,
                 proxy_img_func=proxy_img_func,
                 cache_enrichment_func=cache_enrichment_func,
+                market_cache=market_cache,
             )
 
     _bind_estimation_box_clicks(run_html_func)
@@ -2564,8 +4125,10 @@ def _render_open_estimation(
     ecd_func,
     proxy_img_func=None,
     cache_enrichment_func=None,
+    market_cache=None,
 ):
     label, _ = _opportunity_label(totals)
+    market_cache = market_cache or {}
     tone = _tone_for_status(label, estimate.get("status"))
     seller_price = _safe_float(totals.get("seller_price"))
     total_cote = _safe_float(totals.get("total_cote"))
@@ -2598,6 +4161,50 @@ def _render_open_estimation(
         unsafe_allow_html=True,
     )
 
+    analysis = _estimation_analysis(estimate, totals, normalize_name_func)
+    _render_estimation_analysis_blocks(estimate, totals, analysis, fp_func, normalize_name_func, proxy_img_func=proxy_img_func)
+    with st.form(f"est_workflow_status_form_{uid}"):
+        s1, s2 = st.columns([2, 1])
+        current_status = _estimation_tracking_status(estimate)
+        new_status = s1.selectbox(
+            "Statut de suivi",
+            _ESTIMATION_STATUS_OPTIONS,
+            index=_ESTIMATION_STATUS_OPTIONS.index(current_status) if current_status in _ESTIMATION_STATUS_OPTIONS else 0,
+            key=f"est_workflow_status_{uid}",
+        )
+        saved = s2.form_submit_button("Mettre à jour le statut", width="stretch")
+        if saved and new_status != current_status:
+            estimate["workflow_status"] = new_status
+            estimate["status"] = new_status
+            save_estimations_func(edata)
+            print(f'[Estimations Status] estimate="{estimate.get("name", "Estimation")}" status="{new_status}"', flush=True)
+            st.rerun()
+
+    if st.button("Actualiser les cotes de cette estimation", key=f"refresh_market_prices_{uid}", width="stretch"):
+        updated_cache, refresh_summary = refresh_estimation_prices(market_cache, estimate, only_due=True)
+        save_market_price_cache(updated_cache)
+        st.session_state["market_price_cache"] = updated_cache
+        save_estimations_func(edata)
+        print(
+            "[Market Price Cache] "
+            f'refresh requested estimate="{estimate.get("name", "Estimation")}" '
+            f"refreshed={refresh_summary.get('refreshed', 0)} "
+            f"recent_kept={refresh_summary.get('recent_kept', 0)} "
+            f"review={refresh_summary.get('review', 0)} "
+            f"unavailable={refresh_summary.get('unavailable', 0)} "
+            f"manual_preserved={refresh_summary.get('manual_preserved', 0)}",
+            flush=True,
+        )
+        st.success(
+            "Cotes actualisées : "
+            f"{refresh_summary.get('refreshed', 0)} · "
+            f"récentes conservées : {refresh_summary.get('recent_kept', 0)} · "
+            f"à vérifier : {refresh_summary.get('review', 0)} · "
+            f"sans cote fiable : {refresh_summary.get('unavailable', 0)} · "
+            f"manuelles conservées : {refresh_summary.get('manual_preserved', 0)}"
+        )
+        st.rerun()
+
     with st.expander("Ajouter une carte dans cette estimation", expanded=not estimate.get("cards")):
         a1, a2, a4 = st.columns([2, 1, 0.7])
         name_key = f"est_add_name_keyup_{uid}"
@@ -2619,6 +4226,11 @@ def _render_open_estimation(
                 st.session_state.pop(stale_key, None)
             st.session_state.pop(name_key, None)
             st.session_state.pop(name_component_state_key, None)
+            previous_values = st.session_state.get("__previous_values__")
+            if isinstance(previous_values, dict):
+                previous_values.pop(name_key, None)
+                previous_values.pop(name_component_state_key, None)
+            st.session_state.pop(f"est_add_name_fallback_{uid}", None)
             st.session_state[number_key] = ""
             st.session_state[qty_key] = "1"
             st.session_state[condition_key] = "NM"
@@ -2626,8 +4238,14 @@ def _render_open_estimation(
             st.session_state[note_key] = ""
             st.session_state.pop(f"est_selected_match_{uid}", None)
             st.session_state.pop(f"est_selected_details_{uid}", None)
+            _log_once(
+                "form_reset",
+                f'{uid}|{estimate.get("name", "Estimation")}',
+                f'[Estimations Form Reset] estimate="{estimate.get("name", "Estimation")}" applied=yes',
+            )
         if qty_key not in st.session_state:
             st.session_state[qty_key] = "1"
+        _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key)
         with a1:
             try:
                 card_name = st_keyup(
@@ -2654,9 +4272,9 @@ def _render_open_estimation(
         if suggestions:
             st.caption("Suggestions depuis le cache cartes PokéStock")
             if _suggestions_missing_set_match(card_name, suggestions, normalize_name_func):
-                st.caption("Aucun match exact pour ce tag de sÃ©rie dans le cache. RÃ©sultats proches affichÃ©s.")
+                st.caption("Aucun match exact pour ce tag de série dans le cache. Résultats proches affichés.")
             if _suggestions_missing_type_match(card_name, suggestions, "ar", normalize_name_func):
-                st.caption("Aucune AR exacte trouv?e dans le cache. R?sultats proches affich?s.")
+                st.caption("Aucune AR exacte trouvée dans le cache. Résultats proches affichés.")
             if _suggestions_missing_type_match(card_name, suggestions, "rainbow", normalize_name_func):
                 st.caption("Aucune carte Rainbow exacte trouvée dans le cache. Résultats proches affichés.")
             exact_suggestions, close_suggestions, strict_types = _strict_suggestion_sections(card_name, suggestions[:8], normalize_name_func)
@@ -2664,7 +4282,7 @@ def _render_open_estimation(
             if strict_types and exact_suggestions:
                 suggestion_sections.append(("", exact_suggestions))
                 if close_suggestions:
-                    suggestion_sections.append(("R?sultats proches", close_suggestions))
+                    suggestion_sections.append(("Résultats proches", close_suggestions))
             else:
                 suggestion_sections.append(("", suggestions[:8]))
             cols_per_row = 1 if is_mobile_mode_func() else 6
@@ -2685,50 +4303,74 @@ def _render_open_estimation(
                                 if not isinstance(direct_specials, list):
                                     direct_specials = []
                                 direct_clean_specials = [tag for tag in direct_specials if tag != "Collection"]
+                                add_params = {
+                                    "name": details.get("name") or card_name,
+                                    "number": details.get("number") or card_number,
+                                    "cote": "0,00",
+                                    "qty": st.session_state.get(qty_key, "1"),
+                                    "condition": st.session_state.get(condition_key, "NM") or "NM",
+                                    "specials": direct_clean_specials,
+                                    "note": st.session_state.get(note_key, ""),
+                                    "is_collection": "Collection" in direct_specials,
+                                }
+                                candidate = {
+                                    **details,
+                                    "condition": add_params["condition"],
+                                    "special": ", ".join(direct_clean_specials),
+                                }
+                                duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
+                                if duplicate:
+                                    _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": details, "match": suggestion["match"]})
+                                    st.rerun()
                                 before_count = len(estimate.get("cards", []) or [])
-                                print(
+                                _log_once(
+                                    "estimation_pick",
+                                    f'{uid}|{details.get("id","")}|{details.get("number","")}',
                                     "[Estimations Pick] "
                                     f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
                                     f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
                                     f'image={"yes" if details.get("image_url") or details.get("image_url_en") else "no"} '
                                     f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
-                                    flush=True,
                                 )
                                 add_estimation_card_func(
                                     estimate,
-                                    details.get("name") or card_name,
-                                    details.get("number") or card_number,
-                                    "0,00",
-                                    st.session_state.get(qty_key, "1"),
-                                    st.session_state.get(condition_key, "NM") or "NM",
-                                    direct_clean_specials,
-                                    st.session_state.get(note_key, ""),
-                                    "Collection" in direct_specials,
+                                    add_params["name"],
+                                    add_params["number"],
+                                    add_params["cote"],
+                                    add_params["qty"],
+                                    add_params["condition"],
+                                    add_params["specials"],
+                                    add_params["note"],
+                                    add_params["is_collection"],
                                     suggestion["match"],
                                 )
                                 _apply_selected_card_details(estimate, details)
                                 after_count = len(estimate.get("cards", []) or [])
                                 if after_count > before_count and estimate.get("cards"):
                                     added_card = estimate["cards"][-1]
-                                    print(
+                                    _apply_market_price_suggestion(added_card, market_cache)
+                                    _log_once(
+                                        "estimation_add",
+                                        f'{uid}|{added_card.get("uid","")}|suggestion',
                                         "[Estimations Add] "
                                         f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
                                         f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
                                         f'estimate="{estimate.get("name", "")}"',
-                                        flush=True,
                                     )
                                 else:
-                                    print(
+                                    _log_once(
+                                        "estimation_add_failed",
+                                        f'{uid}|suggestion|{details.get("name","")}|{details.get("number","")}',
                                         "[Estimations Add] failed "
                                         f'reason="suggestion not appended" name="{details.get("name", "")}" '
                                         f'number="{details.get("number", "")}" estimate="{estimate.get("name", "")}"',
-                                        flush=True,
                                     )
                                 save_estimations_func(edata)
                                 st.session_state.pop(f"pending_est_choice_{uid}", None)
                                 st.session_state.pop(f"est_selected_match_{uid}", None)
                                 st.session_state.pop(f"est_selected_details_{uid}", None)
-                                st.session_state[pending_reset_key] = True
+                                if after_count > before_count:
+                                    st.session_state[pending_reset_key] = True
                                 st.rerun()
                 suggestion_offset += len(section_suggestions)
         elif len(str(card_name or "").strip()) >= 3:
@@ -2758,7 +4400,10 @@ def _render_open_estimation(
                 print(
                     "[Estimations Cache Enrichment] "
                     f'source="{",".join(result.get("sources", []))}" fetched={result.get("fetched", 0)} '
-                    f'added={result.get("added", 0)} exact_match_after_refresh={"yes" if exact_after else "no"}',
+                    f'existing={result.get("existing", 0)} pocket_filtered={result.get("pocket_filtered", 0)} '
+                    f'invalid={result.get("invalid", 0)} added={result.get("added", 0)} '
+                    f'updated={result.get("updated", 0)} persisted={"yes" if result.get("persisted") else "no"} '
+                    f'exact_match_after_refresh={"yes" if exact_after else "no"}',
                     flush=True,
                 )
                 if result.get("errors"):
@@ -2791,57 +4436,115 @@ def _render_open_estimation(
             else:
                 manual_match_status, manual_candidates = _manual_add_exact_match(card_name, card_number, normalize_name_func)
                 if manual_match_status == "ambiguous":
-                    print(
+                    _log_once(
+                        "manual_add",
+                        f'{uid}|ambiguous|{card_name}|{card_number}|{len(manual_candidates)}',
                         "[Estimations Manual Add] "
                         f'name="{card_name}" number="{card_number}" match=ambiguous candidates={len(manual_candidates)} image=no',
-                        flush=True,
                     )
                     st.info("Plusieurs cartes correspondent : utilise Choisir pour sélectionner la bonne.")
                 else:
                     matches = [manual_candidates[0]["match"]] if manual_match_status == "exact" else []
                     selected_details = _selected_card_details(manual_candidates[0]["card"]) if manual_match_status == "exact" else None
+                    add_params = {
+                        "name": selected_details.get("name", card_name) if selected_details else card_name,
+                        "number": selected_details.get("number", card_number) if selected_details else card_number,
+                        "cote": "0,00",
+                        "qty": card_qty,
+                        "condition": card_condition,
+                        "specials": clean_specials,
+                        "note": card_note,
+                        "is_collection": keep_collection,
+                    }
+                    candidate = {
+                        **(selected_details or {}),
+                        "name": add_params["name"],
+                        "number": add_params["number"],
+                        "condition": card_condition,
+                        "special": ", ".join(clean_specials),
+                    }
+                    duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
+                    if duplicate:
+                        _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": selected_details, "match": matches[0] if matches else None})
+                        st.rerun()
                     before_count = len(estimate.get("cards", []) or [])
                     add_estimation_card_func(
                         estimate,
-                        selected_details.get("name", card_name) if selected_details else card_name,
-                        selected_details.get("number", card_number) if selected_details else card_number,
-                        "0,00",
-                        card_qty,
-                        card_condition,
-                        clean_specials,
-                        card_note,
-                        keep_collection,
+                        add_params["name"],
+                        add_params["number"],
+                        add_params["cote"],
+                        add_params["qty"],
+                        add_params["condition"],
+                        add_params["specials"],
+                        add_params["note"],
+                        add_params["is_collection"],
                         None,
                     )
                     _apply_selected_card_details(estimate, selected_details)
                     after_count = len(estimate.get("cards", []) or [])
                     image_status = "yes" if selected_details and (selected_details.get("image_url") or selected_details.get("image_url_en")) else "no"
-                    print(
+                    _log_once(
+                        "manual_add",
+                        f'{uid}|{manual_match_status}|{card_name}|{card_number}|{image_status}',
                         "[Estimations Manual Add] "
                         f'name="{card_name}" number="{card_number}" match={manual_match_status} image={image_status}',
-                        flush=True,
                     )
                     if after_count > before_count and estimate.get("cards"):
                         added_card = estimate["cards"][-1]
-                        print(
+                        _apply_market_price_suggestion(added_card, market_cache)
+                        _log_once(
+                            "estimation_add",
+                            f'{uid}|{added_card.get("uid","")}|manual',
                             "[Estimations Add] "
                             f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
                             f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
                             f'estimate="{estimate.get("name", "")}"',
-                            flush=True,
                         )
                     else:
-                        print(
+                        _log_once(
+                            "estimation_add_failed",
+                            f'{uid}|manual|{card_name}|{card_number}',
                             "[Estimations Add] failed "
                             f'reason="card not appended" name="{card_name}" number="{card_number}" '
                             f'estimate="{estimate.get("name", "")}"',
-                            flush=True,
                         )
                     st.session_state.pop(f"est_selected_match_{uid}", None)
                     st.session_state.pop(f"est_selected_details_{uid}", None)
-                    st.session_state[pending_reset_key] = True
+                    if after_count > before_count:
+                        st.session_state[pending_reset_key] = True
                     save_estimations_func(edata)
                     st.rerun()
+
+    with st.expander("EX / V basiques", expanded=False):
+        st.caption("Prix fixes : achat 0,50 € / carte · revente prévue 2,00 € / carte.")
+        ex_key = f"quick_bulk_ex_qty_{uid}"
+        v_key = f"quick_bulk_v_qty_{uid}"
+        reset_key = f"quick_bulk_reset_{uid}"
+        if st.session_state.pop(reset_key, False):
+            st.session_state[ex_key] = 0
+            st.session_state[v_key] = 0
+        if ex_key not in st.session_state:
+            st.session_state[ex_key] = 0
+        if v_key not in st.session_state:
+            st.session_state[v_key] = 0
+        c1, c2 = st.columns(2)
+        ex_qty = c1.number_input("Nombre d’EX basiques", min_value=0, step=1, key=ex_key)
+        v_qty = c2.number_input("Nombre de V basiques", min_value=0, step=1, key=v_key)
+        if st.button("Ajouter les EX / V basiques", key=f"quick_bulk_add_{uid}", width="stretch"):
+            added = 0
+            if int(ex_qty or 0) > 0:
+                estimate.setdefault("cards", []).append(_new_quick_bulk_entry("ex", int(ex_qty), new_uid_func))
+                added += 1
+            if int(v_qty or 0) > 0:
+                estimate.setdefault("cards", []).append(_new_quick_bulk_entry("v", int(v_qty), new_uid_func))
+                added += 1
+            if added:
+                save_estimations_func(edata)
+                st.session_state[reset_key] = True
+                st.success("Lignes EX / V basiques ajoutées.")
+                st.rerun()
+            else:
+                st.info("Aucune ligne créée : les deux quantités sont à 0.")
 
     pending = st.session_state.get(f"pending_est_choice_{uid}")
     if pending:
@@ -2861,13 +4564,14 @@ def _render_open_estimation(
                 st.caption(f"{enriched.get('name','Carte')} · {enriched.get('set','')} · #{enriched.get('number','')}")
                 if st.button("Choisir", key=f"pick_est_box_{uid}_{pidx}"):
                     details = _selected_card_details(enriched)
-                    print(
+                    _log_once(
+                        "estimation_pick",
+                        f'{uid}|pending|{details.get("id","")}|{details.get("number","")}',
                         "[Estimations Pick] "
                         f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
                         f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
                         f'image={"yes" if details.get("image_url") or details.get("image_url_en") else "no"} '
                         f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
-                        flush=True,
                     )
                     before_count = len(estimate.get("cards", []) or [])
                     add_estimation_card_func(
@@ -2886,23 +4590,27 @@ def _render_open_estimation(
                     after_count = len(estimate.get("cards", []) or [])
                     if after_count > before_count and estimate.get("cards"):
                         added_card = estimate["cards"][-1]
-                        print(
+                        _apply_market_price_suggestion(added_card, market_cache)
+                        _log_once(
+                            "estimation_add",
+                            f'{uid}|{added_card.get("uid","")}|pending',
                             "[Estimations Add] "
                             f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
                             f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
                             f'estimate="{estimate.get("name", "")}"',
-                            flush=True,
                         )
                     else:
-                        print(
+                        _log_once(
+                            "estimation_add_failed",
+                            f'{uid}|pending|{pending.get("name","")}|{pending.get("number","")}',
                             "[Estimations Add] failed "
                             f'reason="card not appended from choice" name="{pending.get("name", "")}" '
                             f'number="{pending.get("number", "")}" estimate="{estimate.get("name", "")}"',
-                            flush=True,
                         )
                     save_estimations_func(edata)
                     st.session_state.pop(f"pending_est_choice_{uid}", None)
-                    st.session_state[pending_reset_key] = True
+                    if after_count > before_count:
+                        st.session_state[pending_reset_key] = True
                     st.rerun()
         if st.button("Annuler le choix", key=f"cancel_est_choice_box_{uid}"):
             st.session_state.pop(f"pending_est_choice_{uid}", None)
@@ -2939,12 +4647,12 @@ def _render_open_estimation(
         if st.session_state.get(repair_notice_key):
             st.caption(st.session_state.pop(repair_notice_key))
         if missing_image_cards:
-            if st.button("R?parer les images manquantes", key=f"est_repair_missing_images_{uid}", width="stretch"):
+            if st.button("Réparer les images manquantes", key=f"est_repair_missing_images_{uid}", width="stretch"):
                 repair_result = _repair_missing_estimation_images(estimate, normalize_name_func, cache_enrichment_func)
-                if repair_result.get("repaired", 0) > 0:
+                if repair_result.get("repaired", 0) > 0 or repair_result.get("invalid_refs", 0) > 0:
                     save_estimations_func(edata)
                 st.session_state[repair_notice_key] = (
-                    f"Images r?par?es : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
+                    f"Images réparées : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
                 )
                 st.rerun()
         cols_per_row = 1 if is_mobile_mode_func() else 6
@@ -2952,6 +4660,14 @@ def _render_open_estimation(
             cols = st.columns(cols_per_row)
             for cidx, card in enumerate(visible_cards[row_start : row_start + cols_per_row]):
                 with cols[cidx]:
+                    if _is_quick_bulk_entry(card):
+                        card_uid = card.get("uid") or f"bulk_{row_start}_{cidx}"
+                        _render_quick_bulk_card(card, fp_func)
+                        if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
+                            estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
+                            save_estimations_func(edata)
+                            st.rerun()
+                        continue
                     card_meta = _render_tracked_card(card, estimate, fp_func, img_with_fallback_func, cardmarket_search_url_func, normalize_name_func, proxy_img_func=proxy_img_func)
                     card_uid = card.get("uid") or f"{row_start}_{cidx}"
                     cote_key = f"est_card_cote_{uid}_{card_uid}"
@@ -2970,6 +4686,7 @@ def _render_open_estimation(
                                 <h4>{html.escape(str(card.get("name") or "Carte"))}</h4>
                                 {f'<div class="est-tracked-tags">{html.escape(card_meta["tags"])}</div>' if card_meta["tags"] else ''}
                                 {f'<div class="est-badge-row">{badge_html}</div>' if badge_html else ''}
+                                <div class="est-market-badge-row">{_market_badge_html(card, market_cache)}</div>
                             </div>
                             """,
                             unsafe_allow_html=True,
@@ -2993,7 +4710,40 @@ def _render_open_estimation(
                         st.session_state[cote_seen_key] = str(cote_text or "")
                         if previous_cote_seen is not None and str(cote_text or "") != previous_cote_seen and abs(new_cote - current_cote) > 0.009:
                             card["cote"] = new_cote
+                            mark_manual_price(card, new_cote)
+                            if new_cote > 0:
+                                upsert_market_price(
+                                    market_cache,
+                                    card,
+                                    new_cote,
+                                    origin="manual_estimation",
+                                    source=f"Estimation · {estimate.get('name', 'sans nom')}",
+                                    confidence="saisie manuelle",
+                                )
+                                save_market_price_cache(market_cache)
+                                st.session_state["market_price_cache"] = market_cache
                             save_estimations_func(edata)
+                            st.rerun()
+                        auto_price = _safe_float(card.get("auto_price"))
+                        if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
+                            if st.button("Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch"):
+                                card["cote"] = auto_price
+                                card["market_price_origin"] = "auto"
+                                card.pop("manual_price", None)
+                                st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
+                                save_estimations_func(edata)
+                                st.rerun()
+                        if st.button("Actualiser la cote", key=f"refresh_market_card_{uid}_{card_uid}", width="stretch"):
+                            result = apply_market_price_to_card(card, market_cache)
+                            if result.get("applied"):
+                                st.session_state[cote_key] = f"{_safe_float(card.get('cote')):.2f}".replace(".", ",")
+                                save_estimations_func(edata)
+                                st.success("Cote actualisée depuis la mémoire.")
+                            elif result.get("reason") == "manual_preserved":
+                                save_estimations_func(edata)
+                                st.info("Cote manuelle conservée. Utilise le bouton dédié pour appliquer la cote auto.")
+                            else:
+                                st.info("Aucune cote automatique suffisamment fiable.")
                             st.rerun()
                         st.markdown(
                             f"""
@@ -3048,6 +4798,20 @@ def _render_open_estimation(
                             save_estimations_func(edata)
                             st.rerun()
 
+    _render_checklist_section(uid, estimate, edata, save_estimations_func)
+    _render_negotiation_history_section(uid, estimate, edata, save_estimations_func, parse_float_input_func, fp_func)
+    _render_bulk_add_section(
+        uid,
+        estimate,
+        edata,
+        save_estimations_func,
+        add_estimation_card_func,
+        search_in_cache_func,
+        ecd_func,
+        normalize_name_func,
+        pending_reset_key,
+    )
+
     with st.expander("Détails avancés et actions", expanded=False):
         if estimate.get("listing_url"):
             safe_url = html.escape(estimate.get("listing_url", ""), quote=True)
@@ -3057,8 +4821,9 @@ def _render_open_estimation(
             edit_name = m1.text_input("Nom", value=estimate.get("name", ""), key=f"est_name_box_{uid}")
             source_names = list(settings.get("sources", {}).keys()) or ["Vinted"]
             edit_source = m2.selectbox("Type", source_names, index=source_names.index(estimate.get("source")) if estimate.get("source") in source_names else 0, key=f"est_source_box_{uid}")
-            status_options = ["En cours", "À surveiller", "Achetée", "Refusée"]
-            edit_status = m3.selectbox("Statut", status_options, index=status_options.index(estimate.get("status", "En cours")) if estimate.get("status", "En cours") in status_options else 0, key=f"est_status_box_{uid}")
+            status_options = _ESTIMATION_STATUS_OPTIONS
+            current_edit_status = _estimation_tracking_status(estimate)
+            edit_status = m3.selectbox("Statut", status_options, index=status_options.index(current_edit_status) if current_edit_status in status_options else 0, key=f"est_status_box_{uid}")
             n1, n2, n3 = st.columns([1, 1, 2])
             edit_seller_price = n1.text_input("Prix demandé (€)", value=f"{float(estimate.get('seller_price', 0.0) or 0.0):.2f}".replace(".", ","), key=f"est_seller_box_{uid}")
             edit_safety = n2.text_input("Marge sécurité (€)", value=f"{float(estimate.get('safety_eur', 0.0) or 0.0):.2f}".replace(".", ","), key=f"est_safety_box_{uid}")
@@ -3068,6 +4833,7 @@ def _render_open_estimation(
                 estimate["name"] = edit_name.strip() or estimate.get("name", "Estimation")
                 estimate["source"] = edit_source
                 estimate["status"] = edit_status
+                estimate["workflow_status"] = edit_status
                 estimate["seller_price"] = parse_float_input_func(edit_seller_price, 0.0)
                 estimate["fees"] = 0.0
                 estimate["safety_eur"] = parse_float_input_func(edit_safety, 0.0)
@@ -3088,7 +4854,8 @@ def _render_open_estimation(
         )
 
         action_cols = st.columns(3)
-        if action_cols[0].button("Créer un vrai lot", width="stretch", disabled=not estimate.get("cards") or bool(estimate.get("created_lot_uid")), key=f"create_real_lot_box_{uid}"):
+        real_lot_cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+        if action_cols[0].button("Créer un vrai lot", width="stretch", disabled=not real_lot_cards or bool(estimate.get("created_lot_uid")), key=f"create_real_lot_box_{uid}"):
             purchase_price = float(estimate.get("seller_price", 0.0) or 0.0) or totals["max_buy"]
             cd_real = ld_func()
             lot_uid = new_uid_func("lot")
@@ -3105,7 +4872,7 @@ def _render_open_estimation(
                 "estimation_value": totals["total_cote"],
                 "estimation_target_pct": totals["pct"],
             }
-            for card in estimate.get("cards", []):
+            for card in real_lot_cards:
                 specials = [s.strip() for s in str(card.get("special", "")).split(",") if s.strip()]
                 special_tag = ", ".join([s for s in specials if s not in ("Reverse", "1ère Éd", "Japonaise")])
                 new_lot["cards"].append(
@@ -3132,6 +4899,7 @@ def _render_open_estimation(
             cd_real.setdefault("lots", []).append(new_lot)
             sd_func(cd_real)
             estimate["status"] = "Achetée"
+            estimate["workflow_status"] = "Achetée"
             estimate["created_lot_uid"] = lot_uid
             save_estimations_func(edata)
             st.success("Lot créé dans le menu Lots.")
@@ -3153,3 +4921,4 @@ def _render_open_estimation(
             save_estimations_func(edata)
             st.session_state["active_estimation_uid"] = ""
             st.rerun()
+

@@ -30,14 +30,18 @@ from utils import (
 )
 from cloud import (
     get_supabase_client,
+    cloud_sync_entry,
     load_cloud_json_meta,
     save_cloud_json,
+    update_cloud_sync_state,
+    utc_now_iso,
     SUPABASE_DATA_KEY,
     SUPABASE_ESTIMATIONS_KEY,
 )
 from data import (
     ld,
     sd,
+    pull_data_from_cloud,
     ensure_card_ids,
     ensure_trade_lot,
     ensure_storage_lot,
@@ -1729,8 +1733,41 @@ if not wrapped_story_active:
                 updated_at = cloud_meta.get("updated_at") or "date inconnue"
                 st.caption(f"☁️ {cloud_message} · local {local_lots_count} lot(s) · cloud {cloud_lots_label} lot(s)")
                 st.caption(f"Dernière synchro cloud : {updated_at}")
-                if cloud_lots is not None and local_lots_count > 0 and cloud_lots < local_lots_count:
-                    st.caption("Protection active : le cloud est plus petit, il ne remplacera pas le local.")
+                sync_status = st.session_state.get("cloud_sync_status") or {}
+                sync_entry = cloud_sync_entry(SUPABASE_DATA_KEY)
+                if sync_status.get("message"):
+                    st.caption(f"Statut : {sync_status.get('message')}")
+                if sync_entry.get("last_read_at") or sync_entry.get("last_save_at"):
+                    st.caption(
+                        "Dernière lecture cloud : "
+                        f"{sync_entry.get('last_read_at', 'jamais')} · "
+                        f"dernier envoi : {sync_entry.get('last_save_at', 'jamais')}"
+                    )
+                conflict = st.session_state.get("cloud_sync_conflict")
+                if conflict:
+                    st.warning(conflict.get("message", "Conflit local/cloud détecté."))
+                    if st.button("Récupérer la version cloud", width="stretch", key="resolve_cloud_conflict_pull"):
+                        result = pull_data_from_cloud()
+                        if result.get("ok"):
+                            st.success(result.get("message", "Version cloud récupérée."))
+                            st.session_state.pop("cloud_sync_conflict", None)
+                            st.rerun()
+                        else:
+                            st.error(result.get("message", "Récupération cloud impossible."))
+                    if st.button("Conserver la version locale", width="stretch", key="resolve_cloud_conflict_keep_local"):
+                        update_cloud_sync_state(SUPABASE_DATA_KEY, data=st.session_state.get("data_cache"), source="local", dirty=True)
+                        st.session_state.pop("cloud_sync_conflict", None)
+                        st.info("Version locale conservée. Aucun envoi cloud automatique n'a été fait.")
+                        st.rerun()
+                if st.button("Récupérer la dernière version cloud", width="stretch", key="pull_data_from_cloud"):
+                    result = pull_data_from_cloud()
+                    if result.get("ok"):
+                        summary = result.get("summary") or {}
+                        st.success(f"{result.get('message')} ({summary.get('lots', '?')} lot(s))")
+                        st.session_state.pop("cloud_sync_conflict", None)
+                        st.rerun()
+                    else:
+                        st.error(result.get("message", "Récupération cloud impossible."))
                 confirm_cloud_push = st.checkbox(
                     "Confirmer l'envoi des données locales vers le cloud",
                     key="confirm_push_data_to_cloud",
@@ -1739,6 +1776,7 @@ if not wrapped_story_active:
                 if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
                     local_data_for_cloud = load_local_data_file_for_cloud_push()
                     if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
+                        update_cloud_sync_state(SUPABASE_DATA_KEY, data=local_data_for_cloud, source="local", dirty=False, last_save=utc_now_iso())
                         st.success("Données envoyées dans le cloud.")
                     else:
                         st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
