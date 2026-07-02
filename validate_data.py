@@ -14,7 +14,6 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_FILE = APP_DIR / "data.json"
-EXPECTED_LOTS = 19
 
 SYSTEM_LOTS = {
     "collection": ("is_collection_lot", {"Collection", "🧾 Collection"}),
@@ -41,6 +40,8 @@ NUMERIC_LOT_FIELDS = {
     "valeur_totale",
     "valeur_a_vendre",
 }
+
+LOT_ID_FIELDS = ("lot_uid", "id", "uid", "lot_id")
 
 
 def is_number(value) -> bool:
@@ -85,6 +86,7 @@ def validate() -> tuple[list[str], list[str], dict]:
         "lots": 0,
         "cards": 0,
         "collection_lots": 0,
+        "duplicate_lot_ids": 0,
     }
 
     if not DATA_FILE.exists():
@@ -108,10 +110,11 @@ def validate() -> tuple[list[str], list[str], dict]:
         lots = []
 
     summary["lots"] = len(lots)
-    if len(lots) != EXPECTED_LOTS:
-        errors.append(f"Nombre de lots inattendu: {len(lots)} au lieu de {EXPECTED_LOTS}.")
+    if len(lots) < 1:
+        errors.append("data.json doit contenir au moins un lot lisible.")
 
     system_counts = {kind: 0 for kind in SYSTEM_LOTS}
+    seen_lot_ids: dict[str, int] = {}
 
     for lot_idx, lot in enumerate(lots):
         if not isinstance(lot, dict):
@@ -121,6 +124,24 @@ def validate() -> tuple[list[str], list[str], dict]:
         lot_name = str(lot.get("nom", "") or "").strip()
         if not lot_name:
             errors.append(f"Lot #{lot_idx}: nom vide.")
+
+        lot_id = ""
+        for field in LOT_ID_FIELDS:
+            value = str(lot.get(field) or "").strip()
+            if value:
+                lot_id = value
+                break
+        if lot_id:
+            if lot_id in seen_lot_ids:
+                summary["duplicate_lot_ids"] += 1
+                errors.append(
+                    f"Identifiant de lot duplique: '{lot_id}' "
+                    f"(lots #{seen_lot_ids[lot_id]} et #{lot_idx})."
+                )
+            else:
+                seen_lot_ids[lot_id] = lot_idx
+        else:
+            warnings.append(f"Lot '{lot_name}' #{lot_idx}: aucun identifiant de lot stable trouve.")
 
         kind = system_lot_kind(lot)
         if kind:
@@ -178,9 +199,10 @@ def main() -> int:
     errors, warnings, summary = validate()
     print("=== Pokestock data validator ===")
     print(f"File: {DATA_FILE}")
-    print(f"Lots: {summary['lots']}")
+    print(f"data.json : {summary['lots']} lots")
     print(f"Cards: {summary['cards']}")
-    print(f"System Collection lots: {summary['collection_lots']}")
+    print(f"Lot systeme Collection : {summary['collection_lots']}")
+    print(f"Identifiants de lots dupliques : {summary['duplicate_lot_ids']}")
 
     if warnings:
         print("\nWARNINGS:")
