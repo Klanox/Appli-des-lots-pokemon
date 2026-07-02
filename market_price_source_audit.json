@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-06-27T19:19:19.689934+00:00",
+  "source_name": "Cardmarket Official Public Downloads",
+  "downloaded_at": "2026-06-27T19:19:18.992228+00:00",
+  "catalog": {
+    "file": "C:\\Users\\User\\Desktop\\Appli des lots pokemon\\cache\\market_cardmarket\\products_singles_6_20260627T191917Z.json",
+    "size_bytes": 12966335,
+    "sha256": "1aaa97cfa3c58b8ac7baa60db04404603b341debf30a7669406154a64b17eb9f",
+    "row_count": 70795,
+    "fields": [
+      "categoryName",
+      "dateAdded",
+      "idCategory",
+      "idExpansion",
+      "idMetacard",
+      "idProduct",
+      "name"
+    ],
+    "product_id_field": "idProduct"
+  },
+  "price_guide": {
+    "file": "C:\\Users\\User\\Desktop\\Appli des lots pokemon\\cache\\market_cardmarket\\price_guide_6_20260627T191917Z.json",
+    "size_bytes": 14843957,
+    "sha256": "53b0acfc81addf32c55791c287918956a952337b9d167e6e3c62a9d4cd2c41a2",
+    "row_count": 75725,
+    "fields": [
+      "avg",
+      "avg-holo",
+      "avg1",
+      "avg1-holo",
+      "avg30",
+      "avg30-holo",
+      "avg7",
+      "avg7-holo",
+      "idCategory",
+      "idProduct",
+      "low",
+      "low-holo",
+      "trend",
+      "trend-holo"
+    ],
+    "product_id_field": "idProduct"
+  },
+  "join": {
+    "joined_product_ids": 70795,
+    "price_product_id_count": 75725,
+    "catalog_product_id_count": 70795,
+    "join_rate": 0.9348960052822713
+  },
+  "capabilities": {
+    "product_id_present": true,
+    "explicit_language_present": false,
+    "explicit_variant_present": false,
+    "explicit_condition_present": false,
+    "low_price_present": false,
+    "near_mint_exact_present": false,
+    "french_exact_present": false,
+    "shipping_excluded_distinguishable": false
+  },
+  "fr_nm_exact_policy": {
+    "supported": false,
+    "status": "price_policy_not_verified",
+    "message": "Source officielle disponible ; politique exacte FR NM non vérifiée par les champs présents."
+  }
+}

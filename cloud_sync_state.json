@@ -1,0 +1,25 @@
+{
+  "files": {
+    "data": {
+      "fingerprint": "881638a9bf73a6e354817498017fd7a1f27f9682129dc1a075b3e58190c691a4",
+      "source": "cloud",
+      "local_dirty": false,
+      "last_read_at": "2026-07-01T19:07:04.530024+00:00",
+      "last_save_at": "2026-06-30T15:14:09.212211+00:00"
+    },
+    "lot_estimations": {
+      "fingerprint": "8aaf23c29a154cb627951858f79330b827653da9acfc6f748995939e9ca4dfcb",
+      "source": "cloud",
+      "local_dirty": false,
+      "last_read_at": "2026-07-01T19:07:04.874950+00:00",
+      "last_save_at": "2026-06-28T17:23:57.920884+00:00"
+    },
+    "estimation_market_price_cache": {
+      "fingerprint": "ddca7c39c42950b27047f588eaa6d3b8b5822dec4d09778d2186f6255c8b1623",
+      "source": "cloud",
+      "local_dirty": false,
+      "last_read_at": "2026-07-01T19:07:05.461140+00:00",
+      "last_save_at": "2026-06-28T17:22:44.946176+00:00"
+    }
+  }
+}

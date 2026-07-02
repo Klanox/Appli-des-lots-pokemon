@@ -1,0 +1,1870 @@
+{
+  "source_name": "CardTrader Full API",
+  "source_type": "official_marketplace_api",
+  "tested_at": "2026-06-27T21:48:19.931662+00:00",
+  "auth_status": "auth_ok",
+  "request_count": 26,
+  "overall_status": "not_ready_for_integration",
+  "cards": [
+    {
+      "label": "Amphinobi ex — SVP 132",
+      "reference_cardmarket_fr_nm_excl_shipping_eur": 37.0,
+      "candidate_expansions": [
+        {
+          "id": 3221,
+          "name": "SV Black Star Promos",
+          "code": "svpromo",
+          "game_id": 5
+        },
+        {
+          "id": 3268,
+          "name": "Scarlet & Violet Promos",
+          "code": "promosv",
+          "game_id": 5
+        }
+      ],
+      "candidate_blueprints": [
+        {
+          "id": 287979,
+          "name": "Greninja ex",
+          "category_id": 73,
+          "expansion_id": 3221,
+          "version": "SVP 132",
+          "image": {
+            "url": "/uploads/blueprints/image/287979/greninja-ex-131-sv-black-star-promos.png",
+            "show": {
+              "url": "/uploads/blueprints/image/287979/show_greninja-ex-131-sv-black-star-promos.png"
+            },
+            "preview": {
+              "url": "/uploads/blueprints/image/287979/preview_greninja-ex-131-sv-black-star-promos.png"
+            },
+            "social": {
+              "url": "/uploads/blueprints/image/287979/social_greninja-ex-131-sv-black-star-promos.png"
+            }
+          },
+          "fixed_properties": {
+            "collector_number": "132",
+            "pokemon_rarity": "Promo"
+          }
+        }
+      ],
+      "selected_blueprint": {
+        "id": 287979,
+        "name": "Greninja ex",
+        "category_id": 73,
+        "expansion_id": 3221,
+        "version": "SVP 132",
+        "image": {
+          "url": "/uploads/blueprints/image/287979/greninja-ex-131-sv-black-star-promos.png",
+          "show": {
+            "url": "/uploads/blueprints/image/287979/show_greninja-ex-131-sv-black-star-promos.png"
+          },
+          "preview": {
+            "url": "/uploads/blueprints/image/287979/preview_greninja-ex-131-sv-black-star-promos.png"
+          },
+          "social": {
+            "url": "/uploads/blueprints/image/287979/social_greninja-ex-131-sv-black-star-promos.png"
+          }
+        },
+        "fixed_properties": {
+          "collector_number": "132",
+          "pokemon_rarity": "Promo"
+        }
+      },
+      "mapping_status": "validated",
+      "mapping_evidence": [
+        "nom compatible",
+        "numéro exact",
+        "variante à confirmer dans les champs CardTrader",
+        "image disponible"
+      ],
+      "offers_returned_count": 2,
+      "offers_sample": [
+        {
+          "product_id": 428263720,
+          "blueprint_id": 287979,
+          "price": {
+            "cents": 5064,
+            "currency": "EUR"
+          },
+          "properties_hash": {
+            "condition": "Near Mint",
+            "signed": false,
+            "altered": false,
+            "collector_number": "132",
+            "first_edition": false,
+            "pokemon_rarity": "Promo",
+            "pokemon_language": "fr",
+            "pokemon_attack": "Stealthy Shuriken | Torrential Slash",
+            "tournament_legal": true,
+            "pokemon_reverse": false
+          },
+          "expansion": {
+            "id": 3221,
+            "code": "svpromo",
+            "name_en": "SV Black Star Promos"
+          },
+          "seller": {
+            "country_code": null,
+            "user_type": null
+          },
+          "graded": false,
+          "on_vacation": false
+        },
+        {
+          "product_id": 391226762,
+          "blueprint_id": 287979,
+          "price": {
+            "cents": 6064,
+            "currency": "EUR"
+          },
+          "properties_hash": {
+            "condition": "Near Mint",
+            "signed": false,
+            "altered": false,
+            "collector_number": "132",
+            "first_edition": false,
+            "pokemon_rarity": "Promo",
+            "pokemon_language": "fr",
+            "pokemon_attack": "Stealthy Shuriken | Torrential Slash",
+            "tournament_legal": true,
+            "pokemon_reverse": false
+          },
+          "expansion": {
+            "id": 3221,
+            "code": "svpromo",
+            "name_en": "SV Black Star Promos"
+          },
+          "seller": {
+            "country_code": null,
+            "user_type": null
+          },
+          "graded": true,
+          "on_vacation": false
+        }
+      ],
+      "fr_nm_offers_found_count": 1,
+      "lowest_cardtrader_fr_nm_excl_shipping_eur": 50.64,
+      "difference_eur": 13.64,
+      "difference_pct": 36.86486486486486,
+      "result": "FAIL",
+      "notes": []
+    },
+    {
+      "label": "Dracaufeu ex — MEW 199",
+      "reference_cardmarket_fr_nm_excl_shipping_eur": 350.0,
+      "candidate_expansions": [
+        {
+          "id": 3347,
+          "name": "Mewtwo LV.X Collection Pack",
+          "code": "ptm",
+          "game_id": 5
+        },
+        {
+          "id": 3387,
+          "name": "PokÃ©mon Card 151",
+          "code": "sv2a",
+          "game_id": 5
+        },
+        {
+          "id": 3403,
+          "name": "151",
+          "code": "mew",
+          "game_id": 5
+        },
+        {
+          "id": 3418,
+          "name": "Gift Box Mew â€¢ Lucario",
+          "code": "gbox-m-l",
+          "game_id": 5
+        },
+        {
+          "id": 3522,
+          "name": "Terastal Starter Set Mewtwo ex",
+          "code": "svem",
+          "game_id": 5
+        },
+        {
+          "id": 3608,
+          "name": "Explosive Flame Walker",
+          "code": "s2a",
+          "game_id": 5
+        },
+        {
+          "id": 3697,
+          "name": "Mirage's Mew Constructed Starter Deck",
+          "code": "mewc",
+          "game_id": 5
+        },
+        {
+          "id": 3719,
+          "name": "Mewtwo vs Genesect Deck Kit",
+          "code": "mg",
+          "game_id": 5
+        }
+      ],
+      "candidate_blueprints": [
+        {
+          "id": 261377,
+          "name": "Charizard ex",
+          "category_id": 73,
+          "expansion_id": 3403,
+          "version": "Special Illustration Rare | 199/165",
+          "image": {
+            "url": "/uploads/blueprints/image/261377/charizard-ex-special-illustration-rare-199-165-151.jpg",
+            "show": {
+              "url": "/uploads/blueprints/image/261377/show_charizard-ex-special-illustration-rare-199-165-151.jpg"
+            },
+            "preview": {
+              "url": "/uploads/blueprints/image/261377/preview_charizard-ex-special-illustration-rare-199-165-151.jpg"
+            },
+            "social": {
+              "url": "/uploads/blueprints/image/261377/social_charizard-ex-special-illustration-rare-199-165-151.jpg"
+            }
+          },
+          "fixed_properties": {
+            "collector_number": "199",
+            "pokemon_rarity": "Special Illustration Rare"
+          }
+        }
+      ],
+      "selected_blueprint": {
+        "id": 261377,
+        "name": "Charizard ex",
+        "category_id": 73,
+        "expansion_id": 3403,
+        "version": "Special Illustration Rare | 199/165",
+        "image": {
+          "url": "/uploads/blueprints/image/261377/charizard-ex-special-illustration-rare-199-165-151.jpg",
+          "show": {
+            "url": "/uploads/blueprints/image/261377/show_charizard-ex-special-illustration-rare-199-165-151.jpg"
+          },
+          "preview": {
+            "url": "/uploads/blueprints/image/261377/preview_charizard-ex-special-illustration-rare-199-165-151.jpg"
+          },
+          "social": {
+            "url": "/uploads/blueprints/image/261377/social_charizard-ex-special-illustration-rare-199-165-151.jpg"
+          }
+        },
+        "fixed_properties": {
+          "collector_number": "199",
+          "pokemon_rarity": "Special Illustration Rare"
+        }
+      },
+      "mapping_status": "validated",
+      "mapping_evidence": [
+        "nom compatible",
+        "numéro exact",
+        "variante à confirmer dans les champs CardTrader",
+        "image disponible"
+      ],
+      "offers_returned_count": 0,
+      "offers_sample": [],
+      "fr_nm_offers_found_count": 0,
+      "lowest_cardtrader_fr_nm_excl_shipping_eur": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "INCONCLUSIVE",
+      "notes": [
+        "langue ou condition non identifiable dans properties_hash",
+        "aucune offre FR Near Mint dans les 25 résultats"
+      ]
+    },
+    {
+      "label": "Évoli — SVP 173",
+      "reference_cardmarket_fr_nm_excl_shipping_eur": 20.0,
+      "candidate_expansions": [
+        {
+          "id": 3221,
+          "name": "SV Black Star Promos",
+          "code": "svpromo",
+          "game_id": 5
+        },
+        {
+          "id": 3268,
+          "name": "Scarlet & Violet Promos",
+          "code": "promosv",
+          "game_id": 5
+        }
+      ],
+      "candidate_blueprints": [
+        {
+          "id": 311016,
+          "name": "Eevee",
+          "category_id": 73,
+          "expansion_id": 3221,
+          "version": "SVP 173",
+          "image": {
+            "url": "/uploads/blueprints/image/311016/eevee-svp-173-sv-black-star-promos.jpg",
+            "show": {
+              "url": "/uploads/blueprints/image/311016/show_eevee-svp-173-sv-black-star-promos.jpg"
+            },
+            "preview": {
+              "url": "/uploads/blueprints/image/311016/preview_eevee-svp-173-sv-black-star-promos.jpg"
+            },
+            "social": {
+              "url": "/uploads/blueprints/image/311016/social_eevee-svp-173-sv-black-star-promos.jpg"
+            }
+          },
+          "fixed_properties": {
+            "collector_number": "173",
+            "pokemon_rarity": "Promo"
+          }
+        }
+      ],
+      "selected_blueprint": {
+        "id": 311016,
+        "name": "Eevee",
+        "category_id": 73,
+        "expansion_id": 3221,
+        "version": "SVP 173",
+        "image": {
+          "url": "/uploads/blueprints/image/311016/eevee-svp-173-sv-black-star-promos.jpg",
+          "show": {
+            "url": "/uploads/blueprints/image/311016/show_eevee-svp-173-sv-black-star-promos.jpg"
+          },
+          "preview": {
+            "url": "/uploads/blueprints/image/311016/preview_eevee-svp-173-sv-black-star-promos.jpg"
+          },
+          "social": {
+            "url": "/uploads/blueprints/image/311016/social_eevee-svp-173-sv-black-star-promos.jpg"
+          }
+        },
+        "fixed_properties": {
+          "collector_number": "173",
+          "pokemon_rarity": "Promo"
+        }
+      },
+      "mapping_status": "validated",
+      "mapping_evidence": [
+        "nom compatible",
+        "numéro exact",
+        "variante à confirmer dans les champs CardTrader",
+        "image disponible"
+      ],
+      "offers_returned_count": 0,
+      "offers_sample": [],
+      "fr_nm_offers_found_count": 0,
+      "lowest_cardtrader_fr_nm_excl_shipping_eur": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "INCONCLUSIVE",
+      "notes": [
+        "langue ou condition non identifiable dans properties_hash",
+        "aucune offre FR Near Mint dans les 25 résultats"
+      ]
+    },
+    {
+      "label": "Crocorible — BLK 137",
+      "reference_cardmarket_fr_nm_excl_shipping_eur": 70.0,
+      "candidate_expansions": [
+        {
+          "id": 4188,
+          "name": "Black Bolt | sv11B",
+          "code": "sv11b",
+          "game_id": 5
+        },
+        {
+          "id": 4195,
+          "name": "Black Bolt",
+          "code": "blk",
+          "game_id": 5
+        },
+        {
+          "id": 4223,
+          "name": "Black Bolt | sv11B - Master Ball Reverse Holo",
+          "code": "m-sv11b",
+          "game_id": 5
+        },
+        {
+          "id": 4263,
+          "name": "Black Bolt - Master Ball Reverse Holo",
+          "code": "m-blk",
+          "game_id": 5
+        },
+        {
+          "id": 4266,
+          "name": "Black Bolt - PokÃ© Ball Reverse Holo",
+          "code": "p-blk",
+          "game_id": 5
+        },
+        {
+          "id": 4406,
+          "name": "Black Bolt | sv11B - PokÃ© Ball Reverse Holo",
+          "code": "p-sv11b",
+          "game_id": 5
+        }
+      ],
+      "candidate_blueprints": [
+        {
+          "id": 342525,
+          "name": "Krookodile",
+          "category_id": 73,
+          "expansion_id": 4195,
+          "version": "Illustration Rare | 137/086",
+          "image": {
+            "url": "/uploads/blueprints/image/342525/krookodile-illustration-rare-137-086-black-bolt.jpg",
+            "show": {
+              "url": "/uploads/blueprints/image/342525/show_krookodile-illustration-rare-137-086-black-bolt.jpg"
+            },
+            "preview": {
+              "url": "/uploads/blueprints/image/342525/preview_krookodile-illustration-rare-137-086-black-bolt.jpg"
+            },
+            "social": {
+              "url": "/uploads/blueprints/image/342525/social_krookodile-illustration-rare-137-086-black-bolt.jpg"
+            }
+          },
+          "fixed_properties": {
+            "collector_number": "137",
+            "pokemon_rarity": "Illustration Rare"
+          }
+        }
+      ],
+      "selected_blueprint": {
+        "id": 342525,
+        "name": "Krookodile",
+        "category_id": 73,
+        "expansion_id": 4195,
+        "version": "Illustration Rare | 137/086",
+        "image": {
+          "url": "/uploads/blueprints/image/342525/krookodile-illustration-rare-137-086-black-bolt.jpg",
+          "show": {
+            "url": "/uploads/blueprints/image/342525/show_krookodile-illustration-rare-137-086-black-bolt.jpg"
+          },
+          "preview": {
+            "url": "/uploads/blueprints/image/342525/preview_krookodile-illustration-rare-137-086-black-bolt.jpg"
+          },
+          "social": {
+            "url": "/uploads/blueprints/image/342525/social_krookodile-illustration-rare-137-086-black-bolt.jpg"
+          }
+        },
+        "fixed_properties": {
+          "collector_number": "137",
+          "pokemon_rarity": "Illustration Rare"
+        }
+      },
+      "mapping_status": "validated",
+      "mapping_evidence": [
+        "nom compatible",
+        "numéro exact",
+        "image disponible"
+      ],
+      "offers_returned_count": 0,
+      "offers_sample": [],
+      "fr_nm_offers_found_count": 0,
+      "lowest_cardtrader_fr_nm_excl_shipping_eur": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "INCONCLUSIVE",
+      "notes": [
+        "langue ou condition non identifiable dans properties_hash",
+        "aucune offre FR Near Mint dans les 25 résultats"
+      ]
+    }
+  ],
+  "summary": {
+    "pass": 0,
+    "warn": 0,
+    "fail": 1,
+    "inconclusive": 3,
+    "validated_blueprints": 4,
+    "fr_nm_prices_found": 1
+  },
+  "notes": [],
+  "discovery": {
+    "games_fields": [
+      "display_name",
+      "id",
+      "name"
+    ],
+    "categories_fields": [
+      "game_id",
+      "id",
+      "name",
+      "properties"
+    ],
+    "expansions_fields": [
+      "code",
+      "game_id",
+      "id",
+      "name"
+    ],
+    "pokemon_game": {
+      "id": 5,
+      "display_name": "PokÃ©mon",
+      "name": "PokÃ©mon"
+    },
+    "pokemon_categories_sample": [
+      {
+        "id": 12,
+        "name": "Magic Sleeves",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "sleeves_pack_amount",
+            "type": "string",
+            "possible_values": [
+              "40",
+              "50",
+              "60",
+              "65",
+              "80",
+              "100",
+              "120",
+              "1",
+              "25",
+              "15",
+              "24",
+              "70",
+              "75",
+              "18",
+              "20",
+              "30",
+              "55",
+              "160",
+              "200",
+              "45",
+              "90",
+              "10",
+              "66"
+            ]
+          },
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "sleeves_size",
+            "type": "string",
+            "possible_values": [
+              "Oversize",
+              "Perfect Size",
+              "Regular Size",
+              "Small (YGO size)",
+              "Sleeve Guard",
+              "Toploader",
+              "Perfect Size Yu gi oh"
+            ]
+          },
+          {
+            "name": "sleeves_surface",
+            "type": "string",
+            "possible_values": [
+              "Glossy",
+              "Matte",
+              "Brushed"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "name": "Magic Albums",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "album_pages_slot",
+            "type": "string",
+            "possible_values": [
+              "12-Pocket",
+              "9-Pocket",
+              "8-Pocket",
+              "4-Pocket",
+              "2-Pocket",
+              "1-Pocket"
+            ]
+          },
+          {
+            "name": "capacity",
+            "type": "string",
+            "possible_values": [
+              "64",
+              "80",
+              "90",
+              "160",
+              "180",
+              "320",
+              "360",
+              "480",
+              "500+",
+              "126",
+              "252",
+              "40",
+              "270",
+              "432",
+              "30",
+              "50",
+              "60",
+              "75",
+              "100",
+              "110",
+              "120",
+              "150",
+              "170",
+              "200",
+              "240",
+              "300",
+              "350",
+              "400",
+              "550",
+              "660",
+              "800",
+              "1000",
+              "1600",
+              "2000",
+              "3200",
+              "5000",
+              "9600",
+              "15000",
+              "Playmat"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "name": "Magic Deck Boxes",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "capacity",
+            "type": "string",
+            "possible_values": [
+              "64",
+              "80",
+              "90",
+              "160",
+              "180",
+              "320",
+              "360",
+              "480",
+              "500+",
+              "126",
+              "252",
+              "40",
+              "270",
+              "432",
+              "30",
+              "50",
+              "60",
+              "75",
+              "100",
+              "110",
+              "120",
+              "150",
+              "170",
+              "200",
+              "240",
+              "300",
+              "350",
+              "400",
+              "550",
+              "660",
+              "800",
+              "1000",
+              "1600",
+              "2000",
+              "3200",
+              "5000",
+              "9600",
+              "15000",
+              "Playmat"
+            ]
+          },
+          {
+            "name": "products_material",
+            "type": "string",
+            "possible_values": [
+              "Cardboard",
+              "Metal",
+              "Plastic",
+              "Synth. Leather",
+              "Wood",
+              "Leather",
+              "Rubber Foam",
+              "Synthetic Leather",
+              "Glass"
+            ]
+          },
+          {
+            "name": "deckbox_type",
+            "type": "string",
+            "possible_values": [
+              "Commander",
+              "Deck-Vault",
+              "Dual",
+              "Duel Decks",
+              "Gaming Box",
+              "Oversized",
+              "Standard",
+              "Tray Box",
+              "Top Box"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 19,
+        "name": "Magic Playmats",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "signed",
+            "type": "boolean",
+            "possible_values": [
+              true,
+              false
+            ]
+          },
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "products_material",
+            "type": "string",
+            "possible_values": [
+              "Cardboard",
+              "Metal",
+              "Plastic",
+              "Synth. Leather",
+              "Wood",
+              "Leather",
+              "Rubber Foam",
+              "Synthetic Leather",
+              "Glass"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 22,
+        "name": "Magic Dice",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "sides",
+            "type": "string",
+            "possible_values": [
+              "4",
+              "6",
+              "8",
+              "10",
+              "12",
+              "20",
+              "30"
+            ]
+          },
+          {
+            "name": "background_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Gold",
+              "Gray",
+              "Green",
+              "Ivory",
+              "Orange",
+              "Pink",
+              "Purple",
+              "Red",
+              "Silver",
+              "Transparent",
+              "Turquoise",
+              "White",
+              "Yellow"
+            ]
+          },
+          {
+            "name": "text_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Gold",
+              "Green",
+              "Orange",
+              "Pink",
+              "Purple",
+              "Red",
+              "Silver",
+              "White"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 25,
+        "name": "Magic Dividers",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "products_material",
+            "type": "string",
+            "possible_values": [
+              "Cardboard",
+              "Metal",
+              "Plastic",
+              "Synth. Leather",
+              "Wood",
+              "Leather",
+              "Rubber Foam",
+              "Synthetic Leather",
+              "Glass"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 26,
+        "name": "Magic Binder Pages",
+        "game_id": 1,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "album_pages_slot",
+            "type": "string",
+            "possible_values": [
+              "12-Pocket",
+              "9-Pocket",
+              "8-Pocket",
+              "4-Pocket",
+              "2-Pocket",
+              "1-Pocket"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 35,
+        "name": "Fow Sleeves",
+        "game_id": 3,
+        "properties": [
+          {
+            "name": "sleeves_pack_amount",
+            "type": "string",
+            "possible_values": [
+              "40",
+              "50",
+              "60",
+              "65",
+              "80",
+              "100",
+              "120",
+              "1",
+              "25",
+              "15",
+              "24",
+              "70",
+              "75",
+              "18",
+              "20",
+              "30",
+              "55",
+              "160",
+              "200",
+              "45",
+              "90",
+              "10",
+              "66"
+            ]
+          },
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "sleeves_size",
+            "type": "string",
+            "possible_values": [
+              "Oversize",
+              "Perfect Size",
+              "Regular Size",
+              "Small (YGO size)",
+              "Sleeve Guard",
+              "Toploader",
+              "Perfect Size Yu gi oh"
+            ]
+          },
+          {
+            "name": "sleeves_surface",
+            "type": "string",
+            "possible_values": [
+              "Glossy",
+              "Matte",
+              "Brushed"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 36,
+        "name": "Fow Playmats",
+        "game_id": 3,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "products_material",
+            "type": "string",
+            "possible_values": [
+              "Cardboard",
+              "Metal",
+              "Plastic",
+              "Synth. Leather",
+              "Wood",
+              "Leather",
+              "Rubber Foam",
+              "Synthetic Leather",
+              "Glass"
+            ]
+          }
+        ]
+      },
+      {
+        "id": 37,
+        "name": "Fow Deck Boxes",
+        "game_id": 3,
+        "properties": [
+          {
+            "name": "products_brand",
+            "type": "string",
+            "possible_values": [
+              "Arcane Tinmen",
+              "Bordifies",
+              "Card Way",
+              "Cryptozoic",
+              "Epoch",
+              "Fantasy Flight Game",
+              "Generic",
+              "God Player",
+              "Hareruya",
+              "HobbyBase",
+              "KMC",
+              "Konami",
+              "Legion",
+              "Max Protection",
+              "Milestone",
+              "Monster",
+              "Player's Choice",
+              "Pro-Select",
+              "StarCityGames",
+              "TOP Sleeves",
+              "Ultimate Guard",
+              "Ultra-Pro",
+              "CCG",
+              "KONAMI",
+              "Blackfire",
+              "PokÃ©mon Center",
+              "Gamegenic",
+              "Kadomaru",
+              "Bandai",
+              "Carddass",
+              "Dragon Shield",
+              "Legend Story Studios",
+              "Disney",
+              "Riot Games",
+              "TcgLab",
+              "Sorcery Contested Realm",
+              "Bushiroad",
+              "Dex Protection",
+              "Hobby Japan",
+              "Upper Deck",
+              "Wizards of the Coast",
+              "Wyrmwood",
+              "Arcane Tinmen ",
+              "FT Protection",
+              "Salvat",
+              "SAS Protection",
+              "DeckTutor",
+              "Bazaar of Moxen",
+              "BlackFire",
+              "Perfect Pro",
+              "Channel Fireball",
+              "GnD Cards",
+              "SpellGround",
+              "Tokens for Mtg",
+              "The PokÃ©mon Company",
+              "Kraken Wargames",
+              "Tomy",
+              "BCW",
+              "Chessex"
+            ]
+          },
+          {
+            "name": "product_color",
+            "type": "string",
+            "possible_values": [
+              "Black",
+              "Blue",
+              "Brown",
+              "Clear",
+              "Gold/Metal",
+              "Green",
+              "Gray/Silver",
+              "Ivory",
+              "Orange",
+              "Pictures",
+              "Pink",
+              "Purple",
+              "Red",
+              "Turquoise",
+              "White",
+              "Yellow",
+              "Gold/Metal ",
+              "Green ",
+              "Sand",
+              "Light Blue",
+              "Petrol",
+              "Aquamarine",
+              "Apple Green",
+              "Gray",
+              "Transparent",
+              "Mixed"
+            ]
+          },
+          {
+            "name": "capacity",
+            "type": "string",
+            "possible_values": [
+              "64",
+              "80",
+              "90",
+              "160",
+              "180",
+              "320",
+              "360",
+              "480",
+              "500+",
+              "126",
+              "252",
+              "40",
+              "270",
+              "432",
+              "30",
+              "50",
+              "60",
+              "75",
+              "100",
+              "110",
+              "120",
+              "150",
+              "170",
+              "200",
+              "240",
+              "300",
+              "350",
+              "400",
+              "550",
+              "660",
+              "800",
+              "1000",
+              "1600",
+              "2000",
+              "3200",
+              "5000",
+              "9600",
+              "15000",
+              "Playmat"
+            ]
+          },
+          {
+            "name": "products_material",
+            "type": "string",
+            "possible_values": [
+              "Cardboard",
+              "Metal",
+              "Plastic",
+              "Synth. Leather",
+              "Wood",
+              "Leather",
+              "Rubber Foam",
+              "Synthetic Leather",
+              "Glass"
+            ]
+          },
+          {
+            "name": "deckbox_type",
+            "type": "string",
+            "possible_values": [
+              "Commander",
+              "Deck-Vault",
+              "Dual",
+              "Duel Decks",
+              "Gaming Box",
+              "Oversized",
+              "Standard",
+              "Tray Box",
+              "Top Box"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "snapshot_count_after_test": 0
+}

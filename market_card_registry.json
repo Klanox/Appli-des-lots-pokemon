@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "cards": [],
+  "notes": "Optional manual registry. Card cache metadata is also used at render time."
+}

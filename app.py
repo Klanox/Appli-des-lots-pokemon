@@ -130,6 +130,7 @@ from ui.theme import (
 from ui.pages.home import render_home_page
 from ui.pages.counters import render_counters_page
 from ui.pages.statistics import render_statistics_page
+from ui.pages.market import render_market_page
 from ui.pages.estimations import render_estimations_page
 from ui.pages.history import render_history_page
 from ui.pages.archives import render_archives_page
@@ -161,6 +162,13 @@ from services.estimations_service import (
     save_estimations,
 )
 from services.estimations_cache_enrichment import enrich_estimations_card_cache
+from services.cloud_sync_service import (
+    SYNCED_DATASETS,
+    cloud_sync_status_summary,
+    pull_all_cloud_datasets,
+    pull_dataset_from_cloud,
+    safe_write_json_synced,
+)
 
 APP_BUILD = "Codex 2026-06-12 drops search"
 
@@ -502,11 +510,20 @@ def ensure_card_ids(d):
             lot["lot_uid"] = new_uid("lot")
             changed = True
         seen_lots.add(lot["lot_uid"])
+        next_sequence = 1
         for card in lot.get("cards", []):
             if not card.get("card_uid") or card.get("card_uid") in seen_cards:
                 card["card_uid"] = new_uid("card")
                 changed = True
             seen_cards.add(card["card_uid"])
+            if not card.get("added_sequence"):
+                card["added_sequence"] = next_sequence
+                changed = True
+            try:
+                next_sequence = max(next_sequence, int(card.get("added_sequence", 0) or 0) + 1)
+            except (TypeError, ValueError):
+                next_sequence += 1
+            card.setdefault("added_at", lot.get("created") or "")
     return changed
 
 def ensure_storage_lot(d):
@@ -559,7 +576,7 @@ def save_activity_state():
         "swap_cart_give": st.session_state.get("swap_cart_give", []),
         "swap_cart_receive": st.session_state.get("swap_cart_receive", []),
     }
-    safe_write_json(ACTIVITY_STATE_FILE, data, indent=2)
+    safe_write_json_synced(ACTIVITY_STATE_FILE, data, indent=2)
 
 def load_activity_state():
     if not os.path.exists(ACTIVITY_STATE_FILE):
@@ -1332,6 +1349,14 @@ if "cards_index" not in st.session_state:
     with st.spinner("Chargement des données..."):
         load_cards_cache(allow_network=False)
 
+if "full_cloud_pull_checked" not in st.session_state:
+    st.session_state["full_cloud_pull_checked"] = True
+    try:
+        pull_result = pull_all_cloud_datasets(force=False)
+        st.session_state["full_cloud_pull_result"] = pull_result
+    except Exception as e:
+        st.session_state["full_cloud_pull_error"] = str(e)
+
 load_activity_state()
 
 if "weekly_backup_checked" not in st.session_state:
@@ -1448,8 +1473,11 @@ wrapped_story_active = (
     st.session_state.get("wrapped_open", False)
     and (st.session_state.get("current_page") == "Wrapped" or _early_query_page in {"wrapped", "pokestock-wrapped"})
 )
-
-if not wrapped_story_active:
+market_dashboard_active = (
+    str(st.session_state.get("current_page", "")).lower() in {"marché", "marchã©"}
+    or _early_query_page in {"market", "marche", "marché"}
+)
+if not wrapped_story_active and not market_dashboard_active:
     st.markdown(
         render_app_header(logo_src, mobile=is_mobile_mode()),
         unsafe_allow_html=True,
@@ -1671,6 +1699,9 @@ if "current_page" not in st.session_state:
         "annonces-vinted": "Annonces Vinted",
         "vinted": "Annonces Vinted",
         "historique": "Historique",
+        "marche": "Marché",
+        "marché": "Marché",
+        "market": "Marché",
         "stats": "Statistiques",
         "statistiques": "Statistiques",
         "wrapped": "Wrapped",
@@ -1726,48 +1757,73 @@ if not wrapped_story_active:
                 st.session_state["cloud_sync_notice_seen"] = True
             cloud_ready, cloud_message = cloud_sync_status()
             if cloud_ready:
-                local_lots_count = len((st.session_state.get("data_cache") or {}).get("lots", []))
-                cloud_meta = load_cloud_json_meta(SUPABASE_DATA_KEY)
-                cloud_lots = cloud_meta.get("lots_count")
-                cloud_lots_label = "?" if cloud_lots is None else str(cloud_lots)
-                updated_at = cloud_meta.get("updated_at") or "date inconnue"
-                st.caption(f"☁️ {cloud_message} · local {local_lots_count} lot(s) · cloud {cloud_lots_label} lot(s)")
-                st.caption(f"Dernière synchro cloud : {updated_at}")
+                status_summary = cloud_sync_status_summary()
+                last_read = status_summary.get("last_read") or "jamais"
+                last_save = status_summary.get("last_save") or "jamais"
+                unsynced = status_summary.get("unsynced") or []
+                st.caption(
+                    f"☁️ {cloud_message} · jeux synchronisés "
+                    f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
+                )
+                st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
+                if unsynced:
+                    st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
+                    st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
                 sync_status = st.session_state.get("cloud_sync_status") or {}
-                sync_entry = cloud_sync_entry(SUPABASE_DATA_KEY)
                 if sync_status.get("message"):
                     st.caption(f"Statut : {sync_status.get('message')}")
-                if sync_entry.get("last_read_at") or sync_entry.get("last_save_at"):
-                    st.caption(
-                        "Dernière lecture cloud : "
-                        f"{sync_entry.get('last_read_at', 'jamais')} · "
-                        f"dernier envoi : {sync_entry.get('last_save_at', 'jamais')}"
-                    )
-                conflict = st.session_state.get("cloud_sync_conflict")
-                if conflict:
-                    st.warning(conflict.get("message", "Conflit local/cloud détecté."))
-                    if st.button("Récupérer la version cloud", width="stretch", key="resolve_cloud_conflict_pull"):
-                        result = pull_data_from_cloud()
-                        if result.get("ok"):
-                            st.success(result.get("message", "Version cloud récupérée."))
-                            st.session_state.pop("cloud_sync_conflict", None)
+                conflicts = st.session_state.get("cloud_sync_conflicts") or {}
+                legacy_conflict = st.session_state.get("cloud_sync_conflict")
+                if legacy_conflict:
+                    conflicts.setdefault("data", {
+                        "dataset": "data",
+                        "filename": "data.json",
+                        "label": "Stock/lots/ventes",
+                        "message": legacy_conflict.get("message", ""),
+                    })
+                if conflicts:
+                    st.warning(f"Conflit local/cloud détecté sur {len(conflicts)} jeu(x) de données.")
+                    for dataset_key, conflict in list(conflicts.items()):
+                        dataset = SYNCED_DATASETS.get(dataset_key)
+                        if not dataset:
+                            continue
+                        label = conflict.get("label") or dataset.label
+                        st.caption(f"{label} · {dataset.filename}")
+                        c1, c2 = st.columns(2)
+                        if c1.button("Récupérer la version cloud", width="stretch", key=f"resolve_cloud_conflict_pull_{dataset_key}"):
+                            result = pull_dataset_from_cloud(dataset, force=True)
+                            if result.get("status") == "loaded":
+                                st.success(f"{label} récupéré depuis le cloud.")
+                                st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
+                                if dataset_key == "data":
+                                    st.session_state.pop("cloud_sync_conflict", None)
+                                st.rerun()
+                            else:
+                                st.error(f"Récupération cloud impossible pour {label}.")
+                        if c2.button("Conserver la version locale", width="stretch", key=f"resolve_cloud_conflict_keep_{dataset_key}"):
+                            update_cloud_sync_state(dataset.key, source="local", dirty=True)
+                            st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
+                            if dataset_key == "data":
+                                st.session_state.pop("cloud_sync_conflict", None)
+                            st.info(f"{label} local conservé. Aucun envoi cloud automatique n'a été fait.")
                             st.rerun()
-                        else:
-                            st.error(result.get("message", "Récupération cloud impossible."))
-                    if st.button("Conserver la version locale", width="stretch", key="resolve_cloud_conflict_keep_local"):
-                        update_cloud_sync_state(SUPABASE_DATA_KEY, data=st.session_state.get("data_cache"), source="local", dirty=True)
-                        st.session_state.pop("cloud_sync_conflict", None)
-                        st.info("Version locale conservée. Aucun envoi cloud automatique n'a été fait.")
-                        st.rerun()
-                if st.button("Récupérer la dernière version cloud", width="stretch", key="pull_data_from_cloud"):
-                    result = pull_data_from_cloud()
-                    if result.get("ok"):
-                        summary = result.get("summary") or {}
-                        st.success(f"{result.get('message')} ({summary.get('lots', '?')} lot(s))")
+                if st.button("Récupérer les dernières données cloud", width="stretch", key="pull_all_cloud_datasets"):
+                    result = pull_all_cloud_datasets(force=True)
+                    if result.get("enabled"):
+                        loaded = [SYNCED_DATASETS[k].label for k in result.get("loaded", []) if k in SYNCED_DATASETS]
+                        fallback = [SYNCED_DATASETS[k].label for k in result.get("fallback_local", []) if k in SYNCED_DATASETS]
+                        conflicts_after = [SYNCED_DATASETS[k].label for k in result.get("conflicts", []) if k in SYNCED_DATASETS]
+                        if loaded:
+                            st.success("Données cloud récupérées : " + ", ".join(loaded))
+                        if fallback:
+                            st.caption("Local conservé pour : " + ", ".join(fallback))
+                        if conflicts_after:
+                            st.warning("Conflits détectés : " + ", ".join(conflicts_after))
+                        st.caption("Aucune donnée locale n'a été envoyée au cloud.")
                         st.session_state.pop("cloud_sync_conflict", None)
                         st.rerun()
                     else:
-                        st.error(result.get("message", "Récupération cloud impossible."))
+                        st.error("Récupération cloud impossible : cloud non disponible.")
                 confirm_cloud_push = st.checkbox(
                     "Confirmer l'envoi des données locales vers le cloud",
                     key="confirm_push_data_to_cloud",
@@ -1843,7 +1899,7 @@ elif st.session_state.current_page=="Vente":
 # PAGE LOTS
 # ============================================================
 elif st.session_state.current_page=="Lots":
-    render_with_perf("page Lots", render_lots_page, globals())
+    render_with_perf("page Lots", render_lots_page, dict(globals(), safe_write_json=safe_write_json_synced))
 
 # ============================================================
 # PAGE HISTORIQUE
@@ -1969,7 +2025,7 @@ elif st.session_state.current_page=="Archivés":
         render_archives_page,
         ld_func=ld,
         sd_func=sd,
-        safe_write_json_func=safe_write_json,
+        safe_write_json_func=safe_write_json_synced,
         render_page_header_func=render_page_header,
         cr_func=cr,
         cp_func=cp,
@@ -1988,6 +2044,18 @@ elif st.session_state.current_page=="Brocante":
     st.rerun()
 
 # ============================================================
+# PAGE MARCHE
+# ============================================================
+elif st.session_state.current_page == "Marché":
+    render_with_perf(
+        "page Marché",
+        render_market_page,
+        render_page_header_func=render_page_header,
+        fp_func=fp,
+        is_mobile_mode_func=is_mobile_mode,
+    )
+
+# ============================================================
 # PAGE STATISTIQUES
 # ============================================================
 elif st.session_state.current_page == "Statistiques":
@@ -1995,7 +2063,7 @@ elif st.session_state.current_page == "Statistiques":
         "page Statistiques",
         render_statistics_page,
         ld_func=ld,
-        safe_write_json_func=safe_write_json,
+        safe_write_json_func=safe_write_json_synced,
         calc_cout_lot_func=calc_cout_lot,
         effective_purchase_price_func=effective_purchase_price,
         proxy_img_func=proxy_img,
@@ -2029,7 +2097,7 @@ elif st.session_state.current_page == "Compteurs":
         "page Compteurs",
         render_counters_page,
         ld_func=ld,
-        safe_write_json_func=safe_write_json,
+        safe_write_json_func=safe_write_json_synced,
         canal_key_func=canal_key,
     )
 

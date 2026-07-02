@@ -1,0 +1,110 @@
+{
+  "source_name": "CM API / CardMarket API via RapidAPI",
+  "source_type": "third_party",
+  "official_cardmarket_source": false,
+  "tested_at": "2026-06-27T20:14:09.849341+00:00",
+  "request_count": 0,
+  "overall_status": "not_ready_for_integration",
+  "cards": [
+    {
+      "label": "Amphinobi ex — SVP 132",
+      "reference_price_fr_nm_excl_shipping": 37.0,
+      "api_candidate_count": 0,
+      "selected_candidate": null,
+      "identity_status": "not_tested",
+      "identity_evidence": [],
+      "lowest_near_mint_FR": null,
+      "lowest_near_mint": null,
+      "7d_average": null,
+      "30d_average": null,
+      "currency": null,
+      "last_updated": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "NOT_RUN",
+      "notes": [
+        "Configuration RapidAPI absente ou incomplète.",
+        "Aucun appel réseau effectué.",
+        "Renseigner EXTERNAL_TCG_PRICE_API_KEY, EXTERNAL_TCG_PRICE_API_HOST et EXTERNAL_TCG_PRICE_API_BASE_URL dans .env."
+      ]
+    },
+    {
+      "label": "Dracaufeu ex — MEW 199",
+      "reference_price_fr_nm_excl_shipping": 350.0,
+      "api_candidate_count": 0,
+      "selected_candidate": null,
+      "identity_status": "not_tested",
+      "identity_evidence": [],
+      "lowest_near_mint_FR": null,
+      "lowest_near_mint": null,
+      "7d_average": null,
+      "30d_average": null,
+      "currency": null,
+      "last_updated": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "NOT_RUN",
+      "notes": [
+        "Configuration RapidAPI absente ou incomplète.",
+        "Aucun appel réseau effectué.",
+        "Renseigner EXTERNAL_TCG_PRICE_API_KEY, EXTERNAL_TCG_PRICE_API_HOST et EXTERNAL_TCG_PRICE_API_BASE_URL dans .env."
+      ]
+    },
+    {
+      "label": "Évoli — SVP 173",
+      "reference_price_fr_nm_excl_shipping": 20.0,
+      "api_candidate_count": 0,
+      "selected_candidate": null,
+      "identity_status": "not_tested",
+      "identity_evidence": [],
+      "lowest_near_mint_FR": null,
+      "lowest_near_mint": null,
+      "7d_average": null,
+      "30d_average": null,
+      "currency": null,
+      "last_updated": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "NOT_RUN",
+      "notes": [
+        "Configuration RapidAPI absente ou incomplète.",
+        "Aucun appel réseau effectué.",
+        "Renseigner EXTERNAL_TCG_PRICE_API_KEY, EXTERNAL_TCG_PRICE_API_HOST et EXTERNAL_TCG_PRICE_API_BASE_URL dans .env."
+      ]
+    },
+    {
+      "label": "Crocorible — BLK 137",
+      "reference_price_fr_nm_excl_shipping": 70.0,
+      "api_candidate_count": 0,
+      "selected_candidate": null,
+      "identity_status": "not_tested",
+      "identity_evidence": [],
+      "lowest_near_mint_FR": null,
+      "lowest_near_mint": null,
+      "7d_average": null,
+      "30d_average": null,
+      "currency": null,
+      "last_updated": null,
+      "difference_eur": null,
+      "difference_pct": null,
+      "result": "NOT_RUN",
+      "notes": [
+        "Configuration RapidAPI absente ou incomplète.",
+        "Aucun appel réseau effectué.",
+        "Renseigner EXTERNAL_TCG_PRICE_API_KEY, EXTERNAL_TCG_PRICE_API_HOST et EXTERNAL_TCG_PRICE_API_BASE_URL dans .env."
+      ]
+    }
+  ],
+  "summary": {
+    "pass": 0,
+    "warn": 0,
+    "fail": 0,
+    "identity_validated": 0,
+    "lowest_near_mint_fr_available": 0
+  },
+  "notes": [
+    "Configuration RapidAPI absente ou incomplète.",
+    "Aucun appel réseau effectué.",
+    "Renseigner EXTERNAL_TCG_PRICE_API_KEY, EXTERNAL_TCG_PRICE_API_HOST et EXTERNAL_TCG_PRICE_API_BASE_URL dans .env."
+  ]
+}

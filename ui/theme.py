@@ -30,14 +30,15 @@ NAV_SECTIONS = (
     {
         "label": "Analyse",
         "items": (
-            ("Wrapped", "Wrapped", "🎁"),
+            ("Marché", "Marché", "📈"),
             ("Statistiques", "Statistiques", "📊"),
+            ("Wrapped", "Wrapped", "🎁"),
             ("Compteurs", "Compteurs", "🎰"),
         ),
     },
 )
 
-KPI_ACCENTS = ("#3b82f6", "#8b5cf6", "#06b6d4", "#f59e0b", "#10b981")
+KPI_ACCENTS = ("#7C3AED", "#2563EB", "#06B6D4", "#C0841A", "#16A34A")
 
 
 def _delta_html(delta: str | None) -> str:
@@ -101,7 +102,7 @@ def render_page_header(title: str, subtitle: str = "", icon: str = "") -> str:
 
 
 def render_app_header(logo_src: str, *, mobile: bool = False) -> str:
-    tagline = "Gestion stock, ventes & lots Pokémon"
+    tagline = "Collection, lots et ventes sous contrôle"
     compact = " ps-app-header--compact" if mobile else ""
     return f"""
     <header class="ps-app-header{compact}">
@@ -119,10 +120,12 @@ def render_app_header(logo_src: str, *, mobile: bool = False) -> str:
 def render_sidebar_brand(logo_src: str, build: str) -> str:
     return f"""
     <div class="ps-sidebar-brand">
-        <img src="{html_lib.escape(logo_src)}" alt="PokéStock">
+        <div class="ps-sidebar-emblem">
+            <img src="{html_lib.escape(logo_src)}" alt="PokéStock">
+        </div>
         <div>
             <div class="ps-sidebar-title">PokéStock</div>
-            <div class="ps-sidebar-build">{html_lib.escape(build)}</div>
+            <div class="ps-sidebar-build">Dexify Collector · {html_lib.escape(build)}</div>
         </div>
     </div>
     """
@@ -145,29 +148,33 @@ def inject_theme(*, mobile: bool = False) -> str:
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 :root {{
-    --ps-bg: #f1f5f9;
+    --ps-bg: #f7f7fb;
     --ps-surface: #ffffff;
-    --ps-surface-muted: #f8fafc;
-    --ps-sidebar: #0f172a;
-    --ps-sidebar-border: #1e293b;
-    --ps-accent: #dc2626;
-    --ps-accent-hover: #b91c1c;
-    --ps-accent-soft: #fef2f2;
+    --ps-surface-muted: #f3e8ff;
+    --ps-sidebar: #1e1533;
+    --ps-sidebar-border: rgba(255,255,255,0.10);
+    --ps-accent: #7c3aed;
+    --ps-accent-hover: #6d28d9;
+    --ps-accent-deep: #4c1d95;
+    --ps-accent-soft: #f3e8ff;
     --ps-blue: #2563eb;
-    --ps-success: #059669;
+    --ps-cyan: #06b6d4;
+    --ps-success: #16a34a;
     --ps-warning: #d97706;
     --ps-danger: #dc2626;
-    --ps-text: #0f172a;
-    --ps-text-secondary: #475569;
-    --ps-text-muted: #94a3b8;
-    --ps-border: #e2e8f0;
-    --ps-border-strong: #cbd5e1;
+    --ps-gold: #c0841a;
+    --ps-rose: #db2777;
+    --ps-text: #171423;
+    --ps-text-secondary: #6b6678;
+    --ps-text-muted: #8c879d;
+    --ps-border: #e6e3ee;
+    --ps-border-strong: #cfc8df;
     --ps-radius-sm: 8px;
     --ps-radius: 12px;
     --ps-radius-lg: 16px;
-    --ps-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-    --ps-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
-    --ps-shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
+    --ps-shadow-sm: 0 1px 2px rgba(23, 20, 35, 0.05);
+    --ps-shadow: 0 12px 28px rgba(76, 29, 149, 0.09), 0 2px 8px rgba(23, 20, 35, 0.04);
+    --ps-shadow-lg: 0 20px 45px rgba(76, 29, 149, 0.13), 0 8px 18px rgba(23, 20, 35, 0.06);
     --ps-font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --pokemon-red: var(--ps-accent);
     --pokemon-blue: var(--ps-blue);
@@ -818,14 +825,166 @@ hr {{
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div,
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div {{
         background: #e8eef7 !important;
-        position: sticky !important;
-        z-index: 6900 !important;
+        position: static !important;
+        z-index: auto !important;
     }}
     div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {{
         display: grid !important;
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
         gap: 0.25rem !important;
     }}
+}}
+
+/* ── PokéStock Collector Premium overrides ── */
+.stApp {{
+    background:
+        radial-gradient(circle at 11% -8%, rgba(124, 58, 237, 0.16), transparent 32rem),
+        radial-gradient(circle at 92% 0%, rgba(6, 182, 212, 0.10), transparent 26rem),
+        linear-gradient(180deg, #fbfaff 0%, var(--ps-bg) 42%, #eef0f7 100%) !important;
+}}
+.main .block-container {{
+    max-width: 1340px !important;
+}}
+.ps-app-header {{
+    position: relative;
+    overflow: hidden;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.96), rgba(243,232,255,0.88)),
+        radial-gradient(circle at 92% 18%, rgba(124,58,237,0.18), transparent 20rem) !important;
+    border: 1px solid rgba(124,58,237,0.16) !important;
+    border-radius: 18px !important;
+    padding: 1.15rem 1.35rem !important;
+    box-shadow: var(--ps-shadow) !important;
+}}
+.ps-app-header::after {{
+    content: "";
+    position: absolute;
+    inset: auto -12% -58% 50%;
+    height: 150%;
+    background: linear-gradient(115deg, transparent, rgba(255,255,255,0.42), transparent);
+    transform: rotate(12deg);
+    pointer-events: none;
+}}
+.ps-app-logo {{
+    border-radius: 14px !important;
+    background: #ffffff !important;
+    border: 1px solid rgba(124,58,237,0.18) !important;
+    box-shadow: 0 10px 24px rgba(76,29,149,0.14) !important;
+}}
+.ps-app-title,
+.ps-page-title,
+h2.ps-page-title,
+h2, h3, h4 {{
+    letter-spacing: 0 !important;
+}}
+.ps-page-header {{
+    position: relative !important;
+    padding: 1rem 1.1rem !important;
+    border: 1px solid rgba(124,58,237,0.12) !important;
+    border-radius: 16px !important;
+    background: rgba(255,255,255,0.76) !important;
+    box-shadow: var(--ps-shadow-sm) !important;
+}}
+.ps-page-icon {{
+    background: linear-gradient(135deg, #f3e8ff, #ffffff) !important;
+    border: 1px solid rgba(124,58,237,0.16) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}}
+.ps-kpi-card {{
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.92)),
+        radial-gradient(circle at 100% 0%, rgba(124,58,237,0.09), transparent 12rem) !important;
+    border: 1px solid rgba(124,58,237,0.12) !important;
+    box-shadow: var(--ps-shadow-sm) !important;
+}}
+.ps-kpi-card::before {{
+    width: 4px !important;
+    background: linear-gradient(180deg, var(--ps-kpi-accent, var(--ps-accent)), rgba(255,255,255,0.4)) !important;
+}}
+[data-testid="stSidebar"] {{
+    background:
+        radial-gradient(circle at 30% 0%, rgba(124,58,237,0.36), transparent 17rem),
+        linear-gradient(180deg, #1e1533 0%, #140f24 100%) !important;
+}}
+.ps-sidebar-brand {{
+    gap: 0.82rem !important;
+    padding: 0.85rem 0.55rem 1rem !important;
+}}
+.ps-sidebar-emblem {{
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+    flex: 0 0 auto;
+}}
+.ps-sidebar-emblem img {{
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+}}
+.ps-sidebar-brand > img {{
+    display: none !important;
+}}
+.ps-sidebar-build {{
+    color: rgba(255,255,255,0.58) !important;
+}}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    background: rgba(124, 58, 237, 0.28) !important;
+    color: #ffffff !important;
+    border-color: rgba(216, 180, 254, 0.34) !important;
+}}
+[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
+    background: rgba(124, 58, 237, 0.42) !important;
+}}
+.stButton > button {{
+    border-color: rgba(124,58,237,0.18) !important;
+}}
+.stButton > button[kind="primary"],
+.stForm button,
+button[kind="primary"],
+button[type="submit"] {{
+    background: linear-gradient(135deg, var(--ps-accent), var(--ps-accent-deep)) !important;
+    border-color: rgba(76, 29, 149, 0.75) !important;
+}}
+.stButton > button[kind="primary"]:hover,
+.stForm button:hover,
+button[kind="primary"]:hover {{
+    background: linear-gradient(135deg, #6d28d9, #3b0764) !important;
+}}
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+.stTextArea textarea:focus {{
+    border-color: var(--ps-accent) !important;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14) !important;
+}}
+[data-testid="stExpander"] {{
+    border-color: rgba(124,58,237,0.13) !important;
+    border-left-color: rgba(124,58,237,0.45) !important;
+}}
+[data-testid="stExpander"] summary {{
+    background: linear-gradient(135deg, #ffffff, #faf7ff) !important;
+}}
+.badge-reverse,
+.badge-ed1,
+.badge-profitable,
+.est-badge,
+.est-chip,
+.est-card-tags span {{
+    letter-spacing: 0 !important;
+}}
+.mobile-card-tile {{
+    border-color: rgba(124,58,237,0.12) !important;
+    box-shadow: 0 6px 15px rgba(76,29,149,0.06) !important;
+}}
+.mobile-card-name,
+.mobile-card-meta {{
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
 }}
 </style>
 """
@@ -857,14 +1016,12 @@ div[style*="display: flex"][style*="justify-content: center"] img {
         background: #e8eef7 !important;
         margin: 0 !important;
         padding: 0.1rem 0.35rem !important;
-        position: sticky !important;
-        z-index: 6900 !important;
+        position: static !important;
+        z-index: auto !important;
         overflow: hidden !important;
     }
-    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div { top: 0 !important; border-radius: 12px 12px 0 0 !important; }
-    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div { top: 1.7rem !important; }
-    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div { top: 4.1rem !important; }
-    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div { top: 6.6rem !important; border-radius: 0 0 12px 12px !important; }
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div { border-radius: 12px 12px 0 0 !important; }
+    [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div { border-radius: 0 0 12px 12px !important; }
     div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
         display: grid !important;
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;

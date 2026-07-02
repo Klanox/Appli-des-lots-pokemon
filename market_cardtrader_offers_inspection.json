@@ -1,0 +1,114 @@
+{
+  "source_name": "CardTrader Full API",
+  "read_only": true,
+  "tested_at": "2026-06-27T22:09:02.897750+00:00",
+  "request_count": 4,
+  "cards": [
+    {
+      "label": "Amphinobi ex — SVP 132",
+      "blueprint_id": 287979,
+      "blueprint_name": "Greninja ex",
+      "blueprint_version": "SVP 132",
+      "request_language_filter": "fr",
+      "offers_returned_count": 2,
+      "offers_marked_french_count": 2,
+      "different_languages_seen": [
+        "fr"
+      ],
+      "language_filter_anomaly": false,
+      "conditions_raw_detected": [
+        "Near Mint"
+      ],
+      "conditions_normalized_counts": {
+        "Near Mint": 2
+      },
+      "near_mint_detected_count": 2,
+      "unknown_condition_count": 0,
+      "offers": [
+        {
+          "rank": 1,
+          "price_eur": 50.64,
+          "currency": "EUR",
+          "language_raw": "fr",
+          "language_normalized": "fr",
+          "condition_raw": "Near Mint",
+          "condition_normalized": "Near Mint",
+          "foil_raw": false,
+          "graded": false,
+          "on_vacation": false,
+          "seller_country_code": "unknown",
+          "is_french": true,
+          "is_near_mint": true,
+          "is_eligible_fr_nm": true,
+          "exclusion_reason": ""
+        },
+        {
+          "rank": 2,
+          "price_eur": 60.64,
+          "currency": "EUR",
+          "language_raw": "fr",
+          "language_normalized": "fr",
+          "condition_raw": "Near Mint",
+          "condition_normalized": "Near Mint",
+          "foil_raw": false,
+          "graded": true,
+          "on_vacation": false,
+          "seller_country_code": "unknown",
+          "is_french": true,
+          "is_near_mint": true,
+          "is_eligible_fr_nm": false,
+          "exclusion_reason": "graded"
+        }
+      ]
+    },
+    {
+      "label": "Dracaufeu ex — MEW 199",
+      "blueprint_id": 261377,
+      "blueprint_name": "Charizard ex",
+      "blueprint_version": "Special Illustration Rare | 199/165",
+      "request_language_filter": "fr",
+      "offers_returned_count": 0,
+      "offers_marked_french_count": 0,
+      "different_languages_seen": [],
+      "language_filter_anomaly": false,
+      "conditions_raw_detected": [],
+      "conditions_normalized_counts": {},
+      "near_mint_detected_count": 0,
+      "unknown_condition_count": 0,
+      "offers": []
+    },
+    {
+      "label": "Évoli — SVP 173",
+      "blueprint_id": 311016,
+      "blueprint_name": "Eevee",
+      "blueprint_version": "SVP 173",
+      "request_language_filter": "fr",
+      "offers_returned_count": 0,
+      "offers_marked_french_count": 0,
+      "different_languages_seen": [],
+      "language_filter_anomaly": false,
+      "conditions_raw_detected": [],
+      "conditions_normalized_counts": {},
+      "near_mint_detected_count": 0,
+      "unknown_condition_count": 0,
+      "offers": []
+    },
+    {
+      "label": "Crocorible — BLK 137",
+      "blueprint_id": 342525,
+      "blueprint_name": "Krookodile",
+      "blueprint_version": "Illustration Rare | 137/086",
+      "request_language_filter": "fr",
+      "offers_returned_count": 0,
+      "offers_marked_french_count": 0,
+      "different_languages_seen": [],
+      "language_filter_anomaly": false,
+      "conditions_raw_detected": [],
+      "conditions_normalized_counts": {},
+      "near_mint_detected_count": 0,
+      "unknown_condition_count": 0,
+      "offers": []
+    }
+  ],
+  "snapshot_count_after_inspection": 0
+}

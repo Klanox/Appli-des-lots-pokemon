@@ -1,0 +1,17 @@
+{
+  "source_name": "Cardmarket Official Public Downloads",
+  "source_status": "schema_valid",
+  "last_refresh_at": "2026-06-27T19:19:18.992228+00:00",
+  "catalog_file": "C:\\Users\\User\\Desktop\\Appli des lots pokemon\\cache\\market_cardmarket\\products_singles_6_20260627T191917Z.json",
+  "price_guide_file": "C:\\Users\\User\\Desktop\\Appli des lots pokemon\\cache\\market_cardmarket\\price_guide_6_20260627T191917Z.json",
+  "catalog_sha256": "1aaa97cfa3c58b8ac7baa60db04404603b341debf30a7669406154a64b17eb9f",
+  "price_guide_sha256": "53b0acfc81addf32c55791c287918956a952337b9d167e6e3c62a9d4cd2c41a2",
+  "catalog_row_count": 70795,
+  "price_row_count": 75725,
+  "mapping_status": "mapping_pending",
+  "price_policy_status": "price_policy_not_verified",
+  "notes": [
+    "Downloaded official catalog (12966335 bytes).",
+    "Downloaded official price guide (14843957 bytes)."
+  ]
+}

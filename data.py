@@ -19,6 +19,7 @@ from cloud import (
     update_cloud_sync_state,
     utc_now_iso,
 )
+from services.cloud_sync_service import SYNCED_DATASETS, pull_dataset_from_cloud, save_synced_dataset
 from services.perf_service import perf_count, perf_log
 
 # Constants
@@ -70,7 +71,7 @@ def pull_data_from_cloud():
     if not _valid_data_snapshot(cloud_data) or len(cloud_data.get("lots", [])) == 0:
         _set_cloud_status(source="local", status="pull_failed", message="Cloud vide ou invalide.", cloud_data=cloud_data)
         return {"ok": False, "message": "Cloud vide ou invalide.", "summary": _data_summary(cloud_data) if isinstance(cloud_data, dict) else None}
-    _write_local_cloud_snapshot(cloud_data)
+    pull_dataset_from_cloud(SYNCED_DATASETS["data"], force=True)
     _set_cloud_status(source="cloud", status="manual_pull_success", message="Dernière version cloud récupérée.", cloud_data=cloud_data)
     print(f"[Cloud Sync] pull status=success files=data lots={len(cloud_data.get('lots', []))}", flush=True)
     return {"ok": True, "message": "Dernière version cloud récupérée.", "summary": _data_summary(cloud_data)}
@@ -205,24 +206,17 @@ def sd(d):
             raise ValueError("Refus de sauvegarde : tentative d'ecraser un data.json rempli par 0 lot.")
     # Écriture sans indentation = 3x plus rapide
     maybe_create_prewrite_backup()
-    safe_write_json(DATA, d)
-    if cloud_sync_enabled():
-        if save_cloud_json(SUPABASE_DATA_KEY, d):
-            st.session_state["data_cloud_loaded_at"] = time.time()
-            st.session_state["cloud_sync_notice"] = "Données locales sauvegardées et cloud mis à jour."
-            update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=False, last_save=utc_now_iso())
-            _set_cloud_status(source="local", status="saved_to_cloud", message="Sauvegarde locale et cloud OK.", local_data=d, cloud_data=d)
-            print(f"[Cloud Sync] save status=success files=data lots={len(d.get('lots', []))}", flush=True)
-        else:
-            st.session_state["cloud_sync_notice"] = (
-                "Sauvegarde locale OK, mais la synchro cloud a échoué. "
-                f"{st.session_state.get('cloud_sync_error', '')}"
-            )
-            update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=True)
-            _set_cloud_status(source="local", status="cloud_save_failed", message="Sauvegarde locale OK, cloud non mis à jour.", local_data=d)
-            print("[Cloud Sync] save status=failed local_preserved=yes", flush=True)
+    sync_result = save_synced_dataset("data", d, indent=None)
+    if sync_result.get("cloud"):
+        st.session_state["data_cloud_loaded_at"] = time.time()
+        st.session_state["cloud_sync_notice"] = "Données locales sauvegardées et cloud mis à jour."
+        _set_cloud_status(source="local", status="saved_to_cloud", message="Sauvegarde locale et cloud OK.", local_data=d, cloud_data=d)
     else:
-        update_cloud_sync_state(SUPABASE_DATA_KEY, data=d, source="local", dirty=True)
+        st.session_state["cloud_sync_notice"] = (
+            "Sauvegarde locale OK, mais la synchro cloud a échoué ou est désactivée. "
+            f"{st.session_state.get('cloud_sync_error', '')}"
+        )
+        _set_cloud_status(source="local", status="cloud_save_failed", message="Sauvegarde locale OK, cloud non mis à jour.", local_data=d)
     # Mettre à jour le cache et marquer comme propre
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False

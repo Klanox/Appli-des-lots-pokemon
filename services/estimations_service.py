@@ -5,8 +5,8 @@ import json
 import os
 import uuid
 
-from cloud import cloud_sync_enabled, load_cloud_json, save_cloud_json, SUPABASE_ESTIMATIONS_KEY
 from data import maybe_create_prewrite_backup
+from services.cloud_sync_service import save_synced_dataset
 from utils import safe_write_json
 
 
@@ -103,10 +103,7 @@ def quick_bulk_resale_total(card):
 
 def load_estimations(estimations_file="lot_estimations.json"):
     should_write_default = False
-    cloud_data = load_cloud_json(SUPABASE_ESTIMATIONS_KEY) if cloud_sync_enabled() else None
-    if isinstance(cloud_data, dict):
-        data = cloud_data
-    elif os.path.exists(estimations_file):
+    if os.path.exists(estimations_file):
         try:
             with open(estimations_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -126,9 +123,7 @@ def load_estimations(estimations_file="lot_estimations.json"):
 def save_estimations(data, estimations_file="lot_estimations.json"):
     data = normalize_estimations_data(data)
     maybe_create_prewrite_backup()
-    safe_write_json(estimations_file, data, indent=2)
-    if cloud_sync_enabled():
-        save_cloud_json(SUPABASE_ESTIMATIONS_KEY, data)
+    save_synced_dataset("lot_estimations", data, indent=2)
     return data
 
 
@@ -139,8 +134,9 @@ def estimation_totals(estimation, settings):
     regular_resale_cards = [c for c in resale_cards if not is_quick_bulk_entry(c)]
     quick_bulk_cost = sum(quick_bulk_purchase_total(c) for c in quick_bulk_cards)
     quick_bulk_value = sum(quick_bulk_resale_total(c) for c in quick_bulk_cards)
+    regular_resale_cote = sum(float(c.get("cote", 0.) or 0.) * int(c.get("quantity", 1) or 1) for c in regular_resale_cards)
     total_cote = (
-        sum(float(c.get("cote", 0.) or 0.) * int(c.get("quantity", 1) or 1) for c in regular_resale_cards)
+        regular_resale_cote
         + quick_bulk_value
     )
     collection_cote = sum(float(c.get("cote", 0.) or 0.) * int(c.get("quantity", 1) or 1) for c in collection_cards)
@@ -148,7 +144,7 @@ def estimation_totals(estimation, settings):
     pct = float(settings.get("sources", {}).get(source, 60.0) or 60.0)
     fees = 0.0
     safety = float(estimation.get("safety_eur", 0.) or 0.)
-    max_buy = max(total_cote * pct / 100 - fees - safety, 0.)
+    max_buy = max(quick_bulk_cost + (regular_resale_cote * pct / 100) - fees - safety, 0.)
     seller_price = float(estimation.get("seller_price", 0.) or 0.) + quick_bulk_cost
     real_pct = (seller_price / total_cote * 100) if total_cote > 0 and seller_price > 0 else 0.
     theoretical_margin = total_cote - seller_price - fees if seller_price > 0 else total_cote - max_buy - fees

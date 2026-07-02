@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "source_name": "Pokéindex — Taux de drop",
+  "expected_series_total": 38,
+  "expected_imported_eb_series": [
+    "CEL25",
+    "SWSH1",
+    "SWSH10",
+    "SWSH10.5",
+    "SWSH11",
+    "SWSH12",
+    "SWSH12.5",
+    "SWSH2",
+    "SWSH3",
+    "SWSH3.5",
+    "SWSH4",
+    "SWSH4.5",
+    "SWSH5",
+    "SWSH6",
+    "SWSH7",
+    "SWSH8",
+    "SWSH9"
+  ],
+  "expected_estimated_series": ["SWSH2", "SWSH4.5", "SWSH10.5", "SWSH12.5"],
+  "series": {
+    "SWSH1": {
+      "confidence": "reliable",
+      "boosters": "4 628 boosters",
+      "hit_rate": "22,28 %",
+      "categories": {
+        "Ultra Rare": "1/26.75",
+        "Full Art Pokémon": "1/35.06",
+        "Full Art Trainer": "1/112.88",
+        "Pokémon V": "1/7.04",
+        "Pokémon VMAX": "1/45.37",
+        "Rainbow Rare": "1/81.19",
+        "Rainbow Pokémon Full Art": "1/201.22",
+        "Rainbow Trainer Full Art": "1/136.12",
+        "Secret Rare": "1/110.19",
+        "Gold Pokémon": "1/257.11",
+        "Gold Trainer / Energy": "1/192.83",
+        "Hit toute rareté": "1/4.49"
+      }
+    },
+    "SWSH2": {
+      "confidence": "estimated",
+      "boosters": "2 736 boosters",
+      "hit_rate": "22,26 %",
+      "categories": {
+        "Ultra Rare": "1/26.56",
+        "Full Art Pokémon": "1/32.96",
+        "Full Art Trainer": "1/136.80",
+        "Pokémon V": "1/7.91",
+        "Pokémon VMAX": "1/29.42",
+        "Rainbow Rare": "1/66.73",
+        "Rainbow Pokémon Full Art": "1/105.23",
+        "Rainbow Trainer Full Art": "1/182.40",
+        "Secret Rare": "1/105.23",
+        "Gold Pokémon": "1/304",
+        "Gold Trainer / Energy": "1/160.94",
+        "Hit toute rareté": "1/4.49"
+      }
+    },
+    "SWSH3": {
+      "confidence": "reliable",
+      "boosters": "5 040 boosters",
+      "hit_rate": "22,34 %",
+      "categories": {
+        "Ultra Rare": "1/25.98",
+        "Full Art Pokémon": "1/36.79",
+        "Full Art Trainer": "1/88.42",
+        "Pokémon V": "1/7.95",
+        "Pokémon VMAX": "1/25.98",
+        "Rainbow Rare": "1/84.00",
+        "Rainbow Pokémon Full Art": "1/129.23",
+        "Rainbow Trainer Full Art": "1/240.00",
+        "Secret Rare": "1/114.55",
+        "Gold Pokémon": "1/265.26",
+        "Gold Trainer / Energy": "1/201.60",
+        "Hit toute rareté": "1/4.48"
+      }
+    },
+    "SWSH3.5": {
+      "confidence": "reliable",
+      "boosters": "3 192 boosters",
+      "hit_rate": "27,35 %",
+      "categories": {
+        "Ultra Rare": "1/18.56",
+        "Full Art Pokémon": "1/26.60",
+        "Full Art Trainer": "1/61.38",
+        "Pokémon V": "1/6.36",
+        "Pokémon VMAX": "1/29.83",
+        "Rainbow Rare": "1/63.84",
+        "Rainbow Pokémon Full Art": "1/114.00",
+        "Rainbow Trainer Full Art": "1/145.09",
+        "Secret Rare": "1/76.00",
+        "Hit toute rareté": "1/3.66"
+      },
+      "specific_examples": {
+        "Secret Rare": {
+          "Shiny Charizard": "1/228.00",
+          "Gold Bean Can": "1/114.00"
+        }
+      }
+    },
+    "SWSH4": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/7.50",
+        "Pokémon VMAX": "1/27.00",
+        "Amazing Rare": "1/20.00",
+        "Full Art": "1/36.00",
+        "Rainbow Rare": "1/80.00",
+        "Gold Rare": "1/100.00"
+      }
+    },
+    "SWSH4.5": {
+      "confidence": "estimated",
+      "boosters": "2 187 boosters",
+      "hit_rate": "59,08 %",
+      "categories": {
+        "Ultra Rare": "1/30.80",
+        "Full Art Pokémon": "1/198.82",
+        "Full Art Trainer": "1/36.45",
+        "Amazing Rare": "1/17.36",
+        "Pokémon V": "1/9.23",
+        "Pokémon VMAX": "1/18.38",
+        "Rainbow Rare": "1/84.12",
+        "Gold Pokémon": "1/109.35",
+        "Shiny Rare": "1/4.40",
+        "Shiny Rare V ou VMAX": "1/11.16",
+        "Hit toute rareté": "1/1.69"
+      }
+    },
+    "SWSH5": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/8.00",
+        "Pokémon VMAX": "1/28.00",
+        "Full Art": "1/36.00",
+        "Rainbow Rare": "1/85.00",
+        "Gold Rare": "1/110.00"
+      }
+    },
+    "SWSH6": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/8.00",
+        "Pokémon VMAX": "1/30.00",
+        "Full Art": "1/36.00",
+        "Rainbow Rare": "1/90.00",
+        "Gold Rare": "1/110.00",
+        "Alt Art": "1/250.00"
+      }
+    },
+    "CEL25": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "booster_type": "celebrations_4_card",
+      "categories": {
+        "Carte du set Célébrations": "1/1",
+        "Classic Collection": "1/3",
+        "Classic Collection Ultra Rare": "1/15"
+      }
+    },
+    "SWSH7": {
+      "confidence": "certified",
+      "boosters": "8 000 boosters",
+      "categories": {
+        "Full Art": "1/36",
+        "Alt Art V": "1/91",
+        "Gold Rare": "1/109",
+        "Rainbow Rare": "1/118",
+        "Alt Art VMAX": "1/332"
+      },
+      "specific": {
+        "Full Art": "1/972",
+        "Alt Art V": "1/1001",
+        "Gold Rare": "1/1313",
+        "Rainbow Rare": "1/1894",
+        "Alt Art VMAX": "1/1994"
+      }
+    },
+    "SWSH8": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/9",
+        "Pokémon VMAX": "1/32",
+        "Full Art": "1/38",
+        "Rainbow Rare": "1/100",
+        "Gold Rare": "1/120",
+        "Alt Art": "1/300"
+      }
+    },
+    "SWSH9": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/8",
+        "Pokémon VSTAR": "1/25",
+        "Full Art": "1/35",
+        "Rainbow Rare": "1/90",
+        "Gold Rare": "1/110",
+        "Alt Art": "1/200"
+      }
+    },
+    "SWSH10": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/8",
+        "Pokémon VSTAR": "1/26",
+        "Radiant Rare": "1/13",
+        "Trainer Gallery": "1/3.5",
+        "Full Art": "1/36",
+        "Rainbow Rare": "1/95",
+        "Gold Rare": "1/120"
+      }
+    },
+    "SWSH11": {
+      "confidence": "reliable",
+      "boosters": "N.C.",
+      "categories": {
+        "Pokémon V": "1/9",
+        "Pokémon VSTAR": "1/28",
+        "Full Art": "1/36",
+        "Rainbow Rare": "1/95",
+        "Gold Rare": "1/120",
+        "Alt Art": "1/250"
+      }
+    },
+    "SWSH12": {
+      "confidence": "certified",
+      "boosters": "8 000 boosters",
+      "hit_rate": "30,68 %",
+      "categories": {
+        "Pokémon V": "1/9",
+        "VSTAR / VMAX": "1/23",
+        "Full Art Pokémon": "1/50",
+        "Full Art Trainer": "1/69",
+        "Trainer Gallery": "1/8",
+        "Radiant Rare": "1/20",
+        "Rainbow Rare": "1/77",
+        "Gold Rare": "1/125",
+        "Alt Art": "1/200",
+        "Hit toute rareté": "1/3.26"
+      }
+    },
+    "SWSH10.5": {
+      "confidence": "estimated",
+      "boosters": "934 boosters",
+      "hit_rate": "47,6 %",
+      "categories": {
+        "Radiant Pokémon": "1/24",
+        "Full Art": "1/22",
+        "Rainbow Rare": "1/67",
+        "Gold Rare": "1/78",
+        "Alt Art": "1/85",
+        "Hit toute rareté": "1/2.1"
+      },
+      "specific_examples": {
+        "Radiant Pokémon": {
+          "Radiant Charizard": "1/85",
+          "Radiant Blastoise": "1/67",
+          "Radiant Venusaur": "1/67"
+        },
+        "Rainbow Rare": {
+          "Mewtwo VSTAR Rainbow": "1/67"
+        },
+        "Gold Rare": {
+          "Mewtwo Gold": "1/234"
+        },
+        "Alt Art": {
+          "Mewtwo Alt Art": "1/187"
+        }
+      }
+    },
+    "SWSH12.5": {
+      "confidence": "estimated",
+      "boosters": "1 900 boosters",
+      "categories": {
+        "Pokémon V": "1/5",
+        "Full Art": "1/15",
+        "Galarian Gallery": "1/3",
+        "Galarian Gallery V / VMAX": "1/10",
+        "Gold Rare": "1/80"
+      }
+    }
+  }
+}

@@ -12,12 +12,7 @@ import os
 import re
 import unicodedata
 
-from cloud import (
-    SUPABASE_MARKET_PRICE_CACHE_KEY,
-    cloud_sync_enabled,
-    load_cloud_json,
-    save_cloud_json,
-)
+from services.cloud_sync_service import SYNCED_DATASETS, pull_dataset_from_cloud, save_synced_dataset
 from utils import APP_DIR, safe_write_json
 
 
@@ -85,9 +80,13 @@ def normalize_market_cache(data):
 
 
 def load_market_price_cache():
-    cloud_data = load_cloud_json(SUPABASE_MARKET_PRICE_CACHE_KEY) if cloud_sync_enabled() else None
-    if isinstance(cloud_data, dict):
-        return normalize_market_cache(cloud_data)
+    if os.path.exists(MARKET_PRICE_CACHE_FILE):
+        try:
+            with open(MARKET_PRICE_CACHE_FILE, "r", encoding="utf-8") as f:
+                return normalize_market_cache(json.load(f))
+        except (OSError, json.JSONDecodeError):
+            return empty_market_cache()
+    pull_dataset_from_cloud(SYNCED_DATASETS["estimation_market_price_cache"], force=False)
     if os.path.exists(MARKET_PRICE_CACHE_FILE):
         try:
             with open(MARKET_PRICE_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -100,10 +99,8 @@ def load_market_price_cache():
 def save_market_price_cache(cache):
     cache = normalize_market_cache(cache)
     cache["updated_at"] = _now_iso()
-    if cloud_sync_enabled() and save_cloud_json(SUPABASE_MARKET_PRICE_CACHE_KEY, cache):
-        return {"ok": True, "storage": "cloud"}
-    safe_write_json(MARKET_PRICE_CACHE_FILE, cache, indent=2)
-    return {"ok": True, "storage": "local"}
+    result = save_synced_dataset("estimation_market_price_cache", cache, indent=2)
+    return {"ok": True, "storage": "cloud" if result.get("cloud") else "local"}
 
 
 def card_identity(card):

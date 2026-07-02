@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "mappings": [],
+  "allowed_statuses": [
+    "unmapped",
+    "candidate",
+    "needs_review",
+    "confirmed",
+    "rejected"
+  ],
+  "rules": [
+    "No mapping by name only.",
+    "Set, number, language and variant ambiguity must remain needs_review.",
+    "No price can be written without a confirmed mapping."
+  ]
+}

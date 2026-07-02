@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from utils import safe_write_json
+from services.cloud_sync_service import save_synced_dataset
 from services.vinted_listing_service import card_search_blob, full_card_number, normalize_search_text
 
 
@@ -34,7 +35,10 @@ def load_vinted_drops(path=VINTED_DROPS_FILE):
 
 
 def save_vinted_drops(data, path=VINTED_DROPS_FILE):
-    safe_write_json(path, data, indent=2)
+    if path == VINTED_DROPS_FILE:
+        save_synced_dataset("vinted_drops", data, indent=2)
+    else:
+        safe_write_json(path, data, indent=2)
 
 
 def create_drop(data, name):

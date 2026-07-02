@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "snapshots": [],
+  "rules": {
+    "max_one_snapshot_per_card_per_day": true,
+    "zero_prices_allowed": false
+  }
+}

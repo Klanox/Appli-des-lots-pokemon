@@ -20,8 +20,20 @@ from core.collection import (
 )
 
 
+def next_lot_card_sequence(lot):
+    values = []
+    for card in lot.get("cards", []) or []:
+        try:
+            values.append(int(card.get("added_sequence", 0) or 0))
+        except (TypeError, ValueError):
+            pass
+    return (max(values) if values else 0) + 1
+
+
 def add_or_merge_collection_card(cd, lot_idx, new_card):
     lot = cd["lots"][lot_idx]
+    new_card.setdefault("added_at", datetime.now().isoformat())
+    new_card["added_sequence"] = next_lot_card_sequence(lot)
     if not is_collection_system_lot(lot) or not new_card.get("is_collection_keep"):
         lot.setdefault("cards", []).append(new_card)
         return "added"
@@ -50,6 +62,8 @@ def add_or_merge_collection_card(cd, lot_idx, new_card):
             existing["collection_purchase_total"] = old_paid_total + new_paid_total
             existing["purchase_price"] = existing["collection_purchase_price"]
             existing["suggested_price"] = existing["collection_current_value"]
+            existing["added_at"] = new_card.get("added_at")
+            existing["added_sequence"] = new_card.get("added_sequence")
             return "merged"
 
     lot["cards"].append(new_card)

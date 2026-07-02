@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-06-27T19:19:39.510929+00:00",
+  "schema_version": 2,
+  "audit_structurel": {
+    "status": "OK",
+    "series_total": 38,
+    "imported_eb_series": 17,
+    "non_renseigne_series": 21,
+    "expected_imported_eb_series": [
+      "CEL25",
+      "SWSH1",
+      "SWSH10",
+      "SWSH10.5",
+      "SWSH11",
+      "SWSH12",
+      "SWSH12.5",
+      "SWSH2",
+      "SWSH3",
+      "SWSH3.5",
+      "SWSH4",
+      "SWSH4.5",
+      "SWSH5",
+      "SWSH6",
+      "SWSH7",
+      "SWSH8",
+      "SWSH9"
+    ],
+    "active_imported_eb_series": [
+      "CEL25",
+      "SWSH1",
+      "SWSH10",
+      "SWSH10.5",
+      "SWSH11",
+      "SWSH12",
+      "SWSH12.5",
+      "SWSH2",
+      "SWSH3",
+      "SWSH3.5",
+      "SWSH4",
+      "SWSH4.5",
+      "SWSH5",
+      "SWSH6",
+      "SWSH7",
+      "SWSH8",
+      "SWSH9"
+    ],
+    "expected_estimated_series": [
+      "SWSH10.5",
+      "SWSH12.5",
+      "SWSH2",
+      "SWSH4.5"
+    ]
+  },
+  "audit_valeurs_pull_rates": {
+    "status": "OK",
+    "reference_file": "C:\\Users\\User\\Desktop\\Appli des lots pokemon\\tests\\fixtures\\market_pull_rates_eb_reference.json",
+    "checked_series": [
+      "CEL25",
+      "SWSH1",
+      "SWSH10",
+      "SWSH10.5",
+      "SWSH11",
+      "SWSH12",
+      "SWSH12.5",
+      "SWSH2",
+      "SWSH3",
+      "SWSH3.5",
+      "SWSH4",
+      "SWSH4.5",
+      "SWSH5",
+      "SWSH6",
+      "SWSH7",
+      "SWSH8",
+      "SWSH9"
+    ]
+  },
+  "audit_regles_slots": {
+    "status": "OK"
+  },
+  "audit_vmc": {
+    "status": "OK",
+    "numeric_vmc_created": false,
+    "snapshot_count": 0,
+    "card_auto_mapping_created": false
+  },
+  "issues": [],
+  "warnings": [],
+  "checked_series": [
+    "CEL25",
+    "SWSH1",
+    "SWSH10",
+    "SWSH10.5",
+    "SWSH11",
+    "SWSH12",
+    "SWSH12.5",
+    "SWSH2",
+    "SWSH3",
+    "SWSH3.5",
+    "SWSH4",
+    "SWSH4.5",
+    "SWSH5",
+    "SWSH6",
+    "SWSH7",
+    "SWSH8",
+    "SWSH9"
+  ],
+  "result": "OK"
+}

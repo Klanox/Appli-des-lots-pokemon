@@ -10,6 +10,12 @@ import hashlib
 from datetime import datetime, timezone
 from utils import safe_write_json
 
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 LOCAL_SECRETS_FILE = os.path.join(APP_DIR, ".streamlit", "secrets.toml")

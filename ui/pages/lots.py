@@ -7,6 +7,14 @@ as context to preserve behavior while moving the large page out of app.py.
 
 def render_lots_page(context):
     globals().update(context)
+    def lot_card_order_key(item):
+        original_index, card = item
+        try:
+            sequence = int(card.get("added_sequence", 0) or 0)
+        except (TypeError, ValueError):
+            sequence = 0
+        return (sequence, original_index)
+
     st.markdown(
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
         unsafe_allow_html=True,
@@ -67,116 +75,12 @@ def render_lots_page(context):
                 });
             });
 
-            const addMarker = doc.querySelector('[data-add-card-form-marker]');
-            if (addMarker) {
-                const lotBlock = addMarker.closest('[data-testid="stVerticalBlock"]');
-                const markerChild = addMarker.closest('[data-testid="stElementContainer"]');
-                if (lotBlock && markerChild) {
-                    const children = Array.from(lotBlock.children);
-                    const markerIndex = children.indexOf(markerChild);
-                    const markerId = addMarker.getAttribute('data-add-card-form-marker');
-                    const endMarker = doc.querySelector('[data-add-card-form-end-marker="' + markerId + '"]');
-                    const endChild = endMarker ? endMarker.closest('[data-testid="stElementContainer"]') : null;
-                    const endIndex = endChild ? children.indexOf(endChild) : -1;
-                    const formParts = endIndex > markerIndex
-                        ? children.slice(markerIndex + 1, endIndex)
-                        : children.slice(markerIndex + 1, markerIndex + 6);
-                    const isMobile = doc.body.classList.contains('codex-mobile-mode') || parent.window.matchMedia('(max-width: 760px)').matches;
-                    const stickyTop = isMobile ? 0 : 64;
-                    let topOffset = stickyTop;
-                    const formBg = isMobile ? '#d8e7ff' : '#bed3fa';
-                    const overlap = isMobile ? 4 : 0;
-                    let shield = doc.getElementById('codex-add-card-shield');
-                    if (shield) shield.remove();
-                    markerChild.style.setProperty('margin-bottom', '0', 'important');
-                    formParts.forEach(function(part, partIndex) {
-                        part.setAttribute('data-codex-add-sticky', '1');
-                        part.style.setProperty('position', isMobile ? 'static' : 'sticky', 'important');
-                        if (isMobile) {
-                            part.style.removeProperty('top');
-                            part.style.setProperty('z-index', '1', 'important');
-                        } else {
-                            part.style.setProperty('top', topOffset + 'px', 'important');
-                            part.style.setProperty('z-index', String(7000 - partIndex), 'important');
-                        }
-                        part.style.setProperty('background', formBg, 'important');
-                        part.style.setProperty('background-color', formBg, 'important');
-                        part.style.setProperty('width', '100%', 'important');
-                        part.style.setProperty('max-width', '100%', 'important');
-                        part.style.setProperty('box-shadow', isMobile ? 'none' : ('0 -14px 0 ' + formBg + ', 0 14px 0 ' + formBg), 'important');
-                        part.style.setProperty('padding', isMobile ? '0.12rem 0.35rem' : '0.62rem 1.05rem', 'important');
-                        part.style.setProperty('margin', isMobile ? '0' : (partIndex === 0 || overlap === 0 ? '0' : '-' + overlap + 'px 0 0 0'), 'important');
-                        part.style.setProperty('border-left', 'none', 'important');
-                        part.style.setProperty('border-right', 'none', 'important');
-                        part.style.setProperty('border-top', 'none', 'important');
-                        part.style.setProperty('border-bottom', 'none', 'important');
-                        part.style.setProperty('outline', 'none', 'important');
-                        part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
-                            inner.style.setProperty('background', formBg, 'important');
-                            inner.style.setProperty('background-color', formBg, 'important');
-                            inner.style.setProperty('gap', isMobile ? '0.04rem' : '0.85rem', 'important');
-                            inner.style.setProperty('box-shadow', 'none', 'important');
-                            inner.style.setProperty('border', 'none', 'important');
-                        });
-                        part.querySelectorAll('[data-testid="stHorizontalBlock"]').forEach(function(row) {
-                            row.style.setProperty('gap', isMobile ? '0.14rem' : '1rem', 'important');
-                            if (isMobile) row.style.setProperty('flex-wrap', 'wrap', 'important');
-                        });
-                        if (isMobile) {
-                            part.querySelectorAll('[data-testid="column"]').forEach(function(col) {
-                                col.style.setProperty('flex', '1 1 calc(50% - 0.12rem)', 'important');
-                                col.style.setProperty('min-width', '0', 'important');
-                                col.style.setProperty('width', 'calc(50% - 0.12rem)', 'important');
-                            });
-                            if (partIndex === 0) {
-                                part.style.setProperty('padding-top', '0.18rem', 'important');
-                                part.style.setProperty('padding-bottom', '0', 'important');
-                            }
-                        }
-                        part.querySelectorAll('button').forEach(function(btn) {
-                            btn.style.setProperty('width', '100%', 'important');
-                            if (isMobile) {
-                                btn.style.setProperty('min-height', '1.55rem', 'important');
-                                btn.style.setProperty('padding', '0.12rem 0.35rem', 'important');
-                                btn.style.setProperty('font-size', '0.68rem', 'important');
-                                btn.style.setProperty('border-width', '1px', 'important');
-                            }
-                        });
-                        part.querySelectorAll('input, [data-baseweb="select"]').forEach(function(input) {
-                            if (isMobile) {
-                                input.style.setProperty('min-height', '1.55rem', 'important');
-                                input.style.setProperty('font-size', '0.68rem', 'important');
-                                input.style.setProperty('padding', '0.08rem 0.3rem', 'important');
-                                input.style.setProperty('border-width', '2px', 'important');
-                            }
-                        });
-                        part.querySelectorAll('label, p, span').forEach(function(txt) {
-                            if (isMobile) {
-                                txt.style.setProperty('font-size', '0.62rem', 'important');
-                                txt.style.setProperty('line-height', '0.95', 'important');
-                                txt.style.setProperty('margin', '0', 'important');
-                            }
-                        });
-                        if (part === formParts[0]) {
-                            part.style.setProperty('border-top', 'none', 'important');
-                            part.style.setProperty('border-radius', '18px 18px 0 0', 'important');
-                            part.style.setProperty('padding-top', isMobile ? '0.18rem' : '1.25rem', 'important');
-                            part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
-                                inner.style.setProperty('border-radius', '16px 16px 0 0', 'important');
-                            });
-                        }
-                        if (part === formParts[formParts.length - 1]) {
-                            part.style.setProperty('border-bottom', 'none', 'important');
-                            part.style.setProperty('border-radius', '0 0 18px 18px', 'important');
-                            part.style.setProperty('padding-bottom', isMobile ? '0.2rem' : '1.25rem', 'important');
-                            part.querySelectorAll('[data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"]').forEach(function(inner) {
-                                inner.style.setProperty('border-radius', '0 0 16px 16px', 'important');
-                            });
-                        }
-                        if (!isMobile) topOffset += Math.max(part.getBoundingClientRect().height - overlap, 1);
-                    });
-                }
-            }
+            doc.querySelectorAll('[data-codex-add-sticky="1"]').forEach(function(part) {
+                part.removeAttribute('data-codex-add-sticky');
+                ['position','top','z-index','box-shadow'].forEach(function(prop) {
+                    part.style.removeProperty(prop);
+                });
+            });
         }
         syncLotHeaders();
         [100, 250, 600, 1200, 2500, 5000, 9000].forEach(function(delay) {
@@ -502,7 +406,84 @@ def render_lots_page(context):
                         st.rerun()
                     else:
                         st.error(mg)
-                
+
+                with st.expander("Scan bêta", expanded=False):
+                    st.caption("Capture locale uniquement. La photo n'est pas envoyée à un service externe et aucune carte n'est ajoutée sans confirmation.")
+                    scan_source = st.radio(
+                        "Source image",
+                        ["Caméra", "Galerie"],
+                        horizontal=True,
+                        key=f"scan_source_{ix}_{ts}",
+                    )
+                    if scan_source == "Caméra":
+                        st.camera_input("Prendre une photo", key=f"scan_camera_{ix}_{ts}")
+                    else:
+                        st.file_uploader(
+                            "Importer une photo",
+                            type=["jpg", "jpeg", "png", "webp"],
+                            key=f"scan_gallery_{ix}_{ts}",
+                        )
+                    st.caption("Reconnaissance automatique complète non activée : renseigne le nom ou le numéro visible pour obtenir des candidats locaux.")
+                    scan_cols = st.columns([2, 1, 1])
+                    scan_name = scan_cols[0].text_input("Nom lu", key=f"scan_name_{ix}_{ts}", placeholder="Dracaufeu, Eevee...")
+                    scan_number = scan_cols[1].text_input("Numéro lu", key=f"scan_number_{ix}_{ts}", placeholder="199")
+                    scan_jp = scan_cols[2].checkbox("JP", key=f"scan_jp_{ix}_{ts}")
+
+                    def local_scan_candidates():
+                        cards_index = st.session_state.get("cards_index", {}) or {}
+                        q_name = normalize_name(scan_name)
+                        q_num = str(scan_number or "").strip()
+                        seen = set()
+                        results = []
+                        for indexed_name, rows in cards_index.items():
+                            if q_name and q_name not in indexed_name:
+                                continue
+                            for card_dict, set_name, _set_id in rows:
+                                num_val = str(card_dict.get("localId") or card_dict.get("number") or "")
+                                if q_num and num_val != q_num and num_val.zfill(3) != q_num.zfill(3):
+                                    continue
+                                cid = card_dict.get("id") or f"{indexed_name}|{set_name}|{num_val}"
+                                if cid in seen:
+                                    continue
+                                seen.add(cid)
+                                score = 85 if q_name and q_num else (65 if q_name or q_num else 0)
+                                results.append((score, card_dict, set_name))
+                                if len(results) >= 5:
+                                    return results
+                        return results
+
+                    scan_candidates = local_scan_candidates()
+                    if scan_name or scan_number:
+                        if not scan_candidates:
+                            st.info("Aucun candidat local fiable. Utilise l'ajout classique ou précise le numéro/la série.")
+                        else:
+                            st.caption("Candidats à confirmer")
+                            for cand_idx, (score, card_dict, set_name) in enumerate(scan_candidates):
+                                label = f"{card_dict.get('name', 'Carte')} · {set_name} · {card_dict.get('localId') or card_dict.get('number') or '?'} · confiance {score}%"
+                                if st.button(f"Confirmer : {label}", key=f"scan_confirm_{ix}_{ts}_{cand_idx}", width="stretch"):
+                                    add_lang = "ja" if scan_jp else "fr"
+                                    ok, mg = acm(
+                                        ix,
+                                        card_dict.get("name", scan_name),
+                                        "",
+                                        str(card_dict.get("localId") or card_dict.get("number") or scan_number or ""),
+                                        qt,
+                                        cn,
+                                        pi,
+                                        rv_check,
+                                        ed,
+                                        lang=add_lang,
+                                        purchase_price=pa_divers if is_divers_lot else 0.,
+                                        special_tag=special_tag,
+                                        collection_keep=collection_keep,
+                                    )
+                                    if ok:
+                                        st.session_state[f"form_ts_{ix}"] = time.time()
+                                        st.success(mg)
+                                        st.rerun()
+                                    else:
+                                        st.error(mg)
+                 
                 st.markdown(f'<div data-add-card-form-end-marker="{ix}"></div>', unsafe_allow_html=True)
                 st.markdown("---")
                 render_card_choice_popups(ix, form_ts_key=f"form_ts_{ix}", run_html_func=run_html)
@@ -523,7 +504,11 @@ def render_lots_page(context):
                         if normalize_name(lot_card_search) in normalize_name(c.get("name", ""))
                     ]
                 # Attacher l'index original à chaque carte pour éviter le bug de mélange
-                cards_with_idx = [(i, c) for i, c in enumerate(lt.get("cards", [])) if c in cards_all]
+                cards_with_idx = sorted(
+                    [(i, c) for i, c in enumerate(lt.get("cards", [])) if c in cards_all],
+                    key=lot_card_order_key,
+                    reverse=True,
+                )
                 cards_collection_lot = [(i, c) for i, c in cards_with_idx if c.get("is_collection_keep") and not lt.get("is_divers")]
                 cards_in_stock_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) > 0]
                 cards_stored_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) <= 0 and int(c.get("stored_quantity", 0)) > 0]
@@ -537,10 +522,10 @@ def render_lots_page(context):
                 if not show_all_cards:
                     stock_quick_limit = 24 if is_mobile_mode() else 48
                     secondary_quick_limit = 12 if is_mobile_mode() else 24
-                    visible_stock_lot = cards_in_stock_lot[-stock_quick_limit:]
-                    visible_sold_lot = cards_sold_lot[-secondary_quick_limit:]
-                    visible_stored_lot = cards_stored_lot[-secondary_quick_limit:]
-                    visible_collection_lot = cards_collection_lot[-secondary_quick_limit:]
+                    visible_stock_lot = cards_in_stock_lot[:stock_quick_limit]
+                    visible_sold_lot = cards_sold_lot[:secondary_quick_limit]
+                    visible_stored_lot = cards_stored_lot[:secondary_quick_limit]
+                    visible_collection_lot = cards_collection_lot[:secondary_quick_limit]
                     hidden_cards_count = (
                         max(len(cards_in_stock_lot) - len(visible_stock_lot), 0)
                         + max(len(cards_sold_lot) - len(visible_sold_lot), 0)

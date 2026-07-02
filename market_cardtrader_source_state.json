@@ -1,0 +1,12 @@
+{
+  "source_status": "tested",
+  "last_test_at": "2026-06-27T21:48:19.931662+00:00",
+  "auth_status": "auth_ok",
+  "read_only_test_completed": true,
+  "mapping_status": "validated",
+  "pricing_policy_status": "not_ready_for_integration",
+  "notes": [
+    "read_only_test_only",
+    "not_integrated_into_vmc"
+  ]
+}

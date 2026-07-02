@@ -1,0 +1,15 @@
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8511
+  Network URL: http://192.168.1.192:8511
+  External URL: http://88.166.117.84:8511
+
+Chargement cache cartes...
+Cache disque: 4201 noms, 0.0s
+[Cloud Sync] startup pull datasets=8 loaded=3 fallback_local=5 conflicts=0
+[Cloud Sync] startup source=cloud status=loaded local_lots=19 cloud_lots=19
+Chargement cache cartes...
+Cache disque: 4201 noms, 0.0s
+[Cloud Sync] startup pull datasets=8 loaded=3 fallback_local=5 conflicts=0
+[Cloud Sync] startup source=cloud status=loaded local_lots=19 cloud_lots=19

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "Amphinobi ex — SVP 132",
+    "name_fr": "Amphinobi ex",
+    "name_en": "Greninja ex",
+    "set_code": "SVP",
+    "card_number": "132",
+    "variant": "promo standard",
+    "reference_price_fr_nm_excl_shipping": 37.0
+  },
+  {
+    "label": "Dracaufeu ex — MEW 199",
+    "name_fr": "Dracaufeu ex",
+    "name_en": "Charizard ex",
+    "set_code": "MEW",
+    "card_number": "199",
+    "variant": "illustration rare spéciale / SIR",
+    "reference_price_fr_nm_excl_shipping": 350.0
+  },
+  {
+    "label": "Évoli — SVP 173",
+    "name_fr": "Évoli",
+    "name_en": "Eevee",
+    "set_code": "SVP",
+    "card_number": "173",
+    "variant": "promo exacte",
+    "reference_price_fr_nm_excl_shipping": 20.0
+  },
+  {
+    "label": "Crocorible — BLK 137",
+    "name_fr": "Crocorible",
+    "name_en": "Krookodile",
+    "set_code": "BLK",
+    "card_number": "137",
+    "variant": "carte exacte",
+    "reference_price_fr_nm_excl_shipping": 70.0
+  }
+]
