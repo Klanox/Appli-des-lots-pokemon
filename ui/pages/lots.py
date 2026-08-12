@@ -169,6 +169,33 @@ def render_lots_page(context):
             border-radius: inherit;
             background: linear-gradient(90deg, #7c3aed, #22c55e);
         }
+        [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 0.46rem !important;
+            align-items: flex-start !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow-x: hidden !important;
+        }
+        [class*="st-key-lot_cards_grid_"] > [data-testid="stLayoutWrapper"] {
+            flex: 0 0 calc((100% - 2.3rem) / 6) !important;
+            max-width: calc((100% - 2.3rem) / 6) !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-lot_card_item_"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-lot_card_item_"] img {
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+        }
         @media (max-width: 768px) {
             .lot-reimbursement-row {
                 margin-left: 0.2rem;
@@ -178,31 +205,22 @@ def render_lots_page(context):
                 grid-template-columns: 1fr;
                 gap: 0.45rem;
             }
-            [class*="st-key-lot_cards_grid_"] [data-testid="stHorizontalBlock"] {
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: wrap !important;
-                gap: 0.45rem !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                overflow-x: hidden !important;
+            [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
+                gap: 0.3rem !important;
             }
-            [class*="st-key-lot_cards_grid_"] [data-testid="stColumn"] {
-                flex: 0 0 calc((100% - 0.45rem) / 2) !important;
-                width: calc((100% - 0.45rem) / 2) !important;
-                max-width: calc((100% - 0.45rem) / 2) !important;
+            [class*="st-key-lot_cards_grid_"] > [data-testid="stLayoutWrapper"] {
+                flex: 0 0 calc((100% - 0.3rem) / 2) !important;
+                max-width: calc((100% - 0.3rem) / 2) !important;
                 min-width: 0 !important;
-                padding: 0 !important;
             }
         }
         @media (max-width: 340px) {
-            [class*="st-key-lot_cards_grid_"] [data-testid="stHorizontalBlock"] {
-                gap: 0.32rem !important;
+            [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
+                gap: 0.22rem !important;
             }
-            [class*="st-key-lot_cards_grid_"] [data-testid="stColumn"] {
-                flex-basis: calc((100% - 0.32rem) / 2) !important;
-                width: calc((100% - 0.32rem) / 2) !important;
-                max-width: calc((100% - 0.32rem) / 2) !important;
+            [class*="st-key-lot_cards_grid_"] > [data-testid="stLayoutWrapper"] {
+                flex-basis: calc((100% - 0.22rem) / 2) !important;
+                max-width: calc((100% - 0.22rem) / 2) !important;
             }
         }
         </style>
@@ -747,12 +765,15 @@ def render_lots_page(context):
 
                     COLS_PER_ROW = 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
-                        with st.container(key=f"lot_cards_grid_{ix}_{'sold' if sold else 'collection' if collection else 'active'}_{row_start}"):
-                            cols = st.columns(COLS_PER_ROW)
+                        with st.container(
+                            key=f"lot_cards_grid_{ix}_{'sold' if sold else 'collection' if collection else 'active'}_{row_start}",
+                            horizontal=True,
+                            gap="small",
+                        ):
                             for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
                                 stock = card_available_qty(crd)
 
-                                with cols[col_idx]:
+                                with st.container(key=f"lot_card_item_{ix}_{real_cix}_{col_idx}"):
                                     # Image
                                     img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
                                     img_url_en = crd.get("image_url_en", "")
@@ -928,7 +949,7 @@ def render_lots_page(context):
                                         if ok:
                                             st.rerun()
 
-                            st.markdown("---")
+                        st.markdown("---")
                 
                 if not cards_all:
                     st.info("Aucune carte dans ce lot")
