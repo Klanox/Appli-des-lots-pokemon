@@ -4,6 +4,7 @@
 import streamlit as st
 import json,os,requests,time,glob,uuid,shutil,re
 import html
+import inspect
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import unicodedata
@@ -1895,21 +1896,36 @@ if st.session_state.get("current_page") != "Vente":
 # PAGE ACCUEIL
 # ============================================================
 if st.session_state.current_page=="Accueil":
+    home_kwargs = {
+        "sts": sts,
+        "ld_func": ld,
+        "fp_func": fp,
+        "normalize_name_func": normalize_name,
+        "proxy_img_func": proxy_img,
+        "render_page_header_func": render_page_header,
+        "render_kpi_card_func": render_kpi_card,
+        "kpi_accents": KPI_ACCENTS,
+        "set_current_page_func": set_current_page,
+    }
+    home_optional_kwargs = {
+        "sd_func": sd,
+        "card_available_qty_func": card_available_qty,
+        "clear_stats_cache_func": lambda: gst.clear() if hasattr(gst, "clear") else None,
+    }
+    try:
+        home_params = inspect.signature(render_home_page).parameters
+        home_accepts_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in home_params.values())
+    except (TypeError, ValueError):
+        home_params = {}
+        home_accepts_kwargs = False
+    for key, value in home_optional_kwargs.items():
+        if home_accepts_kwargs or key in home_params:
+            home_kwargs[key] = value
+
     render_with_perf(
         "page Accueil",
         render_home_page,
-        sts=sts,
-        ld_func=ld,
-        fp_func=fp,
-        normalize_name_func=normalize_name,
-        proxy_img_func=proxy_img,
-        render_page_header_func=render_page_header,
-        render_kpi_card_func=render_kpi_card,
-        kpi_accents=KPI_ACCENTS,
-        set_current_page_func=set_current_page,
-        sd_func=sd,
-        card_available_qty_func=card_available_qty,
-        clear_stats_cache_func=lambda: gst.clear() if hasattr(gst, "clear") else None,
+        **home_kwargs,
     )
 
 
