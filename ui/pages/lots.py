@@ -169,7 +169,7 @@ def render_lots_page(context):
             border-radius: inherit;
             background: linear-gradient(90deg, #7c3aed, #22c55e);
         }
-        @media (max-width: 760px) {
+        @media (max-width: 768px) {
             .lot-reimbursement-row {
                 margin-left: 0.2rem;
                 font-size: 0.78rem;
