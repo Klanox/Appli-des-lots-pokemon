@@ -178,6 +178,32 @@ def render_lots_page(context):
                 grid-template-columns: 1fr;
                 gap: 0.45rem;
             }
+            [class*="st-key-lot_cards_grid_"] [data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: wrap !important;
+                gap: 0.45rem !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow-x: hidden !important;
+            }
+            [class*="st-key-lot_cards_grid_"] [data-testid="stColumn"] {
+                flex: 0 0 calc((100% - 0.45rem) / 2) !important;
+                width: calc((100% - 0.45rem) / 2) !important;
+                max-width: calc((100% - 0.45rem) / 2) !important;
+                min-width: 0 !important;
+                padding: 0 !important;
+            }
+        }
+        @media (max-width: 340px) {
+            [class*="st-key-lot_cards_grid_"] [data-testid="stHorizontalBlock"] {
+                gap: 0.32rem !important;
+            }
+            [class*="st-key-lot_cards_grid_"] [data-testid="stColumn"] {
+                flex-basis: calc((100% - 0.32rem) / 2) !important;
+                width: calc((100% - 0.32rem) / 2) !important;
+                max-width: calc((100% - 0.32rem) / 2) !important;
+            }
         }
         </style>
         """,
@@ -719,219 +745,190 @@ def render_lots_page(context):
                             f'</div>'
                         )
 
-                    if is_mobile_mode():
-                        tiles = []
-                        for real_cix, crd in card_list_with_idx:
-                            stock = card_available_qty(crd)
-                            name = html.escape(str(crd.get("name", "Carte")))
-                            price = float(crd.get("suggested_price", 0.) or 0.)
-                            img_url = crd.get("image_url", "") or resolve_custom_card_image(crd)
-                            img_html = lot_image_markup(img_url, crd.get("image_url_en", ""), img_style="width:100%;border-radius:12px;")
-                            past_note_html = ""
-                            if not sold and not collection:
-                                past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
-                                if past_notes:
-                                    past_note_html = f'<div class="mobile-card-meta" style="color:#0f766e;font-weight:800;">Dernière vente {past_notes[0]["price"]:.2f}€</div>'
-                            stock_txt = "collection" if collection else ("vendue" if sold else f"{stock}/{int(crd.get('quantity', 0) or 0)}")
-                            if crd.get("stored_quantity", 0):
-                                stock_txt += f" · stock {int(crd.get('stored_quantity', 0))}"
-                            meta = html.escape(f"{price:.2f}€ · {stock_txt}")
-                            badges = card_status_badges(crd)
-                            sold_cls = " sold" if sold else (" collection" if collection else "")
-                            collection_style = ' style="border:2px solid #f59e0b;background:#fffbeb;"' if collection else ""
-                            tiles.append(
-                                f'<div class="mobile-card-tile{sold_cls}"{collection_style}>'
-                                f'<div class="mobile-card-imgbox">{img_html}</div>'
-                                f'{past_note_html}'
-                                f'<div class="mobile-card-name">{name} {badges}</div>'
-                                f'<div class="mobile-card-meta">{meta}</div>'
-                                f'</div>'
-                            )
-                        st.markdown('<div class="mobile-card-grid">' + "".join(tiles) + '</div>', unsafe_allow_html=True)
-                        return
-                    COLS_PER_ROW = 1 if is_mobile_mode() else 6
+                    COLS_PER_ROW = 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
-                        cols = st.columns(COLS_PER_ROW)
-                        for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
-                            stock = card_available_qty(crd)
+                        with st.container(key=f"lot_cards_grid_{ix}_{'sold' if sold else 'collection' if collection else 'active'}_{row_start}"):
+                            cols = st.columns(COLS_PER_ROW)
+                            for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
+                                stock = card_available_qty(crd)
 
-                            with cols[col_idx]:
-                                # Image
-                                img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
-                                img_url_en = crd.get("image_url_en", "")
-                                if img_url or img_url_en:
-                                    if sold:
-                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"), unsafe_allow_html=True)
-                                    elif collection:
-                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
+                                with cols[col_idx]:
+                                    # Image
+                                    img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
+                                    img_url_en = crd.get("image_url_en", "")
+                                    if img_url or img_url_en:
+                                        if sold:
+                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"), unsafe_allow_html=True)
+                                        elif collection:
+                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
+                                        else:
+                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"), unsafe_allow_html=True)
+                                            past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
+                                            if past_notes:
+                                                st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
                                     else:
-                                        st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"), unsafe_allow_html=True)
-                                        past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
-                                        if past_notes:
-                                            st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
-                                else:
-                                    st.markdown(
-                                        '<div class="ps-lot-image-placeholder">'
-                                        '<strong>Image indisponible</strong>'
-                                        '<span>Ajoute une photo si tu veux illustrer cette carte.</span>'
-                                        '</div>',
-                                        unsafe_allow_html=True,
-                                    )
-                                    if st.button("Ajouter une photo", key=f"add_img_{ix}_{real_cix}", width="stretch"):
+                                        st.markdown(
+                                            '<div class="ps-lot-image-placeholder">'
+                                            '<strong>Image indisponible</strong>'
+                                            '<span>Ajoute une photo si tu veux illustrer cette carte.</span>'
+                                            '</div>',
+                                            unsafe_allow_html=True,
+                                        )
+                                        if st.button("Ajouter une photo", key=f"add_img_{ix}_{real_cix}", width="stretch"):
+                                            st.session_state[f"show_upload_{ix}_{real_cix}"] = True
+
+                                    # Nom + badges + stock sur une ligne
+                                    badges = card_status_badges(crd)
+                                    stock_txt = "🧾 Collection" if collection else ("✅" if sold else f"{stock}/{crd['quantity']}")
+                                    if crd.get("stored_quantity", 0):
+                                        stock_txt += f" · 📈 {int(crd.get('stored_quantity', 0))}"
+                                    st.markdown(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{crd["name"]}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>', unsafe_allow_html=True)
+
+                                    # Prix : pour les cartes vendues, afficher le prix de vente réel
+                                    if sold and crd.get("sold_entries"):
+                                        last_sale = crd["sold_entries"][-1]
+                                        prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity",1)), 1)
+                                        st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:#64748b;">Vendu : <span style="color:#10b981;">{prix_reel:.2f}€</span></div>', unsafe_allow_html=True)
+                                        # Mettre à jour silencieusement le suggested_price si différent (correction données corrompues)
+                                        if abs(float(crd.get("suggested_price", 0)) - prix_reel) > 0.01:
+                                            pass  # sera corrigé par le bouton global
+                                    else:
+                                        # Prix modifiable - sauvegarde sur perte de focus (Enter)
+                                        def save_price(ix=ix, real_cix=real_cix):
+                                            cdd = ld()
+                                            new_price = st.session_state[f"ep{ix}_{real_cix}"]
+                                            old_price = cdd["lots"][ix]["cards"][real_cix].get("suggested_price", 0.)
+                                            cdd["lots"][ix]["cards"][real_cix]["suggested_price"] = new_price
+                                            if cdd["lots"][ix]["cards"][real_cix].get("is_collection_keep"):
+                                                cdd["lots"][ix]["cards"][real_cix]["collection_current_value"] = new_price
+                                            if new_price != old_price:
+                                                cdd["lots"][ix]["cards"][real_cix].setdefault("price_history", []).append({
+                                                    "date": datetime.now().isoformat()[:10],
+                                                    "price": new_price
+                                                })
+                                            sd(cdd)
+
+                                        st.number_input("Valeur actuelle (€)" if collection else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{ix}_{real_cix}", on_change=save_price)
+
+                                        # Historique prix mini
+                                        ph = crd.get("price_history", [])
+                                        if ph and len(ph) >= 2:
+                                            diff = ph[-1]["price"] - ph[-2]["price"]
+                                            col_h = "#22c55e" if diff > 0 else "#ee1515"
+                                            st.markdown(f'<span style="color:{col_h};font-size:0.72rem;font-weight:700;">{"↑" if diff>0 else "↓"} {fp(abs(diff))}</span>', unsafe_allow_html=True)
+
+                                    if not sold and not collection:
+                                        st.number_input(
+                                            "Qté totale",
+                                            min_value=int(crd.get("sold_quantity", 0)),
+                                            max_value=9999,
+                                            value=int(crd.get("quantity", 1)),
+                                            step=1,
+                                            key=f"qty_edit_{ix}_{real_cix}",
+                                            on_change=update_card_quantity,
+                                            args=(ix, real_cix),
+                                        )
+                                        if (not is_storage) and stock > 0:
+                                            store_panel_key = f"show_store_{ix}_{real_cix}"
+                                            if st.button("📈 Stocker", key=f"store_btn_{ix}_{real_cix}", width="stretch"):
+                                                st.session_state[store_panel_key] = True
+
+                                            if st.session_state.get(store_panel_key, False):
+                                                transfer_qty = st.number_input(
+                                                    "Qté à stocker",
+                                                    min_value=1,
+                                                    max_value=int(stock),
+                                                    value=1,
+                                                    step=1,
+                                                    key=f"store_qty_{ix}_{real_cix}",
+                                                )
+                                                storage_cote = st.number_input(
+                                                    "Cote stockage (€)",
+                                                    min_value=0.0,
+                                                    max_value=99999.0,
+                                                    value=float(crd.get("suggested_price", 0.) or 0.),
+                                                    step=0.5,
+                                                    key=f"store_cote_{ix}_{real_cix}",
+                                                )
+                                                col_store_ok, col_store_cancel = st.columns(2)
+                                                if col_store_ok.button("Valider", key=f"store_confirm_{ix}_{real_cix}", width="stretch"):
+                                                    ok, msg = transfer_card_to_storage(ix, real_cix, transfer_qty, storage_cote)
+                                                    if ok:
+                                                        st.session_state[store_panel_key] = False
+                                                        st.success(msg)
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(msg)
+                                                if col_store_cancel.button("Annuler", key=f"store_cancel_{ix}_{real_cix}", width="stretch"):
+                                                    st.session_state[store_panel_key] = False
+                                                    st.rerun()
+
+                                    # Checkboxes Reverse / 1ère Éd + bouton modifier image
+                                    def save_badges(ix=ix, real_cix=real_cix):
+                                        cdd = ld()
+                                        cdd["lots"][ix]["cards"][real_cix]["is_reverse"] = st.session_state.get(f"erv{ix}_{real_cix}", False)
+                                        cdd["lots"][ix]["cards"][real_cix]["is_ed1"] = st.session_state.get(f"eed{ix}_{real_cix}", False)
+                                        sd(cdd)
+
+                                    col_rv, col_ed, col_img = st.columns([2, 2, 1])
+                                    col_rv.checkbox("Reverse", value=crd.get("is_reverse", False), key=f"erv{ix}_{real_cix}", on_change=save_badges)
+                                    col_ed.checkbox("1ère Éd", value=crd.get("is_ed1", False), key=f"eed{ix}_{real_cix}", on_change=save_badges)
+                                    if col_img.button("🖼️", key=f"edit_img_{ix}_{real_cix}", help="Modifier l'image"):
                                         st.session_state[f"show_upload_{ix}_{real_cix}"] = True
 
-                                # Nom + badges + stock sur une ligne
-                                badges = card_status_badges(crd)
-                                stock_txt = "🧾 Collection" if collection else ("✅" if sold else f"{stock}/{crd['quantity']}")
-                                if crd.get("stored_quantity", 0):
-                                    stock_txt += f" · 📈 {int(crd.get('stored_quantity', 0))}"
-                                st.markdown(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{crd["name"]}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>', unsafe_allow_html=True)
+                                    if st.session_state.get(f"show_upload_{ix}_{real_cix}", False):
+                                        uploaded = st.file_uploader(
+                                            "Nouvelle image",
+                                            type=["jpg","jpeg","png","webp"],
+                                            key=f"reupload_{ix}_{real_cix}",
+                                        )
+                                        if uploaded:
+                                            img_dir = os.path.join(os.getcwd(), "card_images")
+                                            os.makedirs(img_dir, exist_ok=True)
+                                            card_id = crd.get("id","") or f"{ix}_{real_cix}"
+                                            safe_id = card_id.replace("/","_").replace(" ","_")
+                                            ext = uploaded.name.split(".")[-1]
+                                            img_path = os.path.join(img_dir, f"{safe_id}.{ext}")
+                                            with open(img_path, "wb") as f:
+                                                f.write(uploaded.read())
+                                            cdd = ld()
+                                            image_ref = f"card_images/{safe_id}.{ext}"
+                                            cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
+                                            register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
+                                            sd(cdd)
+                                            st.session_state[f"show_upload_{ix}_{real_cix}"] = False
+                                            st.rerun()
 
-                                # Prix : pour les cartes vendues, afficher le prix de vente réel
-                                if sold and crd.get("sold_entries"):
-                                    last_sale = crd["sold_entries"][-1]
-                                    prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity",1)), 1)
-                                    st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:#64748b;">Vendu : <span style="color:#10b981;">{prix_reel:.2f}€</span></div>', unsafe_allow_html=True)
-                                    # Mettre à jour silencieusement le suggested_price si différent (correction données corrompues)
-                                    if abs(float(crd.get("suggested_price", 0)) - prix_reel) > 0.01:
-                                        pass  # sera corrigé par le bouton global
-                                else:
-                                    # Prix modifiable - sauvegarde sur perte de focus (Enter)
-                                    def save_price(ix=ix, real_cix=real_cix):
-                                        cdd = ld()
-                                        new_price = st.session_state[f"ep{ix}_{real_cix}"]
-                                        old_price = cdd["lots"][ix]["cards"][real_cix].get("suggested_price", 0.)
-                                        cdd["lots"][ix]["cards"][real_cix]["suggested_price"] = new_price
-                                        if cdd["lots"][ix]["cards"][real_cix].get("is_collection_keep"):
-                                            cdd["lots"][ix]["cards"][real_cix]["collection_current_value"] = new_price
-                                        if new_price != old_price:
-                                            cdd["lots"][ix]["cards"][real_cix].setdefault("price_history", []).append({
-                                                "date": datetime.now().isoformat()[:10],
-                                                "price": new_price
-                                            })
-                                        sd(cdd)
+                                    # Restaurer (cartes vendues)
+                                    if sold:
+                                        if st.button("↩️ Restaurer", key=f"restore_card_{ix}_{real_cix}", width="stretch"):
+                                            cdd = ld()
+                                            card_data = cdd["lots"][ix]["cards"][real_cix]
+                                            # Retirer la dernière vente
+                                            if card_data.get("sold_entries"):
+                                                last_entry = card_data["sold_entries"].pop()
+                                                qty_restored = last_entry.get("quantity", 1)
+                                                card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - qty_restored)
+                                                sale_id = last_entry.get("sale_id")
+                                                if sale_id:
+                                                    for lot_restore in cdd.get("lots", []):
+                                                        lot_restore["ventes"] = [
+                                                            v for v in lot_restore.get("ventes", [])
+                                                            if v.get("source_sale_id") != sale_id
+                                                        ]
+                                            else:
+                                                card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - 1)
+                                            sd(cdd)
+                                            st.success("↩️ Vente annulée !")
+                                            st.rerun()
 
-                                    st.number_input("Valeur actuelle (€)" if collection else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{ix}_{real_cix}", on_change=save_price)
+                                    # Supprimer
+                                    if st.button("🗑️", key=f"dc{ix}_{real_cix}", width="stretch"):
+                                        ok, er = dc(ix, real_cix)
+                                        if ok:
+                                            st.rerun()
 
-                                    # Historique prix mini
-                                    ph = crd.get("price_history", [])
-                                    if ph and len(ph) >= 2:
-                                        diff = ph[-1]["price"] - ph[-2]["price"]
-                                        col_h = "#22c55e" if diff > 0 else "#ee1515"
-                                        st.markdown(f'<span style="color:{col_h};font-size:0.72rem;font-weight:700;">{"↑" if diff>0 else "↓"} {fp(abs(diff))}</span>', unsafe_allow_html=True)
-
-                                if not sold and not collection:
-                                    st.number_input(
-                                        "Qté totale",
-                                        min_value=int(crd.get("sold_quantity", 0)),
-                                        max_value=9999,
-                                        value=int(crd.get("quantity", 1)),
-                                        step=1,
-                                        key=f"qty_edit_{ix}_{real_cix}",
-                                        on_change=update_card_quantity,
-                                        args=(ix, real_cix),
-                                    )
-                                    if (not is_storage) and stock > 0:
-                                        store_panel_key = f"show_store_{ix}_{real_cix}"
-                                        if st.button("📈 Stocker", key=f"store_btn_{ix}_{real_cix}", width="stretch"):
-                                            st.session_state[store_panel_key] = True
-
-                                        if st.session_state.get(store_panel_key, False):
-                                            transfer_qty = st.number_input(
-                                                "Qté à stocker",
-                                                min_value=1,
-                                                max_value=int(stock),
-                                                value=1,
-                                                step=1,
-                                                key=f"store_qty_{ix}_{real_cix}",
-                                            )
-                                            storage_cote = st.number_input(
-                                                "Cote stockage (€)",
-                                                min_value=0.0,
-                                                max_value=99999.0,
-                                                value=float(crd.get("suggested_price", 0.) or 0.),
-                                                step=0.5,
-                                                key=f"store_cote_{ix}_{real_cix}",
-                                            )
-                                            col_store_ok, col_store_cancel = st.columns(2)
-                                            if col_store_ok.button("Valider", key=f"store_confirm_{ix}_{real_cix}", width="stretch"):
-                                                ok, msg = transfer_card_to_storage(ix, real_cix, transfer_qty, storage_cote)
-                                                if ok:
-                                                    st.session_state[store_panel_key] = False
-                                                    st.success(msg)
-                                                    st.rerun()
-                                                else:
-                                                    st.error(msg)
-                                            if col_store_cancel.button("Annuler", key=f"store_cancel_{ix}_{real_cix}", width="stretch"):
-                                                st.session_state[store_panel_key] = False
-                                                st.rerun()
-
-                                # Checkboxes Reverse / 1ère Éd + bouton modifier image
-                                def save_badges(ix=ix, real_cix=real_cix):
-                                    cdd = ld()
-                                    cdd["lots"][ix]["cards"][real_cix]["is_reverse"] = st.session_state.get(f"erv{ix}_{real_cix}", False)
-                                    cdd["lots"][ix]["cards"][real_cix]["is_ed1"] = st.session_state.get(f"eed{ix}_{real_cix}", False)
-                                    sd(cdd)
-
-                                col_rv, col_ed, col_img = st.columns([2, 2, 1])
-                                col_rv.checkbox("Reverse", value=crd.get("is_reverse", False), key=f"erv{ix}_{real_cix}", on_change=save_badges)
-                                col_ed.checkbox("1ère Éd", value=crd.get("is_ed1", False), key=f"eed{ix}_{real_cix}", on_change=save_badges)
-                                if col_img.button("🖼️", key=f"edit_img_{ix}_{real_cix}", help="Modifier l'image"):
-                                    st.session_state[f"show_upload_{ix}_{real_cix}"] = True
-
-                                if st.session_state.get(f"show_upload_{ix}_{real_cix}", False):
-                                    uploaded = st.file_uploader(
-                                        "Nouvelle image",
-                                        type=["jpg","jpeg","png","webp"],
-                                        key=f"reupload_{ix}_{real_cix}",
-                                    )
-                                    if uploaded:
-                                        img_dir = os.path.join(os.getcwd(), "card_images")
-                                        os.makedirs(img_dir, exist_ok=True)
-                                        card_id = crd.get("id","") or f"{ix}_{real_cix}"
-                                        safe_id = card_id.replace("/","_").replace(" ","_")
-                                        ext = uploaded.name.split(".")[-1]
-                                        img_path = os.path.join(img_dir, f"{safe_id}.{ext}")
-                                        with open(img_path, "wb") as f:
-                                            f.write(uploaded.read())
-                                        cdd = ld()
-                                        image_ref = f"card_images/{safe_id}.{ext}"
-                                        cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
-                                        register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
-                                        sd(cdd)
-                                        st.session_state[f"show_upload_{ix}_{real_cix}"] = False
-                                        st.rerun()
-
-                                # Restaurer (cartes vendues)
-                                if sold:
-                                    if st.button("↩️ Restaurer", key=f"restore_card_{ix}_{real_cix}", width="stretch"):
-                                        cdd = ld()
-                                        card_data = cdd["lots"][ix]["cards"][real_cix]
-                                        # Retirer la dernière vente
-                                        if card_data.get("sold_entries"):
-                                            last_entry = card_data["sold_entries"].pop()
-                                            qty_restored = last_entry.get("quantity", 1)
-                                            card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - qty_restored)
-                                            sale_id = last_entry.get("sale_id")
-                                            if sale_id:
-                                                for lot_restore in cdd.get("lots", []):
-                                                    lot_restore["ventes"] = [
-                                                        v for v in lot_restore.get("ventes", [])
-                                                        if v.get("source_sale_id") != sale_id
-                                                    ]
-                                        else:
-                                            card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - 1)
-                                        sd(cdd)
-                                        st.success("↩️ Vente annulée !")
-                                        st.rerun()
-
-                                # Supprimer
-                                if st.button("🗑️", key=f"dc{ix}_{real_cix}", width="stretch"):
-                                    ok, er = dc(ix, real_cix)
-                                    if ok:
-                                        st.rerun()
-
-                        st.markdown("---")
+                            st.markdown("---")
                 
                 if not cards_all:
                     st.info("Aucune carte dans ce lot")
