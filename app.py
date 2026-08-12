@@ -1611,21 +1611,53 @@ st.markdown("""
         max-width: 100% !important;
         padding: 0 !important;
     }
-    [class*="st-key-mobile_search_grid_"] [data-testid="stHorizontalBlock"],
-    [class*="st-key-mobile-search-grid-"] [data-testid="stHorizontalBlock"] {
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        gap: 0.28rem !important;
+    [class*="st-key-search_results_grid_"][data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 0.46rem !important;
+        align-items: flex-start !important;
         width: 100% !important;
         max-width: 100% !important;
+        overflow-x: hidden !important;
     }
-    [class*="st-key-mobile_search_grid_"] [data-testid="column"],
-    [class*="st-key-mobile-search-grid-"] [data-testid="column"] {
+    [class*="st-key-search_results_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex: 0 0 calc((100% - 2.3rem) / 6) !important;
+        max-width: calc((100% - 2.3rem) / 6) !important;
         min-width: 0 !important;
-        width: auto !important;
+        box-sizing: border-box !important;
+    }
+    [class*="st-key-search_result_card_"] {
+        width: 100% !important;
         max-width: 100% !important;
-        flex: none !important;
-        padding: 0 !important;
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+        box-sizing: border-box !important;
+    }
+    [class*="st-key-search_result_card_"] img {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+    }
+    @media (max-width: 768px) {
+        [class*="st-key-search_results_grid_"][data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            gap: 0.3rem !important;
+        }
+        [class*="st-key-search_results_grid_"] > [data-testid="stLayoutWrapper"] {
+            flex: 0 0 calc((100% - 0.3rem) / 2) !important;
+            max-width: calc((100% - 0.3rem) / 2) !important;
+        }
+    }
+    @media (max-width: 340px) {
+        [class*="st-key-search_results_grid_"][data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            gap: 0.22rem !important;
+        }
+        [class*="st-key-search_results_grid_"] > [data-testid="stLayoutWrapper"] {
+            flex: 0 0 calc((100% - 0.22rem) / 2) !important;
+            max-width: calc((100% - 0.22rem) / 2) !important;
+        }
     }
     img[src*="wsrv.nl"],
     img[src*="tcgdex.net"] {

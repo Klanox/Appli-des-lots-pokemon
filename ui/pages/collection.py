@@ -374,21 +374,21 @@ def render_collection_page(
                     matches = search_in_cache_func(name, number) or []
                     if len(matches) > 1:
                         st.warning(f"{len(matches)} cartes possibles trouvées pour cette ligne : choisis la bonne carte.")
-                        choice_cols = st.columns(min(len(matches), 4))
-                        for match_idx, (match_card, match_set) in enumerate(matches[:8]):
-                            with choice_cols[match_idx % len(choice_cols)]:
-                                img_url = _collection_card_image_url(match_card)
-                                if img_url:
-                                    st.image(img_url, width=110)
-                                st.caption(
-                                    f"{match_card.get('name', name)} "
-                                    f"#{_collection_card_number(match_card)}"
-                                )
-                                st.caption(str(match_set or ""))
-                                if st.button("Choisir", key=f"collection_batch_choose_{row_id}_{match_idx}"):
-                                    _apply_collection_batch_match(row_id, match_card, match_set)
-                                    st.session_state[f"collection_batch_match_key_{row_id}"] = _collection_batch_match_key(row_id)
-                                    st.rerun()
+                        with st.container(key=f"search_results_grid_collection_choice_{row_id}", horizontal=True, gap="small"):
+                            for match_idx, (match_card, match_set) in enumerate(matches[:8]):
+                                with st.container(key=f"search_result_card_collection_choice_{row_id}_{match_idx}"):
+                                    img_url = _collection_card_image_url(match_card)
+                                    if img_url:
+                                        st.image(img_url, width=110)
+                                    st.caption(
+                                        f"{match_card.get('name', name)} "
+                                        f"#{_collection_card_number(match_card)}"
+                                    )
+                                    st.caption(str(match_set or ""))
+                                    if st.button("Choisir", key=f"collection_batch_choose_{row_id}_{match_idx}"):
+                                        _apply_collection_batch_match(row_id, match_card, match_set)
+                                        st.session_state[f"collection_batch_match_key_{row_id}"] = _collection_batch_match_key(row_id)
+                                        st.rerun()
                     elif len(matches) == 1:
                         match_card, match_set = matches[0]
                         if not st.session_state.get(f"collection_batch_set_{row_id}") and not st.session_state.get(f"collection_batch_card_id_{row_id}"):
@@ -536,13 +536,10 @@ def render_collection_page(
         perf_count_func("cards_collection_available", total_collection_matches)
         perf_count_func("cards_collection_rendered", len(collection_cards))
 
-    cols_per_row = 2 if mobile else 8
-    for row_start in range(0, len(collection_cards), cols_per_row):
-        grid_key = f"mobile_search_grid_collection_{row_start}" if mobile else None
-        with (st.container(key=grid_key) if grid_key else st.container()):
-            cols = st.columns(cols_per_row)
-            for col_idx, (lot_idx, card_idx, lot, card) in enumerate(collection_cards[row_start:row_start + cols_per_row]):
-                with cols[col_idx]:
+    with st.container(key="search_results_grid_collection", horizontal=True, gap="small"):
+        for lot_idx, card_idx, lot, card in collection_cards:
+            card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
+            with st.container(key=f"search_result_card_collection_{lot_idx}_{card_idx}_{card_uid}"):
                     st.markdown(collection_image_html_func(card), unsafe_allow_html=True)
                     card_name_html = html.escape(str(card.get("name", "Carte") or "Carte"))
                     st.markdown(
@@ -558,7 +555,6 @@ def render_collection_page(
                         f" · Valeur {fp_func(collection_current_value_func(card))}"
                         f" · Payé {fp_func(collection_paid_total_func(card, lot))}"
                     )
-                    card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
                     action_key = f"collection_action_{lot_idx}_{card_idx}_{card_uid}"
                     confirm_key = f"confirm_{action_key}"
                     image_panel_key = f"image_panel_{action_key}"

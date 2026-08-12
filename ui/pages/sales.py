@@ -436,14 +436,10 @@ def render_sales_page(context):
                 if "perf_count" in globals():
                     perf_count("cards_sales_rendered", len(all_found))
                     perf_count("cards_sales_available", all_found_total)
-                COLS_PER_ROW = 2 if is_mobile_mode() else 8
-                for row_start in range(0, len(all_found), COLS_PER_ROW):
-                    grid_key = f"mobile_search_grid_sales_search_{row_start}" if is_mobile_mode() else None
-                    with (st.container(key=grid_key) if grid_key else st.container()):
-                        cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
-                        for col_idx, (li, ci, card, lot, stock) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
-                            in_cart = card.get("card_uid") in cart_keys
-                            with cols[col_idx]:
+                with st.container(key="search_results_grid_sales_search", horizontal=True, gap="small"):
+                    for li, ci, card, lot, stock in all_found:
+                        in_cart = card.get("card_uid") in cart_keys
+                        with st.container(key=f"search_result_card_sales_search_{li}_{ci}"):
                                 st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
                                 st.markdown(f"**{card['name']}**")
                                 st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
@@ -485,14 +481,10 @@ def render_sales_page(context):
                     rendered_sale_cards_count += len(cards_to_render)
                     if cards_to_render:
                         st.markdown(f"### Lot {lot['nom']}")
-                        COLS_PER_ROW = 2 if is_mobile_mode() else 8
-                        for row_start in range(0, len(cards_to_render), COLS_PER_ROW):
-                            grid_key = f"mobile_search_grid_sales_lot_{li}_{row_start}" if is_mobile_mode() else None
-                            with (st.container(key=grid_key) if grid_key else st.container()):
-                                cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
-                                for col_idx, (ci, card, stock) in enumerate(cards_to_render[row_start:row_start + COLS_PER_ROW]):
-                                    in_cart = card.get("card_uid") in cart_keys
-                                    with cols[col_idx]:
+                        with st.container(key=f"search_results_grid_sales_lot_{li}", horizontal=True, gap="small"):
+                            for ci, card, stock in cards_to_render:
+                                in_cart = card.get("card_uid") in cart_keys
+                                with st.container(key=f"search_result_card_sales_lot_{li}_{ci}"):
                                         st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
                                         st.markdown(f"**{card['name']}**")
                                         st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")

@@ -5562,82 +5562,82 @@ def _render_open_estimation(
     if pending:
         pending_language = "ja" if str(pending.get("language") or pending.get("lang") or "fr").lower() in {"ja", "jp", "jpn"} else "fr"
         st.warning(f"{len(pending.get('matches', []))} cartes possibles trouvées. Choisis la bonne.")
-        cols = st.columns(2 if is_mobile_mode_func() else 4)
-        for pidx, match in enumerate(pending.get("matches", [])):
-            card_dict, set_name = match
-            enriched = ecd_func(card_dict, set_name, lang=pending_language)
-            enriched["lang"] = pending_language
-            enriched["language"] = pending_language
-            if not enriched.get("image_url"):
-                rebuilt = _tcgdex_image_from_id(enriched.get("id"), enriched.get("number"), lang=pending_language)
-                if pending_language == "ja":
-                    enriched["image_url_ja"] = rebuilt
-                else:
-                    enriched["image_url"] = rebuilt
-            with cols[pidx % len(cols)]:
-                pending_image = enriched.get("image_url_ja") or enriched.get("image_url") or ""
-                if pending_image:
-                    st.markdown(
-                        img_with_fallback_func(pending_image, enriched.get("image_url_en", ""), width="100%", style="border-radius:10px;"),
-                        unsafe_allow_html=True,
-                    )
-                st.caption(f"{enriched.get('name','Carte')} · {enriched.get('set','')} · #{enriched.get('number','')}")
-                if st.button("Choisir", key=f"pick_est_box_{uid}_{pidx}"):
-                    details = _selected_card_details(enriched)
-                    details["lang"] = pending_language
-                    details["language"] = pending_language
-                    if pending_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
-                        details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
-                    _log_once(
-                        "estimation_pick",
-                        f'{uid}|pending|{details.get("id","")}|{details.get("number","")}',
-                        "[Estimations Pick] "
-                        f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
-                        f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
-                        f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
-                        f'language="{pending_language}" '
-                        f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
-                    )
-                    before_count = len(estimate.get("cards", []) or [])
-                    _mark_estimation_needs_review(estimate)
-                    add_estimation_card_func(
-                        estimate,
-                        pending["name"],
-                        pending["number"],
-                        pending["cote"],
-                        pending["qty"],
-                        pending["condition"],
-                        pending["specials"],
-                        pending["note"],
-                        pending.get("is_collection", False),
-                        match,
-                    )
-                    _apply_selected_card_details(estimate, details)
-                    after_count = len(estimate.get("cards", []) or [])
-                    if after_count > before_count and estimate.get("cards"):
-                        added_card = estimate["cards"][-1]
-                        _apply_market_price_suggestion(added_card, market_cache)
-                        _log_once(
-                            "estimation_add",
-                            f'{uid}|{added_card.get("uid","")}|pending',
-                            "[Estimations Add] "
-                            f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
-                            f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
-                            f'estimate="{estimate.get("name", "")}"',
-                        )
+        with st.container(key=f"search_results_grid_estimations_choice_{uid}", horizontal=True, gap="small"):
+            for pidx, match in enumerate(pending.get("matches", [])):
+                card_dict, set_name = match
+                enriched = ecd_func(card_dict, set_name, lang=pending_language)
+                enriched["lang"] = pending_language
+                enriched["language"] = pending_language
+                if not enriched.get("image_url"):
+                    rebuilt = _tcgdex_image_from_id(enriched.get("id"), enriched.get("number"), lang=pending_language)
+                    if pending_language == "ja":
+                        enriched["image_url_ja"] = rebuilt
                     else:
-                        _log_once(
-                            "estimation_add_failed",
-                            f'{uid}|pending|{pending.get("name","")}|{pending.get("number","")}',
-                            "[Estimations Add] failed "
-                            f'reason="card not appended from choice" name="{pending.get("name", "")}" '
-                            f'number="{pending.get("number", "")}" estimate="{estimate.get("name", "")}"',
+                        enriched["image_url"] = rebuilt
+                with st.container(key=f"search_result_card_estimations_choice_{uid}_{pidx}"):
+                    pending_image = enriched.get("image_url_ja") or enriched.get("image_url") or ""
+                    if pending_image:
+                        st.markdown(
+                            img_with_fallback_func(pending_image, enriched.get("image_url_en", ""), width="100%", style="border-radius:10px;"),
+                            unsafe_allow_html=True,
                         )
-                    save_estimations_func(edata)
-                    st.session_state.pop(f"pending_est_choice_{uid}", None)
-                    if after_count > before_count:
-                        st.session_state[pending_reset_key] = True
-                    st.rerun()
+                    st.caption(f"{enriched.get('name','Carte')} · {enriched.get('set','')} · #{enriched.get('number','')}")
+                    if st.button("Choisir", key=f"pick_est_box_{uid}_{pidx}"):
+                        details = _selected_card_details(enriched)
+                        details["lang"] = pending_language
+                        details["language"] = pending_language
+                        if pending_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
+                            details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
+                        _log_once(
+                            "estimation_pick",
+                            f'{uid}|pending|{details.get("id","")}|{details.get("number","")}',
+                            "[Estimations Pick] "
+                            f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
+                            f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
+                            f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
+                            f'language="{pending_language}" '
+                            f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
+                        )
+                        before_count = len(estimate.get("cards", []) or [])
+                        _mark_estimation_needs_review(estimate)
+                        add_estimation_card_func(
+                            estimate,
+                            pending["name"],
+                            pending["number"],
+                            pending["cote"],
+                            pending["qty"],
+                            pending["condition"],
+                            pending["specials"],
+                            pending["note"],
+                            pending.get("is_collection", False),
+                            match,
+                        )
+                        _apply_selected_card_details(estimate, details)
+                        after_count = len(estimate.get("cards", []) or [])
+                        if after_count > before_count and estimate.get("cards"):
+                            added_card = estimate["cards"][-1]
+                            _apply_market_price_suggestion(added_card, market_cache)
+                            _log_once(
+                                "estimation_add",
+                                f'{uid}|{added_card.get("uid","")}|pending',
+                                "[Estimations Add] "
+                                f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
+                                f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
+                                f'estimate="{estimate.get("name", "")}"',
+                            )
+                        else:
+                            _log_once(
+                                "estimation_add_failed",
+                                f'{uid}|pending|{pending.get("name","")}|{pending.get("number","")}',
+                                "[Estimations Add] failed "
+                                f'reason="card not appended from choice" name="{pending.get("name", "")}" '
+                                f'number="{pending.get("number", "")}" estimate="{estimate.get("name", "")}"',
+                            )
+                        save_estimations_func(edata)
+                        st.session_state.pop(f"pending_est_choice_{uid}", None)
+                        if after_count > before_count:
+                            st.session_state[pending_reset_key] = True
+                        st.rerun()
         if st.button("Annuler le choix", key=f"cancel_est_choice_box_{uid}"):
             st.session_state.pop(f"pending_est_choice_{uid}", None)
             st.rerun()
@@ -5690,16 +5690,12 @@ def _render_open_estimation(
                     f"Images réparées : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
                 )
                 st.rerun()
-        cols_per_row = 2 if mobile_mode else 6
         tracked_render_started = time.perf_counter()
-        for row_start in range(0, len(render_cards), cols_per_row):
-            grid_key = f"mobile_search_grid_estimations_{uid}_{row_start}" if mobile_mode else None
-            with (st.container(key=grid_key) if grid_key else st.container()):
-                cols = st.columns(cols_per_row)
-                for cidx, card in enumerate(render_cards[row_start : row_start + cols_per_row]):
-                    with cols[cidx]:
+        with st.container(key=f"search_results_grid_estimations_{uid}", horizontal=True, gap="small"):
+            for cidx, card in enumerate(render_cards):
+                with st.container(key=f"search_result_card_estimations_{uid}_{card.get('uid') or cidx}"):
                         if _is_quick_bulk_entry(card):
-                            card_uid = card.get("uid") or f"bulk_{row_start}_{cidx}"
+                            card_uid = card.get("uid") or f"bulk_{cidx}"
                             _render_quick_bulk_card(card, fp_func)
                             if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
                                 _mark_estimation_needs_review(estimate)
@@ -5717,7 +5713,7 @@ def _render_open_estimation(
                             proxy_img_func=proxy_img_func,
                             market_cache=market_cache,
                         )
-                        card_uid = card.get("uid") or f"{row_start}_{cidx}"
+                        card_uid = card.get("uid") or f"{cidx}"
                         cote_key = f"est_card_cote_{uid}_{card_uid}"
                         cote_seen_key = f"{cote_key}_seen"
                         qty_edit_key = f"est_card_qty_{uid}_{card_uid}"

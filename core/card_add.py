@@ -672,14 +672,10 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
 
             st.warning(f"⚠️ {len(popup_data['matches'])} résultats trouvés — choisissez la bonne carte :")
             popup_lang = popup_data.get("lang", "fr")
-            cols_count = 2 if st.session_state.get("mobile_mode") else min(len(popup_data["matches"]), 4)
-            cols_count = max(1, min(len(popup_data["matches"]), cols_count))
-            grid_key = f"mobile_search_grid_popup_{li}_{os.path.basename(popup_file).replace('.', '_')}" if st.session_state.get("mobile_mode") else None
-            with (st.container(key=grid_key) if grid_key else st.container()):
-                cols = st.columns(cols_count, gap=None if st.session_state.get("mobile_mode") else "small")
-
+            popup_key = os.path.basename(popup_file).replace(".", "_")
+            with st.container(key=f"search_results_grid_popup_{li}_{popup_key}", horizontal=True, gap="small"):
                 for idx_p, (card_dict, set_name) in enumerate(popup_data["matches"]):
-                    with cols[idx_p % cols_count]:
+                    with st.container(key=f"search_result_card_popup_{li}_{popup_key}_{idx_p}"):
                         img = _popup_candidate_image(card_dict)
                         if img:
                             safe_src = html.escape(proxy_img(img), quote=True)
