@@ -2,44 +2,472 @@
   "schema_version": 1,
   "points": [
     {
+      "captured_at": "2026-06-07T00:29:55",
+      "value": 4686.5,
+      "provenance": "backup",
+      "source_label": "data.json.backup_20260607_002955",
+      "source_kind": "file_backup",
+      "date_source": "name",
+      "source_hash": "ee885b86fcc0",
+      "lots": 19,
+      "cards": 643
+    },
+    {
+      "captured_at": "2026-06-07T00:48:10",
+      "value": 4686.5,
+      "provenance": "backup",
+      "source_label": "data.json.backup_20260607_004810",
+      "source_kind": "file_backup",
+      "date_source": "name",
+      "source_hash": "a8c2e713781f",
+      "lots": 19,
+      "cards": 642
+    },
+    {
+      "captured_at": "2026-06-10T18:35:50",
+      "value": 4698.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260610_183550",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "adefbb1e7fd9",
+      "lots": 19,
+      "cards": 651
+    },
+    {
+      "captured_at": "2026-06-10T20:49:04",
+      "value": 4788.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260610_204904",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "c2e330632af1",
+      "lots": 19,
+      "cards": 653
+    },
+    {
+      "captured_at": "2026-06-11T19:57:11",
+      "value": 4838.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260611_195711",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "e4af3c8c050c",
+      "lots": 19,
+      "cards": 655
+    },
+    {
+      "captured_at": "2026-06-12T18:49:29",
+      "value": 4848.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260612_184929",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "8714ed56601e",
+      "lots": 19,
+      "cards": 657
+    },
+    {
+      "captured_at": "2026-06-12T21:27:12",
+      "value": 4781.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260612_212712",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "487546e8ee24",
+      "lots": 19,
+      "cards": 657
+    },
+    {
+      "captured_at": "2026-06-13T11:17:13",
+      "value": 4594.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260613_111713",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "5b3a0aee483c",
+      "lots": 19,
+      "cards": 657
+    },
+    {
+      "captured_at": "2026-06-14T14:44:52",
+      "value": 4583.5,
+      "provenance": "backup",
+      "source_label": "20260614_144452_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "9feffe480524",
+      "lots": 19,
+      "cards": 657
+    },
+    {
+      "captured_at": "2026-06-14T17:28:49",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260614_172849",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "b6592b682145",
+      "lots": 19,
+      "cards": 668
+    },
+    {
+      "captured_at": "2026-06-14T18:08:39",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "20260614_180839_before_collection_manual_image",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "e1cd7d14c750",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-14T18:15:26",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "20260614_181526_before_collection_manual_image",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "8d23d807fc17",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-14T18:17:34",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "20260614_181734_before_collection_manual_image",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "e9b2b9f7ab88",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-14T18:17:35",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "20260614_181735_before_collection_manual_image",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "98d8b13f74f0",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-14T21:19:53",
+      "value": 4572.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260614_211953",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "be059498ebc6",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-15T21:15:59",
+      "value": 4302.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260615_211559",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "80e2b16a57c0",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-19T20:08:03",
+      "value": 3827.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260619_200803",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "670c856349e7",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-21T18:52:48",
+      "value": 3900.0,
+      "provenance": "backup",
+      "source_label": "20260621_185248_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "64d4625d0a4b",
+      "lots": 19,
+      "cards": 678
+    },
+    {
+      "captured_at": "2026-06-23T12:41:34",
+      "value": 3925.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260623_124134",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "2629de4c602a",
+      "lots": 19,
+      "cards": 698
+    },
+    {
+      "captured_at": "2026-06-28T19:07:19",
+      "value": 3934.5,
+      "provenance": "backup",
+      "source_label": "20260628_190719_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "d57052d38642",
+      "lots": 19,
+      "cards": 702
+    },
+    {
+      "captured_at": "2026-06-30T15:52:11",
+      "value": 4108.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260630_155211",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "3eb807e919a9",
+      "lots": 20,
+      "cards": 786
+    },
+    {
+      "captured_at": "2026-06-30T16:53:16",
+      "value": 4282.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260630_165316",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "9fd783382911",
+      "lots": 20,
+      "cards": 867
+    },
+    {
+      "captured_at": "2026-07-02T11:52:24",
+      "value": 4364.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260702_115224",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "9aa5bd1e0f89",
+      "lots": 20,
+      "cards": 904
+    },
+    {
+      "captured_at": "2026-07-03T18:33:17",
+      "value": 4364.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260703_183317",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "a676a32295ea",
+      "lots": 20,
+      "cards": 904
+    },
+    {
+      "captured_at": "2026-07-10T15:58:44",
+      "value": 4351.0,
+      "provenance": "backup",
+      "source_label": "20260710_155844_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "933815971d35",
+      "lots": 20,
+      "cards": 905
+    },
+    {
+      "captured_at": "2026-07-11T17:45:04",
+      "value": 4469.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260711_174504",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "a1a514ae3727",
+      "lots": 21,
+      "cards": 926
+    },
+    {
+      "captured_at": "2026-07-12T12:18:10",
+      "value": 4534.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260712_121810",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "591dde29b423",
+      "lots": 21,
+      "cards": 949
+    },
+    {
+      "captured_at": "2026-07-12T16:41:00",
+      "value": 4549.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260712_164100",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "fd15a8b09474",
+      "lots": 21,
+      "cards": 953
+    },
+    {
+      "captured_at": "2026-07-14T08:34:35",
+      "value": 4546.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260714_083435",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "33bd66f5f6b9",
+      "lots": 21,
+      "cards": 953
+    },
+    {
+      "captured_at": "2026-07-16T21:32:52",
+      "value": 4546.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260716_213252",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "2435652324be",
+      "lots": 21,
+      "cards": 953
+    },
+    {
+      "captured_at": "2026-07-17T18:59:13",
+      "value": 4546.5,
+      "provenance": "backup",
+      "source_label": "20260717_185913_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "cdf0d7dc951b",
+      "lots": 21,
+      "cards": 953
+    },
+    {
+      "captured_at": "2026-08-09T10:20:23",
+      "value": 4879.0,
+      "provenance": "backup",
+      "source_label": "20260809_102023_weekly",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "5129e73dece4",
+      "lots": 22,
+      "cards": 980
+    },
+    {
+      "captured_at": "2026-08-09T11:33:08",
+      "value": 4816.0,
+      "provenance": "backup",
+      "source_label": "Appli des lots pokemon - BACKUP BEFORE STOCK HISTORY LOT UI",
+      "source_kind": "desktop_backup",
+      "date_source": "backup_folder_mtime",
+      "source_hash": "f7ed3b9fb9a7",
+      "lots": 22,
+      "cards": 986
+    },
+    {
       "captured_at": "2026-08-09T11:37:12",
-      "value": 4816.0
+      "value": 4816.0,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T11:45:24",
-      "value": 4833.5
+      "value": 4833.5,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T11:46:49",
-      "value": 4838.5
+      "value": 4838.5,
+      "provenance": "snapshot"
+    },
+    {
+      "captured_at": "2026-08-09T11:55:08",
+      "value": 4838.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260809_115508",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "a043e62e03e5",
+      "lots": 22,
+      "cards": 998
+    },
+    {
+      "captured_at": "2026-08-09T12:01:04",
+      "value": 4836.5,
+      "provenance": "backup",
+      "source_label": "Appli des lots pokemon - BACKUP BEFORE CUSTOM CARD IMAGE LIBRARY",
+      "source_kind": "desktop_backup",
+      "date_source": "backup_folder_mtime",
+      "source_hash": "6c1a7b5bedfa",
+      "lots": 22,
+      "cards": 999
     },
     {
       "captured_at": "2026-08-09T12:13:43",
-      "value": 4835.5
+      "value": 4835.5,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T12:26:05",
-      "value": 4837.5
+      "value": 4837.5,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T12:30:26",
-      "value": 4838.5
+      "value": 4838.5,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T12:31:22",
-      "value": 4839.5
+      "value": 4839.5,
+      "provenance": "snapshot"
     },
     {
       "captured_at": "2026-08-09T12:43:30",
-      "value": 4882.0
+      "value": 4882.0,
+      "provenance": "snapshot"
+    },
+    {
+      "captured_at": "2026-08-09T12:55:33",
+      "value": 5011.5,
+      "provenance": "backup",
+      "source_label": "prewrite_20260809_125533",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "475194420d13",
+      "lots": 23,
+      "cards": 1036
+    },
+    {
+      "captured_at": "2026-08-09T13:55:41",
+      "value": 5184.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260809_135541",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "40cc4bd46a87",
+      "lots": 24,
+      "cards": 1096
     },
     {
       "captured_at": "2026-08-09T20:52:16",
-      "value": 5210.0
+      "value": 5210.0,
+      "provenance": "snapshot"
+    },
+    {
+      "captured_at": "2026-08-09T21:26:29",
+      "value": 5210.0,
+      "provenance": "backup",
+      "source_label": "prewrite_20260809_212629",
+      "source_kind": "project_backup",
+      "date_source": "manifest",
+      "source_hash": "0b280b4dd38e",
+      "lots": 24,
+      "cards": 1117
     },
     {
       "captured_at": "2026-08-12T13:18:58",
-      "value": 5937.5
+      "value": 5937.5,
+      "provenance": "snapshot"
     }
   ],
   "annotations": []

@@ -1907,6 +1907,9 @@ if st.session_state.current_page=="Accueil":
         render_kpi_card_func=render_kpi_card,
         kpi_accents=KPI_ACCENTS,
         set_current_page_func=set_current_page,
+        sd_func=sd,
+        card_available_qty_func=card_available_qty,
+        clear_stats_cache_func=lambda: gst.clear() if hasattr(gst, "clear") else None,
     )
 
 

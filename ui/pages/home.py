@@ -6,6 +6,7 @@ It does not save application data.
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+import hashlib
 import json
 import os
 
@@ -44,6 +45,61 @@ def _add_stock_note_from_state():
     st.session_state["stock_note_comment"] = ""
 
 
+def _home_card_available_qty(card, card_available_qty_func=None):
+    if card_available_qty_func is not None:
+        try:
+            return max(int(card_available_qty_func(card) or 0), 0)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        quantity = int(card.get("quantity", 0) or 0)
+        sold = int(card.get("sold_quantity", 0) or 0)
+        exchange_out = int(card.get("exchange_out_quantity", 0) or 0)
+        stored = int(card.get("stored_quantity", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    if card.get("is_collection_keep"):
+        return 0
+    return max(quantity - sold - exchange_out - stored, 0)
+
+
+def _home_is_collection_lot(lot):
+    name = str(lot.get("nom") or lot.get("name") or "").strip().lower()
+    return bool(lot.get("is_collection_system") or lot.get("is_collection_lot") or name == "collection")
+
+
+def _home_result_key(lot_idx, card_idx, lot_uid="", card_uid=""):
+    raw = f"{lot_idx}|{card_idx}|{lot_uid}|{card_uid}"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return f"home_search_{digest}"
+
+
+def _find_home_search_card(cd, result):
+    lots = cd.get("lots", []) or []
+    lot_uid = result.get("lot_uid")
+    card_uid = result.get("card_uid")
+    if lot_uid and card_uid:
+        for lot_idx, lot in enumerate(lots):
+            if str(lot.get("lot_uid") or lot.get("uid") or lot.get("id") or "") != str(lot_uid):
+                continue
+            for card_idx, card in enumerate(lot.get("cards", []) or []):
+                if str(card.get("card_uid") or card.get("uid") or card.get("id") or "") == str(card_uid):
+                    return lot_idx, card_idx, card
+
+    lot_idx = result.get("lot_idx")
+    card_idx = result.get("card_idx")
+    if isinstance(lot_idx, int) and isinstance(card_idx, int):
+        try:
+            card = lots[lot_idx].get("cards", [])[card_idx]
+        except (IndexError, AttributeError):
+            return None, None, None
+        if card_uid and str(card.get("card_uid") or card.get("uid") or card.get("id") or "") != str(card_uid):
+            return None, None, None
+        return lot_idx, card_idx, card
+
+    return None, None, None
+
+
 def render_home_page(
     *,
     sts,
@@ -55,6 +111,9 @@ def render_home_page(
     render_kpi_card_func,
     kpi_accents,
     set_current_page_func,
+    sd_func=None,
+    card_available_qty_func=None,
+    clear_stats_cache_func=None,
 ):
     st.markdown(
         render_page_header_func("Tableau de bord", "Vue d'ensemble de votre activité", "📊"),
@@ -80,7 +139,7 @@ def render_home_page(
 
     st.markdown("---")
     st.markdown(
-        render_page_header_func("Évolution de la valeur du stock", "Historique local des variations de stock", "💎"),
+        render_page_header_func("Évolution de la valeur du stock", "Valeur réelle du stock au fil du temps", "💎"),
         unsafe_allow_html=True,
     )
     stock_history, _ = record_stock_value(sts["stock_value"])
@@ -145,8 +204,6 @@ def render_home_page(
             st.plotly_chart(fig_stock, width="stretch", key="stock_value_history_chart")
         except ImportError:
             st.line_chart({"Valeur stock": [point.get("value", 0) for point in visible_points]}, width="stretch")
-        first_point = min(stock_points, key=lambda item: str(item.get("captured_at") or ""))
-        st.caption(f"Premier point disponible : {str(first_point.get('captured_at', ''))[:10]}")
     else:
         st.info("Aucun historique fiable antérieur n'a été trouvé. Le suivi démarre avec la valeur actuelle.")
 
@@ -262,30 +319,38 @@ def render_home_page(
         cd_search = ld_func()
         results_found = []
 
-        all_lots_search = [(l, "actif") for l in cd_search.get("lots", [])]
-        if os.path.exists("lots_archives.json"):
-            try:
-                with open("lots_archives.json", "r", encoding="utf-8") as f:
-                    for l in json.load(f):
-                        all_lots_search.append((l, "archivé"))
-            except:
-                pass
+        all_lots_search = [
+            (lot_idx, lot, "actif")
+            for lot_idx, lot in enumerate(cd_search.get("lots", []) or [])
+            if not _home_is_collection_lot(lot)
+        ]
 
-        for lot_s, lot_type in all_lots_search:
+        query_norm = normalize_name_func(search_global)
+        for lot_idx, lot_s, lot_type in all_lots_search:
             for ci, card in enumerate(lot_s.get("cards", [])):
-                if normalize_name_func(search_global) in normalize_name_func(card.get("name", "")):
+                stock = _home_card_available_qty(card, card_available_qty_func)
+                if stock <= 0:
+                    continue
+                if query_norm in normalize_name_func(card.get("name", "")):
+                    lot_uid = lot_s.get("lot_uid") or lot_s.get("uid") or lot_s.get("id") or ""
+                    card_uid = card.get("card_uid") or card.get("uid") or card.get("id") or ""
                     results_found.append({
                         "card": card,
+                        "lot_idx": lot_idx,
+                        "card_idx": ci,
+                        "lot_uid": lot_uid,
+                        "card_uid": card_uid,
+                        "result_key": _home_result_key(lot_idx, ci, lot_uid, card_uid),
                         "lot_name": lot_s["nom"],
                         "lot_type": lot_type,
-                        "stock": card["quantity"] - card.get("sold_quantity", 0) - card.get("exchange_out_quantity", 0)
+                        "stock": stock,
                     })
 
         if results_found:
             st.caption(f"{len(results_found)} résultat(s) pour « {search_global} »")
-            COLS_S = 2 if st.session_state.get("mobile_mode") else 4
+            COLS_S = 3 if st.session_state.get("mobile_mode") else 6
             for row_start in range(0, len(results_found), COLS_S):
-                cols_s = st.columns(COLS_S)
+                cols_s = st.columns(COLS_S, gap=None if st.session_state.get("mobile_mode") else "small")
                 for col_idx, res in enumerate(results_found[row_start:row_start + COLS_S]):
                     with cols_s[col_idx]:
                         if res["card"].get("image_url"):
@@ -296,6 +361,52 @@ def render_home_page(
                         stock_color = "#22c55e" if res["stock"] > 0 else "#94a3b8"
                         st.markdown(f'<span style="color:{stock_color};font-weight:700;font-size:0.85rem;">{"✅ Stock : "+str(res["stock"]) if res["stock"] > 0 else "❌ Épuisé"}</span>', unsafe_allow_html=True)
                         st.caption(f"💰 {fp_func(res['card'].get('suggested_price', 0))}")
+                        edit_key = f"{res['result_key']}_edit_price"
+                        value_key = f"{res['result_key']}_price_value"
+                        save_key = f"{res['result_key']}_save_price"
+                        cancel_key = f"{res['result_key']}_cancel_price"
+                        open_key = f"{res['result_key']}_open_price"
+
+                        if st.session_state.get(edit_key):
+                            current_price = float(res["card"].get("suggested_price", 0) or 0)
+                            st.number_input(
+                                "Nouveau prix (€)",
+                                min_value=0.0,
+                                value=current_price,
+                                step=0.5,
+                                format="%.2f",
+                                key=value_key,
+                            )
+                            btn_save, btn_cancel = st.columns(2)
+                            if btn_save.button("Enregistrer", key=save_key, width="stretch"):
+                                if sd_func is None:
+                                    st.error("Sauvegarde indisponible depuis cette vue.")
+                                else:
+                                    cd_update = ld_func()
+                                    _, _, target_card = _find_home_search_card(cd_update, res)
+                                    if target_card is None:
+                                        st.error("Carte introuvable dans son lot.")
+                                    else:
+                                        new_price = round(float(st.session_state.get(value_key) or 0), 2)
+                                        old_price = round(float(target_card.get("suggested_price", 0) or 0), 2)
+                                        target_card["suggested_price"] = new_price
+                                        if new_price != old_price:
+                                            target_card.setdefault("price_history", []).append({
+                                                "date": datetime.now().isoformat()[:10],
+                                                "price": new_price,
+                                            })
+                                        sd_func(cd_update)
+                                        if clear_stats_cache_func is not None:
+                                            clear_stats_cache_func()
+                                        st.session_state[edit_key] = False
+                                        st.success("Prix mis à jour.")
+                                        st.rerun()
+                            if btn_cancel.button("Annuler", key=cancel_key, width="stretch"):
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                        elif st.button("Modifier le prix", key=open_key, width="stretch"):
+                            st.session_state[edit_key] = True
+                            st.rerun()
         else:
             st.info(f"Aucune carte trouvée pour « {search_global} »")
     elif not search_global:

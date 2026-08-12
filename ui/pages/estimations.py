@@ -5690,7 +5690,7 @@ def _render_open_estimation(
                     f"Images réparées : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
                 )
                 st.rerun()
-        cols_per_row = 1 if mobile_mode else 6
+        cols_per_row = 3 if mobile_mode else 6
         tracked_render_started = time.perf_counter()
         for row_start in range(0, len(render_cards), cols_per_row):
             cols = st.columns(cols_per_row)
