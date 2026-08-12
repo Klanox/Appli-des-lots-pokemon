@@ -41,28 +41,31 @@ def load_stock_history(path: str = STOCK_HISTORY_FILE) -> dict:
 
 
 def save_stock_history(payload: dict, path: str = STOCK_HISTORY_FILE) -> bool:
-    existing = load_stock_history(path)
-    normalized = {
-        "schema_version": 1,
-        "points": list(payload.get("points") or []),
-        "annotations": list(payload.get("annotations") or []),
-    }
-    if normalized == existing:
-        return False
-    directory = os.path.dirname(os.path.abspath(path)) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".stock_history_", suffix=".json", dir=directory)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(normalized, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, path)
-        return True
-    finally:
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        existing = load_stock_history(path)
+        normalized = {
+            "schema_version": 1,
+            "points": list(payload.get("points") or []),
+            "annotations": list(payload.get("annotations") or []),
+        }
+        if normalized == existing:
+            return False
+        directory = os.path.dirname(os.path.abspath(path)) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".stock_history_", suffix=".json", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(normalized, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, path)
+            return True
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+    except OSError:
+        return False
 
 
 def record_stock_value(value: float, *, at: datetime | None = None, path: str = STOCK_HISTORY_FILE) -> tuple[dict, bool]:
