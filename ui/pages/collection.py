@@ -536,8 +536,10 @@ def render_collection_page(
         perf_count_func("cards_collection_available", total_collection_matches)
         perf_count_func("cards_collection_rendered", len(collection_cards))
 
-    cols_per_row = 3 if mobile else 8
+    cols_per_row = 2 if mobile else 8
     for row_start in range(0, len(collection_cards), cols_per_row):
+        if mobile:
+            st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
         cols = st.columns(cols_per_row)
         for col_idx, (lot_idx, card_idx, lot, card) in enumerate(collection_cards[row_start:row_start + cols_per_row]):
             with cols[col_idx]:

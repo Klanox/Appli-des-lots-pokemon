@@ -436,8 +436,10 @@ def render_sales_page(context):
                 if "perf_count" in globals():
                     perf_count("cards_sales_rendered", len(all_found))
                     perf_count("cards_sales_available", all_found_total)
-                COLS_PER_ROW = 3 if is_mobile_mode() else 8
+                COLS_PER_ROW = 2 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
+                    if is_mobile_mode():
+                        st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
                     cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
                     for col_idx, (li, ci, card, lot, stock) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
                         in_cart = card.get("card_uid") in cart_keys
@@ -483,8 +485,10 @@ def render_sales_page(context):
                     rendered_sale_cards_count += len(cards_to_render)
                     if cards_to_render:
                         st.markdown(f"### Lot {lot['nom']}")
-                        COLS_PER_ROW = 3 if is_mobile_mode() else 8
+                        COLS_PER_ROW = 2 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_to_render), COLS_PER_ROW):
+                            if is_mobile_mode():
+                                st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
                             cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
                             for col_idx, (ci, card, stock) in enumerate(cards_to_render[row_start:row_start + COLS_PER_ROW]):
                                 in_cart = card.get("card_uid") in cart_keys

@@ -821,7 +821,7 @@ hr {{
 /* ── Mobile card grids (functional) ── */
 .mobile-card-grid {{
     display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.35rem !important;
     width: 100% !important;
 }}
@@ -887,7 +887,7 @@ hr {{
     }}
     div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {{
         display: grid !important;
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 0.25rem !important;
     }}
 }}
@@ -1370,7 +1370,7 @@ button[kind="primary"]:hover {{
     line-height: 1.25;
 }}
 .mobile-card-grid {{
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.65rem !important;
 }}
 .mobile-card-tile {{
@@ -1436,7 +1436,7 @@ button[kind="primary"]:hover {{
         gap: 0.55rem !important;
     }}
     .mobile-card-grid {{
-        grid-template-columns: 1fr !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }}
     .ps-lot-image-placeholder {{
         min-height: 8rem;
@@ -1480,7 +1480,7 @@ div[style*="display: flex"][style*="justify-content: center"] img {
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div { border-radius: 0 0 12px 12px !important; }
     div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
         display: grid !important;
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 0.25rem !important;
     }
     body:has([data-sale-mobile-marker]) .block-container,
@@ -1543,7 +1543,7 @@ img {
     height: auto;
 }
 .mobile-card-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.55rem !important;
 }
 .mobile-card-tile {

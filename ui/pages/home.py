@@ -348,8 +348,10 @@ def render_home_page(
 
         if results_found:
             st.caption(f"{len(results_found)} résultat(s) pour « {search_global} »")
-            COLS_S = 3 if st.session_state.get("mobile_mode") else 6
+            COLS_S = 2 if st.session_state.get("mobile_mode") else 6
             for row_start in range(0, len(results_found), COLS_S):
+                if st.session_state.get("mobile_mode"):
+                    st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
                 cols_s = st.columns(COLS_S, gap=None if st.session_state.get("mobile_mode") else "small")
                 for col_idx, res in enumerate(results_found[row_start:row_start + COLS_S]):
                     with cols_s[col_idx]:
