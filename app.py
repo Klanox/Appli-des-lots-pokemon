@@ -1611,19 +1611,20 @@ st.markdown("""
         max-width: 100% !important;
         padding: 0 !important;
     }
-    [data-testid="stElementContainer"]:has([data-mobile-search-grid-row]) + div[data-testid="stHorizontalBlock"],
-    [data-testid="stElementContainer"]:has([data-mobile-search-grid-row]) + div [data-testid="stHorizontalBlock"] {
+    [class*="st-key-mobile_search_grid_"] [data-testid="stHorizontalBlock"],
+    [class*="st-key-mobile-search-grid-"] [data-testid="stHorizontalBlock"] {
         display: grid !important;
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 0.28rem !important;
         width: 100% !important;
         max-width: 100% !important;
     }
-    [data-testid="stElementContainer"]:has([data-mobile-search-grid-row]) + div[data-testid="stHorizontalBlock"] [data-testid="column"],
-    [data-testid="stElementContainer"]:has([data-mobile-search-grid-row]) + div [data-testid="stHorizontalBlock"] [data-testid="column"] {
+    [class*="st-key-mobile_search_grid_"] [data-testid="column"],
+    [class*="st-key-mobile-search-grid-"] [data-testid="column"] {
         min-width: 0 !important;
         width: auto !important;
         max-width: 100% !important;
+        flex: none !important;
         padding: 0 !important;
     }
     img[src*="wsrv.nl"],

@@ -438,24 +438,24 @@ def render_sales_page(context):
                     perf_count("cards_sales_available", all_found_total)
                 COLS_PER_ROW = 2 if is_mobile_mode() else 8
                 for row_start in range(0, len(all_found), COLS_PER_ROW):
-                    if is_mobile_mode():
-                        st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
-                    cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
-                    for col_idx, (li, ci, card, lot, stock) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
-                        in_cart = card.get("card_uid") in cart_keys
-                        with cols[col_idx]:
-                            st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
-                            st.markdown(f"**{card['name']}**")
-                            st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
-                            st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
-                            if not is_mobile_mode():
-                                st.caption(f"Lot {lot['nom']}")
-                            q_key = card.get("card_uid") or f"{li}_{ci}"
-                            q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
-                            if in_cart:
-                                st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
-                            else:
-                                st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+                    grid_key = f"mobile_search_grid_sales_search_{row_start}" if is_mobile_mode() else None
+                    with (st.container(key=grid_key) if grid_key else st.container()):
+                        cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
+                        for col_idx, (li, ci, card, lot, stock) in enumerate(all_found[row_start:row_start + COLS_PER_ROW]):
+                            in_cart = card.get("card_uid") in cart_keys
+                            with cols[col_idx]:
+                                st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
+                                st.markdown(f"**{card['name']}**")
+                                st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
+                                st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
+                                if not is_mobile_mode():
+                                    st.caption(f"Lot {lot['nom']}")
+                                q_key = card.get("card_uid") or f"{li}_{ci}"
+                                q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
+                                if in_cart:
+                                    st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                else:
+                                    st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
             else:
                 # Pas de recherche : rendu progressif si tous les lots sont affiches.
                 rendered_sale_cards_count = 0
@@ -487,22 +487,22 @@ def render_sales_page(context):
                         st.markdown(f"### Lot {lot['nom']}")
                         COLS_PER_ROW = 2 if is_mobile_mode() else 8
                         for row_start in range(0, len(cards_to_render), COLS_PER_ROW):
-                            if is_mobile_mode():
-                                st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
-                            cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
-                            for col_idx, (ci, card, stock) in enumerate(cards_to_render[row_start:row_start + COLS_PER_ROW]):
-                                in_cart = card.get("card_uid") in cart_keys
-                                with cols[col_idx]:
-                                    st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
-                                    st.markdown(f"**{card['name']}**")
-                                    st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
-                                    st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
-                                    q_key = card.get("card_uid") or f"{li}_{ci}"
-                                    q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
-                                    if in_cart:
-                                        st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
-                                    else:
-                                        st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+                            grid_key = f"mobile_search_grid_sales_lot_{li}_{row_start}" if is_mobile_mode() else None
+                            with (st.container(key=grid_key) if grid_key else st.container()):
+                                cols = st.columns(COLS_PER_ROW, gap=None if is_mobile_mode() else "small")
+                                for col_idx, (ci, card, stock) in enumerate(cards_to_render[row_start:row_start + COLS_PER_ROW]):
+                                    in_cart = card.get("card_uid") in cart_keys
+                                    with cols[col_idx]:
+                                        st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
+                                        st.markdown(f"**{card['name']}**")
+                                        st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
+                                        st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
+                                        q_key = card.get("card_uid") or f"{li}_{ci}"
+                                        q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
+                                        if in_cart:
+                                            st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
+                                        else:
+                                            st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
                         st.markdown("---")
 
                 if "perf_count" in globals():

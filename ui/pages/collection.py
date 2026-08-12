@@ -538,113 +538,113 @@ def render_collection_page(
 
     cols_per_row = 2 if mobile else 8
     for row_start in range(0, len(collection_cards), cols_per_row):
-        if mobile:
-            st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
-        cols = st.columns(cols_per_row)
-        for col_idx, (lot_idx, card_idx, lot, card) in enumerate(collection_cards[row_start:row_start + cols_per_row]):
-            with cols[col_idx]:
-                st.markdown(collection_image_html_func(card), unsafe_allow_html=True)
-                card_name_html = html.escape(str(card.get("name", "Carte") or "Carte"))
-                st.markdown(
-                    f'<div style="font-weight:800;font-size:0.92rem;line-height:1.25;">'
-                    f'{card_name_html} {card_status_badges_func(card)}</div>',
-                    unsafe_allow_html=True,
-                )
-                meta = " · ".join(x for x in [card.get("set", ""), f"#{card.get('number','')}" if card.get("number") else ""] if x)
-                if meta:
-                    st.caption(meta)
-                st.caption(
-                    f"📦 {lot.get('nom','Lot')} · x{int(card.get('quantity',1) or 1)}"
-                    f" · Valeur {fp_func(collection_current_value_func(card))}"
-                    f" · Payé {fp_func(collection_paid_total_func(card, lot))}"
-                )
-                card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
-                action_key = f"collection_action_{lot_idx}_{card_idx}_{card_uid}"
-                confirm_key = f"confirm_{action_key}"
-                image_panel_key = f"image_panel_{action_key}"
-
-                if collection_image_needs_manual_func(card) or collection_has_manual_image_func(card):
-                    image_button_label = "🖼️ Modifier l'image" if collection_has_manual_image_func(card) else "🖼️ Ajouter une image"
-                    if st.button(image_button_label, key=f"toggle_image_{action_key}", width="stretch"):
-                        st.session_state[image_panel_key] = not st.session_state.get(image_panel_key, False)
-
-                if st.session_state.get(image_panel_key, False):
-                    uploaded_manual = st.file_uploader(
-                        "Image depuis le PC",
-                        type=["png", "jpg", "jpeg", "webp"],
-                        key=f"manual_upload_{action_key}",
-                        label_visibility="collapsed",
+        grid_key = f"mobile_search_grid_collection_{row_start}" if mobile else None
+        with (st.container(key=grid_key) if grid_key else st.container()):
+            cols = st.columns(cols_per_row)
+            for col_idx, (lot_idx, card_idx, lot, card) in enumerate(collection_cards[row_start:row_start + cols_per_row]):
+                with cols[col_idx]:
+                    st.markdown(collection_image_html_func(card), unsafe_allow_html=True)
+                    card_name_html = html.escape(str(card.get("name", "Carte") or "Carte"))
+                    st.markdown(
+                        f'<div style="font-weight:800;font-size:0.92rem;line-height:1.25;">'
+                        f'{card_name_html} {card_status_badges_func(card)}</div>',
+                        unsafe_allow_html=True,
                     )
-                    manual_url_value = st.text_input(
-                        "URL image",
-                        value=str(card.get("manual_image_url", "") or ""),
-                        placeholder="https://...",
-                        key=f"manual_url_{action_key}",
-                        label_visibility="collapsed",
+                    meta = " · ".join(x for x in [card.get("set", ""), f"#{card.get('number','')}" if card.get("number") else ""] if x)
+                    if meta:
+                        st.caption(meta)
+                    st.caption(
+                        f"📦 {lot.get('nom','Lot')} · x{int(card.get('quantity',1) or 1)}"
+                        f" · Valeur {fp_func(collection_current_value_func(card))}"
+                        f" · Payé {fp_func(collection_paid_total_func(card, lot))}"
                     )
-                    img_cols = st.columns(2)
-                    if img_cols[0].button("Enregistrer", key=f"save_manual_image_{action_key}", width="stretch"):
-                        ok, msg = save_collection_manual_image_func(
-                            lot_idx,
-                            card_idx,
-                            card_uid,
-                            manual_url=manual_url_value,
-                            uploaded_file=uploaded_manual,
-                        )
-                        if ok:
-                            st.success(msg)
-                            st.session_state.pop(image_panel_key, None)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-                    if collection_has_manual_image_func(card) and img_cols[1].button("Retirer", key=f"clear_manual_image_{action_key}", width="stretch"):
-                        ok, msg = save_collection_manual_image_func(
-                            lot_idx,
-                            card_idx,
-                            card_uid,
-                            clear_manual=True,
-                        )
-                        if ok:
-                            st.success(msg)
-                            st.session_state.pop(image_panel_key, None)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                    card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
+                    action_key = f"collection_action_{lot_idx}_{card_idx}_{card_uid}"
+                    confirm_key = f"confirm_{action_key}"
+                    image_panel_key = f"image_panel_{action_key}"
 
-                if is_collection_system_lot_func(lot):
-                    if st.button("🗑️ Supprimer", key=f"delete_{action_key}", width="stretch"):
-                        st.session_state[confirm_key] = "delete"
-                    if st.session_state.get(confirm_key) == "delete":
-                        st.warning("Supprimer définitivement cette carte de la Collection ?")
-                        yes_col, no_col = st.columns(2)
-                        if yes_col.button("Oui", key=f"yes_delete_{action_key}", type="primary"):
-                            ok, msg = delete_collection_card_func(lot_idx, card_idx, card_uid)
+                    if collection_image_needs_manual_func(card) or collection_has_manual_image_func(card):
+                        image_button_label = "🖼️ Modifier l'image" if collection_has_manual_image_func(card) else "🖼️ Ajouter une image"
+                        if st.button(image_button_label, key=f"toggle_image_{action_key}", width="stretch"):
+                            st.session_state[image_panel_key] = not st.session_state.get(image_panel_key, False)
+
+                    if st.session_state.get(image_panel_key, False):
+                        uploaded_manual = st.file_uploader(
+                            "Image depuis le PC",
+                            type=["png", "jpg", "jpeg", "webp"],
+                            key=f"manual_upload_{action_key}",
+                            label_visibility="collapsed",
+                        )
+                        manual_url_value = st.text_input(
+                            "URL image",
+                            value=str(card.get("manual_image_url", "") or ""),
+                            placeholder="https://...",
+                            key=f"manual_url_{action_key}",
+                            label_visibility="collapsed",
+                        )
+                        img_cols = st.columns(2)
+                        if img_cols[0].button("Enregistrer", key=f"save_manual_image_{action_key}", width="stretch"):
+                            ok, msg = save_collection_manual_image_func(
+                                lot_idx,
+                                card_idx,
+                                card_uid,
+                                manual_url=manual_url_value,
+                                uploaded_file=uploaded_manual,
+                            )
                             if ok:
-                                st.session_state.pop(confirm_key, None)
                                 st.success(msg)
+                                st.session_state.pop(image_panel_key, None)
                                 st.rerun()
                             else:
                                 st.error(msg)
-                        if no_col.button("Non", key=f"no_delete_{action_key}"):
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
-                else:
-                    if st.button("↩️ Retirer Collection", key=f"unkeep_{action_key}", width="stretch"):
-                        st.session_state[confirm_key] = "unkeep"
-                    if st.session_state.get(confirm_key) == "unkeep":
-                        st.warning("Retirer le statut Collection ? La carte restera dans son lot d'origine.")
-                        yes_col, no_col = st.columns(2)
-                        if yes_col.button("Oui", key=f"yes_unkeep_{action_key}", type="primary"):
-                            ok, msg = remove_collection_status_func(lot_idx, card_idx, card_uid)
+                        if collection_has_manual_image_func(card) and img_cols[1].button("Retirer", key=f"clear_manual_image_{action_key}", width="stretch"):
+                            ok, msg = save_collection_manual_image_func(
+                                lot_idx,
+                                card_idx,
+                                card_uid,
+                                clear_manual=True,
+                            )
                             if ok:
-                                st.session_state.pop(confirm_key, None)
                                 st.success(msg)
+                                st.session_state.pop(image_panel_key, None)
                                 st.rerun()
                             else:
                                 st.error(msg)
-                        if no_col.button("Non", key=f"no_unkeep_{action_key}"):
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
+
+                    if is_collection_system_lot_func(lot):
+                        if st.button("🗑️ Supprimer", key=f"delete_{action_key}", width="stretch"):
+                            st.session_state[confirm_key] = "delete"
+                        if st.session_state.get(confirm_key) == "delete":
+                            st.warning("Supprimer définitivement cette carte de la Collection ?")
+                            yes_col, no_col = st.columns(2)
+                            if yes_col.button("Oui", key=f"yes_delete_{action_key}", type="primary"):
+                                ok, msg = delete_collection_card_func(lot_idx, card_idx, card_uid)
+                                if ok:
+                                    st.session_state.pop(confirm_key, None)
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                            if no_col.button("Non", key=f"no_delete_{action_key}"):
+                                st.session_state.pop(confirm_key, None)
+                                st.rerun()
+                    else:
+                        if st.button("↩️ Retirer Collection", key=f"unkeep_{action_key}", width="stretch"):
+                            st.session_state[confirm_key] = "unkeep"
+                        if st.session_state.get(confirm_key) == "unkeep":
+                            st.warning("Retirer le statut Collection ? La carte restera dans son lot d'origine.")
+                            yes_col, no_col = st.columns(2)
+                            if yes_col.button("Oui", key=f"yes_unkeep_{action_key}", type="primary"):
+                                ok, msg = remove_collection_status_func(lot_idx, card_idx, card_uid)
+                                if ok:
+                                    st.session_state.pop(confirm_key, None)
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                            if no_col.button("Non", key=f"no_unkeep_{action_key}"):
+                                st.session_state.pop(confirm_key, None)
+                                st.rerun()
 
     if mobile and not search_collection and total_collection_matches > len(collection_cards):
         if st.button("Afficher plus de cartes Collection", key="collection_mobile_show_more", width="stretch"):

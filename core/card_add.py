@@ -674,74 +674,74 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
             popup_lang = popup_data.get("lang", "fr")
             cols_count = 2 if st.session_state.get("mobile_mode") else min(len(popup_data["matches"]), 4)
             cols_count = max(1, min(len(popup_data["matches"]), cols_count))
-            if st.session_state.get("mobile_mode"):
-                st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
-            cols = st.columns(cols_count, gap=None if st.session_state.get("mobile_mode") else "small")
+            grid_key = f"mobile_search_grid_popup_{li}_{os.path.basename(popup_file).replace('.', '_')}" if st.session_state.get("mobile_mode") else None
+            with (st.container(key=grid_key) if grid_key else st.container()):
+                cols = st.columns(cols_count, gap=None if st.session_state.get("mobile_mode") else "small")
 
-            for idx_p, (card_dict, set_name) in enumerate(popup_data["matches"]):
-                with cols[idx_p % cols_count]:
-                    img = _popup_candidate_image(card_dict)
-                    if img:
-                        safe_src = html.escape(proxy_img(img), quote=True)
-                        safe_name = html.escape(card_dict.get("name", "Carte"), quote=True)
-                        st.markdown(f'<div class="choice-card-imgbox"><img src="{safe_src}" alt="{safe_name}"></div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="choice-card-imgbox">🃏</div>', unsafe_allow_html=True)
-                        if popup_lang == "ja":
-                            cm_url = html.escape(cardmarket_search_url(card_dict.get("name", "")), quote=True)
-                            st.markdown(f'<a href="{cm_url}" target="_blank" style="font-size:0.75rem;color:#3b4cca;text-decoration:none;">🔍 Voir sur Cardmarket</a>', unsafe_allow_html=True)
+                for idx_p, (card_dict, set_name) in enumerate(popup_data["matches"]):
+                    with cols[idx_p % cols_count]:
+                        img = _popup_candidate_image(card_dict)
+                        if img:
+                            safe_src = html.escape(proxy_img(img), quote=True)
+                            safe_name = html.escape(card_dict.get("name", "Carte"), quote=True)
+                            st.markdown(f'<div class="choice-card-imgbox"><img src="{safe_src}" alt="{safe_name}"></div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown('<div class="choice-card-imgbox">🃏</div>', unsafe_allow_html=True)
+                            if popup_lang == "ja":
+                                cm_url = html.escape(cardmarket_search_url(card_dict.get("name", "")), quote=True)
+                                st.markdown(f'<a href="{cm_url}" target="_blank" style="font-size:0.75rem;color:#3b4cca;text-decoration:none;">🔍 Voir sur Cardmarket</a>', unsafe_allow_html=True)
 
-                    display_name = set_name.replace("🇯🇵 ", "") if popup_lang == "ja" else card_dict.get("name", "")
-                    st.caption(f"{display_name}")
-                    _render_popup_candidate_details(card_dict, set_name)
-                    set_caption = str(set_name or "").replace("ðŸ‡¯ðŸ‡µ ", "").strip()
-                    number_caption = _popup_candidate_number(card_dict)
-                    details_caption = " · ".join(x for x in [set_caption, f"#{number_caption}" if number_caption else ""] if x)
-                    if details_caption:
-                        pass
+                        display_name = set_name.replace("🇯🇵 ", "") if popup_lang == "ja" else card_dict.get("name", "")
+                        st.caption(f"{display_name}")
+                        _render_popup_candidate_details(card_dict, set_name)
+                        set_caption = str(set_name or "").replace("ðŸ‡¯ðŸ‡µ ", "").strip()
+                        number_caption = _popup_candidate_number(card_dict)
+                        details_caption = " · ".join(x for x in [set_caption, f"#{number_caption}" if number_caption else ""] if x)
+                        if details_caption:
+                            pass
 
-                    if st.button("Choisir", key=f"choose_{popup_file}_{idx_p}"):
-                        os.remove(popup_file)
-                        pending_vals = list(popup_data.get("pending", []))
-                        pending_vals += [""] * (10 - len(pending_vals))
-                        n, sn, num, q, co, p, ir, ie, special_tag, collection_keep_pending = pending_vals[:10]
-                        name_override = popup_data.get("name_override", "")
-                        pa_carte_popup = popup_data.get("pa_carte", 0.)
-                        cd_add = ld()
-                        if li >= len(cd_add.get("lots", [])):
-                            st.error("Lot introuvable pendant l'ajout.")
+                        if st.button("Choisir", key=f"choose_{popup_file}_{idx_p}"):
+                            os.remove(popup_file)
+                            pending_vals = list(popup_data.get("pending", []))
+                            pending_vals += [""] * (10 - len(pending_vals))
+                            n, sn, num, q, co, p, ir, ie, special_tag, collection_keep_pending = pending_vals[:10]
+                            name_override = popup_data.get("name_override", "")
+                            pa_carte_popup = popup_data.get("pa_carte", 0.)
+                            cd_add = ld()
+                            if li >= len(cd_add.get("lots", [])):
+                                st.error("Lot introuvable pendant l'ajout.")
+                                st.rerun()
+                            lot_now = cd_add["lots"][li]
+                            if lot_now.get("is_divers") and collection_keep_pending:
+                                st.error("Les cartes Collection doivent être ajoutées depuis le menu Collection, pas depuis Divers.")
+                                st.rerun()
+
+                            nc = ecd(card_dict, set_name, lang=popup_lang)
+                            nc["card_uid"] = new_uid("card")
+                            nc["quantity"] = q if q else 1
+                            nc["condition"] = co
+                            nc["suggested_price"] = p if p else 0.
+                            nc["is_reverse"] = ir
+                            nc["is_ed1"] = ie
+                            if name_override:
+                                nc["name"] = name_override
+                            if lot_now.get("is_divers") and pa_carte_popup > 0:
+                                nc["purchase_price"] = pa_carte_popup
+                            if special_tag:
+                                nc["special_tag"] = special_tag
+                            if collection_keep_pending:
+                                nc["is_collection_keep"] = True
+                                nc["collection_current_value"] = float(p or 0.)
+                                nc["collection_purchase_price"] = float(pa_carte_popup or 0.)
+                            apply_custom_image_fallback(nc)
+                            add_or_merge_collection_card(cd_add, li, nc)
+                            if lot_now.get("is_divers"):
+                                cd_add["lots"][li]["prix_achat"] = sum(c.get("purchase_price", 0.) for c in cd_add["lots"][li]["cards"])
+                            sd(cd_add)
+                            if form_ts_key:
+                                st.session_state[form_ts_key] = time.time()
+                            st.session_state[f"lot_expanded_{li}"] = True
                             st.rerun()
-                        lot_now = cd_add["lots"][li]
-                        if lot_now.get("is_divers") and collection_keep_pending:
-                            st.error("Les cartes Collection doivent être ajoutées depuis le menu Collection, pas depuis Divers.")
-                            st.rerun()
-
-                        nc = ecd(card_dict, set_name, lang=popup_lang)
-                        nc["card_uid"] = new_uid("card")
-                        nc["quantity"] = q if q else 1
-                        nc["condition"] = co
-                        nc["suggested_price"] = p if p else 0.
-                        nc["is_reverse"] = ir
-                        nc["is_ed1"] = ie
-                        if name_override:
-                            nc["name"] = name_override
-                        if lot_now.get("is_divers") and pa_carte_popup > 0:
-                            nc["purchase_price"] = pa_carte_popup
-                        if special_tag:
-                            nc["special_tag"] = special_tag
-                        if collection_keep_pending:
-                            nc["is_collection_keep"] = True
-                            nc["collection_current_value"] = float(p or 0.)
-                            nc["collection_purchase_price"] = float(pa_carte_popup or 0.)
-                        apply_custom_image_fallback(nc)
-                        add_or_merge_collection_card(cd_add, li, nc)
-                        if lot_now.get("is_divers"):
-                            cd_add["lots"][li]["prix_achat"] = sum(c.get("purchase_price", 0.) for c in cd_add["lots"][li]["cards"])
-                        sd(cd_add)
-                        if form_ts_key:
-                            st.session_state[form_ts_key] = time.time()
-                        st.session_state[f"lot_expanded_{li}"] = True
-                        st.rerun()
         except Exception:
             try:
                 os.remove(popup_file)

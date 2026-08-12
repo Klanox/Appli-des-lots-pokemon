@@ -885,11 +885,6 @@ hr {{
         position: static !important;
         z-index: auto !important;
     }}
-    div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {{
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        gap: 0.25rem !important;
-    }}
 }}
 
 /* ── PokéStock Collector Premium overrides ── */
@@ -1478,11 +1473,6 @@ div[style*="display: flex"][style*="justify-content: center"] img {
     }
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div { border-radius: 12px 12px 0 0 !important; }
     [data-testid="stElementContainer"]:has([data-add-card-form-marker]) + div + div + div + div { border-radius: 0 0 12px 12px !important; }
-    div[data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        gap: 0.25rem !important;
-    }
     body:has([data-sale-mobile-marker]) .block-container,
     .stApp:has([data-sale-mobile-marker]) .block-container {
         max-width: 100% !important;

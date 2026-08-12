@@ -5693,162 +5693,162 @@ def _render_open_estimation(
         cols_per_row = 2 if mobile_mode else 6
         tracked_render_started = time.perf_counter()
         for row_start in range(0, len(render_cards), cols_per_row):
-            if mobile_mode:
-                st.markdown('<span data-mobile-search-grid-row="1"></span>', unsafe_allow_html=True)
-            cols = st.columns(cols_per_row)
-            for cidx, card in enumerate(render_cards[row_start : row_start + cols_per_row]):
-                with cols[cidx]:
-                    if _is_quick_bulk_entry(card):
-                        card_uid = card.get("uid") or f"bulk_{row_start}_{cidx}"
-                        _render_quick_bulk_card(card, fp_func)
-                        if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
-                            _mark_estimation_needs_review(estimate)
-                            estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
-                            save_estimations_func(edata)
-                            st.rerun()
-                        continue
-                    card_meta = _render_tracked_card(
-                        card,
-                        estimate,
-                        fp_func,
-                        img_with_fallback_func,
-                        cardmarket_search_url_func,
-                        normalize_name_func,
-                        proxy_img_func=proxy_img_func,
-                        market_cache=market_cache,
-                    )
-                    card_uid = card.get("uid") or f"{row_start}_{cidx}"
-                    cote_key = f"est_card_cote_{uid}_{card_uid}"
-                    cote_seen_key = f"{cote_key}_seen"
-                    qty_edit_key = f"est_card_qty_{uid}_{card_uid}"
-                    qty_seen_key = f"{qty_edit_key}_seen"
-                    current_cote = _safe_float(card.get("cote"))
-                    if cote_key not in st.session_state:
-                        st.session_state[cote_key] = f"{current_cote:.2f}".replace(".", ",") if current_cote > 0 else ""
-                    st.markdown('<span class="est-tracked-bubble-marker"></span>', unsafe_allow_html=True)
-                    with st.container(border=True):
-                        st.markdown(f"**{str(card.get('name') or 'Carte')}**")
-                        if card_meta.get("tags"):
-                            st.caption(card_meta["tags"])
-                        badge_parts = list(card_meta.get("badges", []) or [])
-                        if card_meta.get("market_badge_label"):
-                            badge_parts.append(card_meta["market_badge_label"])
-                        if badge_parts:
-                            st.caption(" · ".join(str(part) for part in badge_parts if part))
-                        current_qty = _safe_int(card.get("quantity"))
-                        edited_qty = st.number_input("Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key)
-                        previous_qty_seen = st.session_state.get(qty_seen_key)
-                        st.session_state[qty_seen_key] = int(edited_qty)
-                        if previous_qty_seen is not None and int(edited_qty) != previous_qty_seen and int(edited_qty) != current_qty:
-                            print(
-                                f'[Estimations Quantity] card="{card.get("name", "Carte")}" old={current_qty} new={int(edited_qty)}',
-                                flush=True,
-                            )
-                            _mark_estimation_needs_review(estimate)
-                            card["quantity"] = int(edited_qty)
-                            save_estimations_func(edata)
-                            st.rerun()
-                        cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
-                        st.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
-                        cote_text = st.text_input("Cote (€)", key=cote_key, placeholder="0,00")
-                        new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
-                        previous_cote_seen = st.session_state.get(cote_seen_key)
-                        st.session_state[cote_seen_key] = str(cote_text or "")
-                        if previous_cote_seen is not None and str(cote_text or "") != previous_cote_seen and abs(new_cote - current_cote) > 0.009:
-                            _mark_estimation_needs_review(estimate)
-                            card["cote"] = new_cote
-                            mark_manual_price(card, new_cote)
-                            if new_cote > 0:
-                                upsert_market_price(
-                                    market_cache,
-                                    card,
-                                    new_cote,
-                                    origin="manual_estimation",
-                                    source=f"Estimation · {estimate.get('name', 'sans nom')}",
-                                    confidence="saisie manuelle",
-                                )
-                                save_market_price_cache(market_cache)
-                                st.session_state["market_price_cache"] = market_cache
-                            save_estimations_func(edata)
-                            st.rerun()
-                        auto_price = _safe_float(card.get("auto_price"))
-                        if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
-                            if st.button("Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch"):
+            grid_key = f"mobile_search_grid_estimations_{uid}_{row_start}" if mobile_mode else None
+            with (st.container(key=grid_key) if grid_key else st.container()):
+                cols = st.columns(cols_per_row)
+                for cidx, card in enumerate(render_cards[row_start : row_start + cols_per_row]):
+                    with cols[cidx]:
+                        if _is_quick_bulk_entry(card):
+                            card_uid = card.get("uid") or f"bulk_{row_start}_{cidx}"
+                            _render_quick_bulk_card(card, fp_func)
+                            if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
                                 _mark_estimation_needs_review(estimate)
-                                card["cote"] = auto_price
-                                card["market_price_origin"] = "auto"
-                                card.pop("manual_price", None)
-                                st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
+                                estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
                                 save_estimations_func(edata)
                                 st.rerun()
-                        if st.button("Actualiser la cote", key=f"refresh_market_card_{uid}_{card_uid}", width="stretch"):
-                            result = apply_market_price_to_card(card, market_cache)
-                            if result.get("applied"):
-                                st.session_state[cote_key] = f"{_safe_float(card.get('cote')):.2f}".replace(".", ",")
-                                save_estimations_func(edata)
-                                st.success("Cote actualisée depuis la mémoire.")
-                            elif result.get("reason") == "manual_preserved":
-                                save_estimations_func(edata)
-                                st.info("Cote manuelle conservée. Utilise le bouton dédié pour appliquer la cote auto.")
-                            else:
-                                st.info("Aucune cote automatique suffisamment fiable.")
-                            st.rerun()
-                        st.markdown(
-                            f"""
-                            <div class="est-card-mini-grid">
-                                <div><span>Payé estimé</span><strong>{html.escape(card_meta["paid_label"])}</strong></div>
-                                <div class="{html.escape(card_meta["margin_class"])}"><span>Marge</span><strong>{html.escape(card_meta["margin_label"])}</strong></div>
-                            </div>
-                            <a class="est-cardmarket-link" href="{card_meta["cm_url"]}" target="_blank">Chercher la cote sur Cardmarket</a>
-                            """,
-                            unsafe_allow_html=True,
+                            continue
+                        card_meta = _render_tracked_card(
+                            card,
+                            estimate,
+                            fp_func,
+                            img_with_fallback_func,
+                            cardmarket_search_url_func,
+                            normalize_name_func,
+                            proxy_img_func=proxy_img_func,
+                            market_cache=market_cache,
                         )
-                        if not card_meta.get("has_image"):
-                            if st.button("Actualiser l'image", key=f"est_refresh_img_{uid}_{card_uid}", width="stretch"):
-                                if _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func):
-                                    _mark_estimation_needs_review(estimate)
-                                    save_estimations_func(edata)
-                                st.rerun()
-                        upload_label = "Remplacer la photo" if card_meta.get("has_manual_image") else "Ajouter une photo"
-                        if (not card_meta.get("has_image")) or card_meta.get("has_manual_image"):
-                            with st.expander(upload_label, expanded=False):
-                                uploaded = st.file_uploader(
-                                    upload_label,
-                                    type=["png", "jpg", "jpeg", "webp"],
-                                    key=f"est_manual_img_upload_{uid}_{card_uid}",
+                        card_uid = card.get("uid") or f"{row_start}_{cidx}"
+                        cote_key = f"est_card_cote_{uid}_{card_uid}"
+                        cote_seen_key = f"{cote_key}_seen"
+                        qty_edit_key = f"est_card_qty_{uid}_{card_uid}"
+                        qty_seen_key = f"{qty_edit_key}_seen"
+                        current_cote = _safe_float(card.get("cote"))
+                        if cote_key not in st.session_state:
+                            st.session_state[cote_key] = f"{current_cote:.2f}".replace(".", ",") if current_cote > 0 else ""
+                        st.markdown('<span class="est-tracked-bubble-marker"></span>', unsafe_allow_html=True)
+                        with st.container(border=True):
+                            st.markdown(f"**{str(card.get('name') or 'Carte')}**")
+                            if card_meta.get("tags"):
+                                st.caption(card_meta["tags"])
+                            badge_parts = list(card_meta.get("badges", []) or [])
+                            if card_meta.get("market_badge_label"):
+                                badge_parts.append(card_meta["market_badge_label"])
+                            if badge_parts:
+                                st.caption(" · ".join(str(part) for part in badge_parts if part))
+                            current_qty = _safe_int(card.get("quantity"))
+                            edited_qty = st.number_input("Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key)
+                            previous_qty_seen = st.session_state.get(qty_seen_key)
+                            st.session_state[qty_seen_key] = int(edited_qty)
+                            if previous_qty_seen is not None and int(edited_qty) != previous_qty_seen and int(edited_qty) != current_qty:
+                                print(
+                                    f'[Estimations Quantity] card="{card.get("name", "Carte")}" old={current_qty} new={int(edited_qty)}',
+                                    flush=True,
                                 )
-                                if uploaded:
-                                    st.image(uploaded, width=110)
-                                    if st.button("Enregistrer la photo", key=f"est_manual_img_save_{uid}_{card_uid}", width="stretch"):
-                                        saved_path = _save_estimation_manual_image(card, uploaded)
-                                        if saved_path:
+                                _mark_estimation_needs_review(estimate)
+                                card["quantity"] = int(edited_qty)
+                                save_estimations_func(edata)
+                                st.rerun()
+                            cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
+                            st.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
+                            cote_text = st.text_input("Cote (€)", key=cote_key, placeholder="0,00")
+                            new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
+                            previous_cote_seen = st.session_state.get(cote_seen_key)
+                            st.session_state[cote_seen_key] = str(cote_text or "")
+                            if previous_cote_seen is not None and str(cote_text or "") != previous_cote_seen and abs(new_cote - current_cote) > 0.009:
+                                _mark_estimation_needs_review(estimate)
+                                card["cote"] = new_cote
+                                mark_manual_price(card, new_cote)
+                                if new_cote > 0:
+                                    upsert_market_price(
+                                        market_cache,
+                                        card,
+                                        new_cote,
+                                        origin="manual_estimation",
+                                        source=f"Estimation · {estimate.get('name', 'sans nom')}",
+                                        confidence="saisie manuelle",
+                                    )
+                                    save_market_price_cache(market_cache)
+                                    st.session_state["market_price_cache"] = market_cache
+                                save_estimations_func(edata)
+                                st.rerun()
+                            auto_price = _safe_float(card.get("auto_price"))
+                            if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
+                                if st.button("Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch"):
+                                    _mark_estimation_needs_review(estimate)
+                                    card["cote"] = auto_price
+                                    card["market_price_origin"] = "auto"
+                                    card.pop("manual_price", None)
+                                    st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
+                                    save_estimations_func(edata)
+                                    st.rerun()
+                            if st.button("Actualiser la cote", key=f"refresh_market_card_{uid}_{card_uid}", width="stretch"):
+                                result = apply_market_price_to_card(card, market_cache)
+                                if result.get("applied"):
+                                    st.session_state[cote_key] = f"{_safe_float(card.get('cote')):.2f}".replace(".", ",")
+                                    save_estimations_func(edata)
+                                    st.success("Cote actualisée depuis la mémoire.")
+                                elif result.get("reason") == "manual_preserved":
+                                    save_estimations_func(edata)
+                                    st.info("Cote manuelle conservée. Utilise le bouton dédié pour appliquer la cote auto.")
+                                else:
+                                    st.info("Aucune cote automatique suffisamment fiable.")
+                                st.rerun()
+                            st.markdown(
+                                f"""
+                                <div class="est-card-mini-grid">
+                                    <div><span>Payé estimé</span><strong>{html.escape(card_meta["paid_label"])}</strong></div>
+                                    <div class="{html.escape(card_meta["margin_class"])}"><span>Marge</span><strong>{html.escape(card_meta["margin_label"])}</strong></div>
+                                </div>
+                                <a class="est-cardmarket-link" href="{card_meta["cm_url"]}" target="_blank">Chercher la cote sur Cardmarket</a>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                            if not card_meta.get("has_image"):
+                                if st.button("Actualiser l'image", key=f"est_refresh_img_{uid}_{card_uid}", width="stretch"):
+                                    if _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func):
+                                        _mark_estimation_needs_review(estimate)
+                                        save_estimations_func(edata)
+                                    st.rerun()
+                            upload_label = "Remplacer la photo" if card_meta.get("has_manual_image") else "Ajouter une photo"
+                            if (not card_meta.get("has_image")) or card_meta.get("has_manual_image"):
+                                with st.expander(upload_label, expanded=False):
+                                    uploaded = st.file_uploader(
+                                        upload_label,
+                                        type=["png", "jpg", "jpeg", "webp"],
+                                        key=f"est_manual_img_upload_{uid}_{card_uid}",
+                                    )
+                                    if uploaded:
+                                        st.image(uploaded, width=110)
+                                        if st.button("Enregistrer la photo", key=f"est_manual_img_save_{uid}_{card_uid}", width="stretch"):
+                                            saved_path = _save_estimation_manual_image(card, uploaded)
+                                            if saved_path:
+                                                _mark_estimation_needs_review(estimate)
+                                                card["manual_image_path"] = saved_path
+                                                card.pop("manual_image_url", None)
+                                                save_estimations_func(edata)
+                                                print(
+                                                    f'[Estimations Manual Image] card="{card.get("name", "Carte")}" '
+                                                    f'action=upload saved=yes path="{saved_path}"',
+                                                    flush=True,
+                                                )
+                                                st.rerun()
+                                    if card_meta.get("has_manual_image"):
+                                        if st.button("Supprimer la photo manuelle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
                                             _mark_estimation_needs_review(estimate)
-                                            card["manual_image_path"] = saved_path
+                                            card.pop("manual_image_path", None)
                                             card.pop("manual_image_url", None)
                                             save_estimations_func(edata)
                                             print(
-                                                f'[Estimations Manual Image] card="{card.get("name", "Carte")}" '
-                                                f'action=upload saved=yes path="{saved_path}"',
+                                                f'[Estimations Manual Image] card="{card.get("name", "Carte")}" action=delete saved=yes',
                                                 flush=True,
                                             )
                                             st.rerun()
-                                if card_meta.get("has_manual_image"):
-                                    if st.button("Supprimer la photo manuelle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
-                                        _mark_estimation_needs_review(estimate)
-                                        card.pop("manual_image_path", None)
-                                        card.pop("manual_image_url", None)
-                                        save_estimations_func(edata)
-                                        print(
-                                            f'[Estimations Manual Image] card="{card.get("name", "Carte")}" action=delete saved=yes',
-                                            flush=True,
-                                        )
-                                        st.rerun()
-                        st.markdown('<span class="est-retirer-marker"></span>', unsafe_allow_html=True)
-                        if st.button("Retirer", key=f"del_est_card_box_{uid}_{card_uid}"):
-                            _mark_estimation_needs_review(estimate)
-                            estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
-                            save_estimations_func(edata)
-                            st.rerun()
+                            st.markdown('<span class="est-retirer-marker"></span>', unsafe_allow_html=True)
+                            if st.button("Retirer", key=f"del_est_card_box_{uid}_{card_uid}"):
+                                _mark_estimation_needs_review(estimate)
+                                estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
+                                save_estimations_func(edata)
+                                st.rerun()
         _perf_log_once(
             "tracked_cards",
             f'{uid}|{len(render_cards)}|{len(visible_cards)}|{normalize_name_func(internal_query)}',
