@@ -257,7 +257,7 @@ def _render_pull_rates_section(datasets: dict) -> None:
     series = infer_market_series(datasets.get("series_config"))
     pull_rates = normalise_market_pull_rates(datasets.get("pull_rates"), series)
     table = [_entry_to_table_row(item, pull_rates) for item in series]
-    st.dataframe(table, hide_index=True, use_container_width=True)
+    st.dataframe(table, hide_index=True, width="stretch")
 
     options = {f"{item['release_rank']:02d} · {item['name_fr']} ({item['set_id']})": item for item in series}
     selected_label = st.selectbox(
@@ -387,7 +387,6 @@ def _render_cardtrader_test_section() -> None:
 
 
 def _render_technical_panel(datasets: dict) -> None:
-    st.markdown('<div class="market-technical-panel">', unsafe_allow_html=True)
     with st.expander("Paramètres et sources", expanded=False):
         audit = audit_price_source()
         if audit.get("exact_cardmarket_fr_nm_available"):
@@ -440,7 +439,6 @@ def _render_technical_panel(datasets: dict) -> None:
         for key, path in MARKET_DATASETS.items():
             st.caption(f"{key} : {path}")
         st.caption("Ces fichiers sont séparés de data.json et réservés au module Marché.")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_market_page(*, render_page_header_func=None, fp_func=None, is_mobile_mode_func=None):

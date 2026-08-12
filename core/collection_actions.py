@@ -18,6 +18,7 @@ from core.collection import (
     is_collection_system_lot,
     same_collection_card,
 )
+from services.custom_card_image_service import register_custom_card_image
 
 
 def next_lot_card_sequence(lot):
@@ -324,6 +325,7 @@ def save_collection_manual_image(
             return False, "Cette URL ne semble pas pointer vers une image valide."
         card["manual_image_url"] = manual_url
         card.pop("manual_image_path", None)
+        register_custom_card_image(card, manual_url, source="collection_manual_url")
         sd_func(cd_manual)
         return True, f"Image URL enregistrée. Sauvegarde : {backup_dir}"
 
@@ -339,6 +341,7 @@ def save_collection_manual_image(
             f.write(uploaded_file.getbuffer())
         card["manual_image_path"] = target_path.replace("\\", "/")
         card.pop("manual_image_url", None)
+        register_custom_card_image(card, card["manual_image_path"], source="collection_upload")
         sd_func(cd_manual)
         return True, f"Image uploadée. Sauvegarde : {backup_dir}"
 

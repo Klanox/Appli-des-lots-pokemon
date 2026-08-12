@@ -9,6 +9,8 @@ import time
 
 import streamlit as st
 
+from services.custom_card_image_service import resolve_custom_card_image
+
 
 def _collection_parse_float(value):
     try:
@@ -62,6 +64,8 @@ def _collection_card_number(card):
 
 def _collection_card_image_url(card):
     url = str(card.get("image") or card.get("image_url") or card.get("image_url_en") or "").strip()
+    if not url:
+        url = resolve_custom_card_image(card)
     if url and not url.endswith((".webp", ".png", ".jpg", ".jpeg")):
         url = url.rstrip("/") + "/high.webp"
     return url
@@ -563,11 +567,6 @@ def render_collection_page(
                         st.session_state[image_panel_key] = not st.session_state.get(image_panel_key, False)
 
                 if st.session_state.get(image_panel_key, False):
-                    st.markdown(
-                        '<div style="padding:0.55rem;margin:0.35rem 0;border:1px dashed #94a3b8;'
-                        'border-radius:10px;background:#f8fafc;">',
-                        unsafe_allow_html=True,
-                    )
                     uploaded_manual = st.file_uploader(
                         "Image depuis le PC",
                         type=["png", "jpg", "jpeg", "webp"],
@@ -609,7 +608,6 @@ def render_collection_page(
                             st.rerun()
                         else:
                             st.error(msg)
-                    st.markdown("</div>", unsafe_allow_html=True)
 
                 if is_collection_system_lot_func(lot):
                     if st.button("🗑️ Supprimer", key=f"delete_{action_key}", width="stretch"):

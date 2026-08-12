@@ -5,10 +5,43 @@ It does not save application data.
 """
 
 from collections import defaultdict
+from datetime import date, datetime, timedelta
 import json
 import os
 
 import streamlit as st
+from services.stock_history_service import (
+    add_stock_annotation,
+    delete_stock_annotation,
+    record_stock_value,
+)
+
+
+def _filter_stock_points(points, period):
+    if period == "Tout":
+        return points
+    days = {"1 mois": 31, "3 mois": 92, "6 mois": 183, "1 an": 366}.get(period)
+    if not days:
+        return points
+    threshold = datetime.now() - timedelta(days=days)
+    filtered = []
+    for point in points:
+        raw = str(point.get("captured_at") or "")
+        try:
+            point_date = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if point_date >= threshold:
+            filtered.append(point)
+    return filtered
+
+
+def _add_stock_note_from_state():
+    comment = str(st.session_state.get("stock_note_comment") or "").strip()
+    if not comment:
+        return
+    add_stock_annotation(st.session_state.get("stock_note_date", date.today()), comment)
+    st.session_state["stock_note_comment"] = ""
 
 
 def render_home_page(
@@ -36,24 +69,107 @@ def render_home_page(
         ("Bénéfice net", fp_func(sts["total_profit"]), fp_func(sts["total_profit"]) if sts["total_profit"] != 0 else None, "📈"),
     ]
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    cols = [c1, c2, c3, c4, c5]
-    for idx, (col, (label, value, delta, icon)) in enumerate(zip(cols, metrics_main)):
-        with col:
-            st.markdown(
-                render_kpi_card_func(
-                    label,
-                    value,
-                    delta=delta,
-                    accent=kpi_accents[idx % len(kpi_accents)],
-                    icon=icon,
-                ),
-                unsafe_allow_html=True,
-            )
+    cols = st.columns(len(metrics_main))
+    for idx, (label, value, delta, icon) in enumerate(metrics_main):
+        with cols[idx]:
+            st.metric(label, value, delta=delta)
 
     c1, c2 = st.columns(2)
     c1.button("💰 Nouvelle vente", width="stretch", type="primary", on_click=set_current_page_func, args=("Vente",))
     c2.button("📦 Gérer les lots", width="stretch", on_click=set_current_page_func, args=("Lots",))
+
+    st.markdown("---")
+    st.markdown(
+        render_page_header_func("Évolution de la valeur du stock", "Historique local des variations de stock", "💎"),
+        unsafe_allow_html=True,
+    )
+    stock_history, _ = record_stock_value(sts["stock_value"])
+    stock_points = stock_history.get("points", []) or []
+    stock_annotations = stock_history.get("annotations", []) or []
+    period = st.selectbox(
+        "Période",
+        ["Tout", "1 an", "6 mois", "3 mois", "1 mois"],
+        key="stock_value_history_period",
+        label_visibility="collapsed",
+    )
+    visible_points = _filter_stock_points(stock_points, period)
+    if visible_points:
+        try:
+            import plotly.graph_objects as go
+            point_dates = [point.get("captured_at", "") for point in visible_points]
+            point_values = [float(point.get("value", 0) or 0) for point in visible_points]
+            fig_stock = go.Figure()
+            fig_stock.add_trace(go.Scatter(
+                x=point_dates,
+                y=point_values,
+                mode="lines+markers",
+                name="Valeur stock",
+                line=dict(color="#7c3aed", width=3),
+                marker=dict(size=7, color="#7c3aed"),
+                fill="tozeroy",
+                fillcolor="rgba(124,58,237,0.10)",
+                hovertemplate="%{x}<br>Valeur stock : %{y:.2f}€<extra></extra>",
+            ))
+            annotations_in_range = []
+            first_visible = datetime.fromisoformat(str(visible_points[0].get("captured_at", ""))).date()
+            last_visible = datetime.fromisoformat(str(visible_points[-1].get("captured_at", ""))).date()
+            for annotation in stock_annotations:
+                ann_date = str(annotation.get("date") or "")[:10]
+                try:
+                    ann_dt = datetime.fromisoformat(ann_date).date()
+                except ValueError:
+                    continue
+                if first_visible <= ann_dt <= last_visible:
+                    annotations_in_range.append(annotation)
+            if annotations_in_range:
+                y_top = max(point_values) if point_values else 0
+                fig_stock.add_trace(go.Scatter(
+                    x=[item.get("date") for item in annotations_in_range],
+                    y=[y_top for _ in annotations_in_range],
+                    mode="markers",
+                    name="Notes",
+                    marker=dict(size=11, color="#f59e0b", symbol="diamond"),
+                    text=[item.get("comment", "") for item in annotations_in_range],
+                    hovertemplate="%{x}<br>%{text}<extra>Note</extra>",
+                ))
+            fig_stock.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Plus Jakarta Sans", color="#0f172a", size=12),
+                legend=dict(orientation="h", y=1.12, font=dict(size=11)),
+                margin=dict(l=12, r=12, t=12, b=12),
+                xaxis=dict(gridcolor="#e2e8f0", showgrid=True, linecolor="#e2e8f0"),
+                yaxis=dict(gridcolor="#e2e8f0", showgrid=True, ticksuffix="€", linecolor="#e2e8f0"),
+                height=320,
+            )
+            st.plotly_chart(fig_stock, width="stretch", key="stock_value_history_chart")
+        except ImportError:
+            st.line_chart({"Valeur stock": [point.get("value", 0) for point in visible_points]}, width="stretch")
+        first_point = min(stock_points, key=lambda item: str(item.get("captured_at") or ""))
+        st.caption(f"Premier point disponible : {str(first_point.get('captured_at', ''))[:10]}")
+    else:
+        st.info("Aucun historique fiable antérieur n'a été trouvé. Le suivi démarre avec la valeur actuelle.")
+
+    with st.expander("+ Ajouter une note", expanded=False):
+        note_date = st.date_input("Date", value=date.today(), key="stock_note_date")
+        note_comment = st.text_input("Commentaire court", max_chars=180, key="stock_note_comment")
+        st.button(
+            "Ajouter la note",
+            key="stock_note_add",
+            disabled=not note_comment.strip(),
+            on_click=_add_stock_note_from_state,
+        )
+        if stock_annotations:
+            st.markdown("**Notes enregistrées**")
+            for annotation in sorted(stock_annotations, key=lambda item: str(item.get("date") or ""), reverse=True):
+                col_note, col_delete = st.columns([5, 1])
+                col_note.caption(f"{annotation.get('date', '—')} — {annotation.get('comment', '')}")
+                col_delete.button(
+                    "Supprimer",
+                    key=f"delete_stock_note_{annotation.get('id')}",
+                    on_click=delete_stock_annotation,
+                    args=(annotation.get("id"),),
+                )
 
     st.markdown("---")
     st.markdown(
@@ -127,7 +243,7 @@ def render_home_page(
                 yaxis=dict(gridcolor='#e2e8f0', showgrid=True, ticksuffix='€', linecolor='#e2e8f0'),
                 height=360,
             )
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, width="stretch", key="home_sales_profit_chart")
         except ImportError:
             col_g1, col_g2 = st.columns(2)
             col_g1.metric("CA cumulé", fp_func(ca_cumul[-1]) if ca_cumul else "0.00€")
@@ -162,12 +278,12 @@ def render_home_page(
                         "card": card,
                         "lot_name": lot_s["nom"],
                         "lot_type": lot_type,
-                        "stock": card["quantity"] - card.get("sold_quantity", 0)
+                        "stock": card["quantity"] - card.get("sold_quantity", 0) - card.get("exchange_out_quantity", 0)
                     })
 
         if results_found:
             st.caption(f"{len(results_found)} résultat(s) pour « {search_global} »")
-            COLS_S = 8
+            COLS_S = 2 if st.session_state.get("mobile_mode") else 4
             for row_start in range(0, len(results_found), COLS_S):
                 cols_s = st.columns(COLS_S)
                 for col_idx, res in enumerate(results_found[row_start:row_start + COLS_S]):
@@ -182,3 +298,5 @@ def render_home_page(
                         st.caption(f"💰 {fp_func(res['card'].get('suggested_price', 0))}")
         else:
             st.info(f"Aucune carte trouvée pour « {search_global} »")
+    elif not search_global:
+        st.caption("Saisis au moins 2 caractères pour lancer la recherche globale.")

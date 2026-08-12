@@ -106,6 +106,7 @@ from core.sales_actions import (
     bulk_sale_prepare,
     scroll_to_cart_prepare,
 )
+from services.custom_card_image_service import apply_custom_image_fallback
 
 from ui.components import (
     KPI_ACCENTS,
@@ -132,11 +133,13 @@ from ui.pages.counters import render_counters_page
 from ui.pages.statistics import render_statistics_page
 from ui.pages.market import render_market_page
 from ui.pages.estimations import render_estimations_page
+from ui.pages.fournisseurs import render_fournisseurs_page
 from ui.pages.history import render_history_page
 from ui.pages.archives import render_archives_page
 from ui.pages.collection import render_collection_page
 from ui.pages.lots import render_lots_page
 from ui.pages.sales import render_sales_page
+from ui.pages.brocante import render_brocante_page
 from ui.pages.vinted_listings import render_vinted_listings_page
 from ui.pages.wrapped import render_wrapped_page
 from services.tcgdex_service import (
@@ -161,10 +164,12 @@ from services.estimations_service import (
     load_estimations,
     save_estimations,
 )
+from core.trade_economics import card_trade_sale_cost
 from services.estimations_cache_enrichment import enrich_estimations_card_cache
 from services.cloud_sync_service import (
     SYNCED_DATASETS,
     cloud_sync_status_summary,
+    maybe_pull_all_cloud_datasets,
     pull_all_cloud_datasets,
     pull_dataset_from_cloud,
     safe_write_json_synced,
@@ -434,7 +439,7 @@ def add_estimation_card(active, card_name, card_number, card_cote, card_qty, car
         except:
             pass
 
-    active.setdefault("cards", []).append({
+    estimation_card = {
         "uid": new_uid("estcard"),
         "name": final_name.title() if final_name else "Carte",
         "number": final_number,
@@ -448,7 +453,9 @@ def add_estimation_card(active, card_name, card_number, card_cote, card_qty, car
         "image_url_en": image_url_en,
         "rarity": rarity,
         "is_collection": bool(is_collection),
-    })
+    }
+    apply_custom_image_fallback(estimation_card)
+    active.setdefault("cards", []).append(estimation_card)
 
 def new_uid(prefix):
     return f"{prefix}_{uuid.uuid4().hex}"
@@ -462,6 +469,7 @@ def card_available_qty(card):
     return max(
         int(card.get("quantity", 0))
         - int(card.get("sold_quantity", 0))
+        - int(card.get("exchange_out_quantity", 0))
         - int(card.get("stored_quantity", 0)),
         0,
     )
@@ -651,7 +659,7 @@ def trade_stock_value_for_lot(lots, lot_idx):
             repartition = card.get("exchange_repartition", {})
             if not repartition:
                 continue
-            remaining = max(int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0)), 0)
+            remaining = card_available_qty(card)
             if remaining <= 0:
                 continue
             total_repartition = sum(float(v) for v in repartition.values()) or 1.
@@ -668,7 +676,7 @@ def migrate_open_trade_cards(d):
             continue
         kept_cards = []
         for card in lot.get("cards", []):
-            remaining = int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0))
+            remaining = card_available_qty(card)
             if (card.get("received_by_exchange") and card.get("exchange_repartition")
                     and remaining > 0 and not card.get("sold_entries")):
                 d["lots"][trade_idx].setdefault("cards", []).append(card)
@@ -754,8 +762,8 @@ def calc_cout_lot(lot, valeur_estimee=None, lot_idx=None):
             if lot.get("is_divers") and card.get("purchase_price"):
                 cout = float(card["purchase_price"]) * qty
             # Carte reçue par échange avec repartition connue
-            elif card.get("received_by_exchange") and card.get("exchange_repartition") and lot_idx is not None:
-                cout = float(card["exchange_repartition"].get(str(lot_idx), 0.))
+            elif card.get("received_by_exchange") and (card.get("trade_acquisition_unit_cost") is not None or card.get("trade_acquisition_total_cost") is not None or card.get("exchange_repartition")):
+                cout = card_trade_sale_cost(card, qty)
             elif lot.get("is_mixte") and float(lot.get("valeur_totale", 0.) or 0.) > 0:
                 real_price = float(lot.get("prix_achat_reel", lot.get("prix_achat", 0.)) or 0.)
                 cout = (cote_total / float(lot.get("valeur_totale", 1.) or 1.)) * real_price
@@ -1356,6 +1364,11 @@ if "full_cloud_pull_checked" not in st.session_state:
         st.session_state["full_cloud_pull_result"] = pull_result
     except Exception as e:
         st.session_state["full_cloud_pull_error"] = str(e)
+else:
+    try:
+        maybe_pull_all_cloud_datasets(interval_seconds=20)
+    except Exception as e:
+        st.session_state["full_cloud_pull_error"] = str(e)
 
 load_activity_state()
 
@@ -1370,7 +1383,11 @@ if "weekly_backup_checked" not in st.session_state:
 
 if st.session_state.get("current_page") != "Lots":
     st.session_state.pop("active_lot_ix", None)
-    run_html("""
+    # Ne pas supprimer de noeuds DOM Streamlit depuis un script parent :
+    # React peut tenter de retirer ensuite le même noeud et lever removeChild.
+    # Le rerun de page suffit à reconstruire l'interface hors Lots.
+    if False:
+        run_html("""
     <script>
     (function() {
         const doc = parent.document;
@@ -1388,7 +1405,7 @@ if st.session_state.get("current_page") != "Lots":
         });
     })();
     </script>
-    """, height=0)
+        """, height=0)
 
 if "system_lots_ready" not in st.session_state:
     cd_boot = ld()
@@ -1439,7 +1456,7 @@ function autoSubmitSearch() {
     });
 }
 // setInterval limité aux barres de recherche uniquement - ne cause pas de rerender Streamlit
-setInterval(autoSubmitSearch, 1000);
+// Désactivé : ce timer manipulait le DOM parent pendant les reruns Streamlit.
 </script>
 """, height=0)
 
@@ -1690,11 +1707,15 @@ if "current_page" not in st.session_state:
     page_map = {
         "vente": "Vente",
         "echange": "Vente",
+        "brocante": "Brocante",
         "échange": "Vente",
         "lots": "Lots",
         "collection": "Collection",
         "estimations": "Estimations",
         "estimation": "Estimations",
+        "fournisseurs": "Fournisseurs",
+        "fournisseur": "Fournisseurs",
+        "suppliers": "Fournisseurs",
         "annonces": "Annonces Vinted",
         "annonces-vinted": "Annonces Vinted",
         "vinted": "Annonces Vinted",
@@ -1738,7 +1759,7 @@ if not wrapped_story_active:
                 st.button(
                     f"{icon}  {label}",
                     width="stretch",
-                    key=f"nav_{page.lower()}",
+                    key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
                     type=btn_type,
                     on_click=set_current_page,
                     args=(page,),
@@ -1987,6 +2008,8 @@ elif st.session_state.current_page=="Estimations":
         run_html_func=run_html,
         cache_enrichment_func=enrich_estimations_card_cache,
     )
+elif st.session_state.current_page=="Fournisseurs":
+    render_with_perf("page Fournisseurs", render_fournisseurs_page, globals())
 elif st.session_state.current_page=="Annonces Vinted":
     render_with_perf(
         "page Annonces Vinted",
@@ -2039,9 +2062,7 @@ elif st.session_state.current_page=="Archivés":
 # PAGE BROCANTE
 # ============================================================
 elif st.session_state.current_page=="Brocante":
-    # Legacy route: Brocante lots are now handled inside the Lots page.
-    st.session_state.current_page = "Lots"
-    st.rerun()
+    render_with_perf("page Brocante", render_brocante_page, globals())
 
 # ============================================================
 # PAGE MARCHE

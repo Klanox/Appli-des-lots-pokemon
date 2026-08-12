@@ -4,15 +4,170 @@ Extracted conservatively from app.py. Dependencies are injected from app.py
 to preserve existing behavior while reducing app.py size.
 """
 
+import json
+import os
+
+from services.custom_card_image_service import apply_custom_image_fallback, resolve_custom_card_image
+
 
 def configure_card_add(context):
     globals().update(context)
+
+
+def _compact_number(value):
+    value = str(value or "").strip().upper().replace(" ", "")
+    if value.isdigit():
+        return value.lstrip("0") or "0"
+    return value
+
+
+def _parse_japanese_number_query(value):
+    value = str(value or "").strip().replace(" ", "")
+    if "/" not in value:
+        return value, ""
+    local, total = value.split("/", 1)
+    return local.strip(), total.strip()
+
+
+def _number_matches(actual, expected):
+    expected = _compact_number(expected)
+    if not expected:
+        return True
+    return _compact_number(actual) == expected
+
+
+def _collect_total_values(value):
+    totals = []
+    if isinstance(value, dict):
+        for key in ("cardCount", "total", "printedTotal", "official", "cards", "set_total", "total_in_set", "printed_total", "number_total"):
+            if key in value:
+                totals.extend(_collect_total_values(value.get(key)))
+        return totals
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            totals.extend(_collect_total_values(item))
+        return totals
+    text = str(value or "").strip()
+    if text and text.isdigit():
+        totals.append(text)
+    return totals
+
+
+def _japanese_candidate_total_values(card):
+    values = []
+    raw_card = card.get("raw_cache_card") if isinstance(card.get("raw_cache_card"), dict) else {}
+    for source in (card, raw_card):
+        if not isinstance(source, dict):
+            continue
+        values.extend(_collect_total_values(source))
+        set_info = source.get("set") if isinstance(source.get("set"), dict) else {}
+        values.extend(_collect_total_values(set_info))
+        for number_key in ("number", "card_number", "localId"):
+            raw_number = str(source.get(number_key) or "")
+            if "/" in raw_number:
+                _, total = _parse_japanese_number_query(raw_number)
+                if total:
+                    values.append(total)
+
+    deduped = []
+    for value in values:
+        normalized = _compact_number(value)
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped
+
+
+def _japanese_candidate_matches_total(card, expected_total):
+    expected_total = _compact_number(expected_total)
+    if not expected_total:
+        return True
+    return expected_total in _japanese_candidate_total_values(card)
+
+
+def _popup_candidate_set_id(card_dict):
+    set_info = card_dict.get("set")
+    if isinstance(set_info, dict):
+        return str(set_info.get("id") or "").strip()
+    return str(card_dict.get("set_id") or card_dict.get("card_set_id") or "").strip()
+
+
+def _popup_candidate_number(card_dict):
+    raw_card = card_dict.get("raw_cache_card") if isinstance(card_dict.get("raw_cache_card"), dict) else {}
+    return str(
+        card_dict.get("localId")
+        or card_dict.get("number")
+        or card_dict.get("card_number")
+        or raw_card.get("localId")
+        or raw_card.get("number")
+        or raw_card.get("card_number")
+        or ""
+    ).strip()
+
+
+def _popup_candidate_set_name(card_dict, set_name=""):
+    raw_card = card_dict.get("raw_cache_card") if isinstance(card_dict.get("raw_cache_card"), dict) else {}
+    for source in (card_dict, raw_card):
+        set_info = source.get("set") if isinstance(source.get("set"), dict) else {}
+        value = str(set_info.get("name") or source.get("set_name") or source.get("card_set") or "").strip()
+        if value:
+            return value
+    value = str(set_name or "").replace("ðŸ‡¯ðŸ‡µ ", "").replace("🇯🇵 ", "").strip()
+    if value:
+        return value
+    return _popup_candidate_set_id(card_dict)
+
+
+def _popup_candidate_details_caption(card_dict, set_name=""):
+    set_caption = _popup_candidate_set_name(card_dict, set_name)
+    number_caption = _popup_candidate_number(card_dict)
+    return " · ".join(x for x in [set_caption, f"#{number_caption}" if number_caption else ""] if x)
+
+
+def _render_popup_candidate_details(card_dict, set_name=""):
+    details_caption = _popup_candidate_details_caption(card_dict, set_name)
+    if not details_caption:
+        return
+    st.markdown(
+        '<div style="font-size:0.78rem;color:#64748b;text-align:center;'
+        f'line-height:1.25;margin-top:-0.25rem;">{html.escape(details_caption)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _popup_candidate_image(card_dict):
+    images = card_dict.get("images") if isinstance(card_dict.get("images"), dict) else {}
+    for value in (
+        card_dict.get("image"),
+        card_dict.get("imageUrl"),
+        card_dict.get("image_url"),
+        card_dict.get("image_url_en"),
+        images.get("large"),
+        images.get("small"),
+    ):
+        img = str(value or "").strip()
+        if not img:
+            continue
+        if "tcgdex.net" in img and not any(img.endswith(ext) for ext in [".jpg", ".png", ".jpeg", ".webp"]):
+            img = f"{img}/high.webp"
+        return img
+
+    return resolve_custom_card_image(
+        {
+            **card_dict,
+            "card_id": card_dict.get("card_id") or card_dict.get("id") or "",
+            "set_id": _popup_candidate_set_id(card_dict),
+            "number": _popup_candidate_number(card_dict),
+            "raw_cache_card": card_dict,
+        }
+    )
 
 
 def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_tag="", collection_keep=False):
     """Ajouter une carte japonaise — cherche via API JA par nom EN + numéro"""
     if not num:
         return False, "Numéro requis pour les cartes japonaises"
+    local_num_query, total_num_query = _parse_japanese_number_query(num)
+    local_num_query = local_num_query or num
 
     # Table de correspondance FR → EN (noms de base des Pokémon)
     FR_TO_EN = {
@@ -231,7 +386,7 @@ def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_ta
 
     try:
         # Chercher par numéro, filtrer par set si fourni
-        api_url = f"https://api.tcgdex.net/v2/ja/cards?localId={num}"
+        api_url = f"https://api.tcgdex.net/v2/ja/cards?localId={local_num_query}"
         if set_id_filter:
             api_url = f"https://api.tcgdex.net/v2/ja/sets/{set_id_filter}/cards"
         r = requests.get(api_url, timeout=5)
@@ -239,7 +394,9 @@ def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_ta
         if r.status_code == 200:
             for card in r.json():
                 card_num = str(card.get("localId","") or card.get("number",""))
-                if card_num != num and card_num.lstrip("0") != num.lstrip("0"):
+                if not _number_matches(card_num, local_num_query):
+                    continue
+                if total_num_query and not _japanese_candidate_matches_total(card, total_num_query):
                     continue
                 # Filtrer par nom JA si on a une correspondance FR→JA
                 # On compare le nom JA de la carte avec le nom anglais trouvé
@@ -441,6 +598,7 @@ def acm(li,n,sn,num,q,co,p,ir,ie,lang="fr",purchase_price=0., special_tag="", co
     
     cd=ld()
     nc=ecd(ci,si,lang=lang)
+    apply_custom_image_fallback(nc)
     nc["card_uid"] = new_uid("card")
     nc["quantity"]=q if q else 1
     nc["condition"]=co
@@ -518,14 +676,7 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
 
             for idx_p, (card_dict, set_name) in enumerate(popup_data["matches"]):
                 with cols[idx_p % 4]:
-                    img = card_dict.get("image", "")
-                    if not img:
-                        set_id_p = card_dict.get("set", {}).get("id", "") if isinstance(card_dict.get("set"), dict) else ""
-                        local_id_p = card_dict.get("localId", "") or card_dict.get("number", "")
-                        if set_id_p and local_id_p:
-                            img = f"https://assets.tcgdex.net/{popup_lang}/{set_id_p}/{local_id_p}/high.webp"
-                    if img and "tcgdex.net" in img and not any(img.endswith(e) for e in [".jpg", ".png", ".jpeg", ".webp"]):
-                        img = f"{img}/high.webp"
+                    img = _popup_candidate_image(card_dict)
                     if img:
                         safe_src = html.escape(proxy_img(img), quote=True)
                         safe_name = html.escape(card_dict.get("name", "Carte"), quote=True)
@@ -538,6 +689,12 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
 
                     display_name = set_name.replace("🇯🇵 ", "") if popup_lang == "ja" else card_dict.get("name", "")
                     st.caption(f"{display_name}")
+                    _render_popup_candidate_details(card_dict, set_name)
+                    set_caption = str(set_name or "").replace("ðŸ‡¯ðŸ‡µ ", "").strip()
+                    number_caption = _popup_candidate_number(card_dict)
+                    details_caption = " · ".join(x for x in [set_caption, f"#{number_caption}" if number_caption else ""] if x)
+                    if details_caption:
+                        pass
 
                     if st.button("Choisir", key=f"choose_{popup_file}_{idx_p}"):
                         os.remove(popup_file)
@@ -572,6 +729,7 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
                             nc["is_collection_keep"] = True
                             nc["collection_current_value"] = float(p or 0.)
                             nc["collection_purchase_price"] = float(pa_carte_popup or 0.)
+                        apply_custom_image_fallback(nc)
                         add_or_merge_collection_card(cd_add, li, nc)
                         if lot_now.get("is_divers"):
                             cd_add["lots"][li]["prix_achat"] = sum(c.get("purchase_price", 0.) for c in cd_add["lots"][li]["cards"])

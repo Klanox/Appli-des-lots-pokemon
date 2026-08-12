@@ -13,28 +13,35 @@ NAV_SECTIONS = (
         "label": "Principal",
         "items": (
             ("Accueil", "Accueil", "🏠"),
-            ("Vente", "Vente/Échange", "💰"),
-            ("Lots", "Lots", "📦"),
+            ("Vente", "Vente", "💰"),
+            ("Brocante", "Brocante", "🧺"),
         ),
     },
     {
         "label": "Gestion",
         "items": (
+            ("Lots", "Lots", "📦"),
+            ("Vente", "Échange", "🔄"),
             ("Collection", "Collection", "🧾"),
             ("Estimations", "Estimations", "📉"),
+            ("Fournisseurs", "Fournisseurs", "🤝"),
             ("Annonces Vinted", "Annonces Vinted", "🛍️"),
-            ("Historique", "Historique", "📋"),
             ("Archivés", "Archivés", "🗄️"),
         ),
     },
     {
         "label": "Analyse",
         "items": (
-            ("Marché", "Marché", "📈"),
+            ("Historique", "Historique", "📋"),
             ("Statistiques", "Statistiques", "📊"),
+            ("Marché", "Marché", "📈"),
             ("Wrapped", "Wrapped", "🎁"),
             ("Compteurs", "Compteurs", "🎰"),
         ),
+    },
+    {
+        "label": "Système",
+        "items": (),
     },
 )
 
@@ -97,6 +104,56 @@ def render_page_header(title: str, subtitle: str = "", icon: str = "") -> str:
             <h2 class="ps-page-title">{html_lib.escape(title)}</h2>
             {subtitle_html}
         </div>
+    </div>
+    """
+
+
+def render_section_header(title: str, subtitle: str = "", action_html: str = "") -> str:
+    subtitle_html = (
+        f'<p class="ps-section-subtitle">{html_lib.escape(subtitle)}</p>' if subtitle else ""
+    )
+    action = f'<div class="ps-section-actions">{action_html}</div>' if action_html else ""
+    return f"""
+    <div class="ps-section-header">
+        <div>
+            <h3 class="ps-section-title">{html_lib.escape(title)}</h3>
+            {subtitle_html}
+        </div>
+        {action}
+    </div>
+    """
+
+
+def render_status_badge(label: str, tone: str = "neutral") -> str:
+    safe_tone = "".join(ch for ch in str(tone or "neutral") if ch.isalnum() or ch in ("-", "_"))
+    return f'<span class="ps-status-badge ps-status-{safe_tone}">{html_lib.escape(str(label))}</span>'
+
+
+def render_empty_state(title: str, subtitle: str = "", icon: str = "○") -> str:
+    subtitle_html = (
+        f'<p class="ps-empty-subtitle">{html_lib.escape(subtitle)}</p>' if subtitle else ""
+    )
+    return f"""
+    <div class="ps-empty-state">
+        <div class="ps-empty-icon">{html_lib.escape(icon)}</div>
+        <strong>{html_lib.escape(title)}</strong>
+        {subtitle_html}
+    </div>
+    """
+
+
+def render_progress_bar(percent: float | int | None, label: str = "") -> str:
+    try:
+        value = max(0.0, min(float(percent or 0), 100.0))
+    except (TypeError, ValueError):
+        value = 0.0
+    label_text = label or f"{value:.0f}%"
+    return f"""
+    <div class="ps-progress" aria-label="{html_lib.escape(label_text)}">
+        <div class="ps-progress-track">
+            <span class="ps-progress-fill" style="width:{value:.2f}%"></span>
+        </div>
+        <span class="ps-progress-label">{html_lib.escape(label_text)}</span>
     </div>
     """
 
@@ -985,6 +1042,405 @@ button[kind="primary"]:hover {{
     white-space: normal !important;
     overflow: visible !important;
     text-overflow: clip !important;
+}}
+
+/* ── Global UI redesign phase 1: shared premium dashboard layer ── */
+:root {{
+    --ps-night: #111421;
+    --ps-night-panel: #171b2a;
+    --ps-night-panel-2: #1b2030;
+    --ps-night-line: rgba(148, 163, 184, 0.18);
+    --ps-night-text: #eef2ff;
+    --ps-night-muted: #9ba6bb;
+    --ps-space-1: 0.25rem;
+    --ps-space-2: 0.5rem;
+    --ps-space-3: 0.75rem;
+    --ps-space-4: 1rem;
+    --ps-space-5: 1.25rem;
+    --ps-space-6: 1.5rem;
+    --ps-radius-xs: 6px;
+    --ps-radius-md: 10px;
+    --ps-radius-xl: 20px;
+    --ps-focus: 0 0 0 3px rgba(124, 58, 237, 0.22);
+}}
+
+.stApp {{
+    background:
+        radial-gradient(circle at 18% 0%, rgba(124,58,237,0.10), transparent 28rem),
+        linear-gradient(180deg, #f8f7fc 0%, #f3f1f8 100%) !important;
+}}
+.main .block-container {{
+    max-width: 1380px !important;
+    padding-left: clamp(0.75rem, 2vw, 1.75rem) !important;
+    padding-right: clamp(0.75rem, 2vw, 1.75rem) !important;
+}}
+.ps-page-header {{
+    align-items: center !important;
+    padding: 1rem 1.1rem !important;
+    margin-bottom: 1rem !important;
+    border: 1px solid rgba(124,58,237,0.12) !important;
+    border-radius: var(--ps-radius-lg) !important;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.98), rgba(250,247,255,0.94)) !important;
+    box-shadow: var(--ps-shadow-sm) !important;
+}}
+.ps-page-icon {{
+    background: linear-gradient(135deg, rgba(124,58,237,0.14), rgba(37,99,235,0.10)) !important;
+    border: 1px solid rgba(124,58,237,0.14) !important;
+}}
+.ps-section-header {{
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1rem 0 0.75rem;
+}}
+.ps-section-title {{
+    margin: 0 !important;
+    color: var(--ps-text) !important;
+    font-size: 1rem !important;
+    font-weight: 900 !important;
+    letter-spacing: 0 !important;
+}}
+.ps-section-subtitle {{
+    margin: 0.18rem 0 0;
+    color: var(--ps-text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+}}
+.ps-section-actions {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}}
+
+.ps-status-badge,
+.ps-filter-pill {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.55rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,0.22);
+    background: rgba(255,255,255,0.72);
+    color: var(--ps-text-secondary);
+    font-size: 0.72rem;
+    font-weight: 900;
+    line-height: 1;
+}}
+.ps-status-success,
+.ps-status-active,
+.ps-status-verified {{
+    color: #047857;
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.24);
+}}
+.ps-status-warning,
+.ps-status-draft,
+.ps-status-needs_review {{
+    color: #b45309;
+    background: rgba(245,158,11,0.13);
+    border-color: rgba(245,158,11,0.24);
+}}
+.ps-status-danger {{
+    color: #b91c1c;
+    background: rgba(239,68,68,0.12);
+    border-color: rgba(239,68,68,0.24);
+}}
+.ps-status-info {{
+    color: #1d4ed8;
+    background: rgba(59,130,246,0.12);
+    border-color: rgba(59,130,246,0.24);
+}}
+.ps-status-closed,
+.ps-status-neutral {{
+    color: #475569;
+    background: rgba(148,163,184,0.12);
+    border-color: rgba(148,163,184,0.22);
+}}
+
+.ps-empty-state,
+.ps-loading-state,
+.ps-error-state {{
+    display: grid;
+    place-items: center;
+    text-align: center;
+    gap: 0.45rem;
+    min-height: 10rem;
+    padding: 1.5rem;
+    border: 1px dashed rgba(148,163,184,0.34);
+    border-radius: var(--ps-radius-lg);
+    background: rgba(255,255,255,0.56);
+    color: var(--ps-text-secondary);
+}}
+.ps-empty-state strong,
+.ps-loading-state strong,
+.ps-error-state strong {{
+    color: var(--ps-text);
+    font-size: 1rem;
+    font-weight: 900;
+}}
+.ps-empty-icon {{
+    width: 2.6rem;
+    height: 2.6rem;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(124,58,237,0.12);
+    color: var(--ps-accent);
+    font-weight: 900;
+}}
+.ps-empty-subtitle {{
+    margin: 0;
+    max-width: 34rem;
+    color: var(--ps-text-secondary);
+    font-size: 0.86rem;
+}}
+.ps-progress {{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+}}
+.ps-progress-track {{
+    height: 0.55rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(148,163,184,0.18);
+    border: 1px solid rgba(148,163,184,0.18);
+}}
+.ps-progress-fill {{
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #7c3aed, #22c55e);
+}}
+.ps-progress-label {{
+    color: var(--ps-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 900;
+    white-space: nowrap;
+}}
+
+[data-testid="stSidebar"] {{
+    background:
+        radial-gradient(circle at 38% 0%, rgba(124,58,237,0.44), transparent 14rem),
+        linear-gradient(180deg, #151827 0%, #0f1220 100%) !important;
+}}
+.ps-sidebar-brand {{
+    border-radius: 16px !important;
+    margin-bottom: 0.8rem !important;
+    background: rgba(255,255,255,0.055) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}}
+.ps-nav-section-label {{
+    color: rgba(203,213,225,0.72) !important;
+    margin-top: 0.95rem !important;
+}}
+[data-testid="stSidebar"] [data-testid="stMetric"] {{
+    background: rgba(255,255,255,0.055) !important;
+    border-color: rgba(255,255,255,0.08) !important;
+    border-radius: 12px !important;
+    padding: 0.7rem !important;
+}}
+[data-testid="stSidebar"] [data-testid="stMetricValue"],
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {{
+    color: #f8fafc !important;
+}}
+[data-testid="stSidebar"] .stButton > button {{
+    min-height: 2.45rem !important;
+    border-radius: 10px !important;
+    color: #cbd5e1 !important;
+}}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    background: linear-gradient(135deg, rgba(124,58,237,0.42), rgba(59,130,246,0.18)) !important;
+    border-color: rgba(167,139,250,0.44) !important;
+    box-shadow: inset 0 0 0 1px rgba(167,139,250,0.08) !important;
+}}
+
+[data-testid="stTabs"] [role="tablist"] {{
+    gap: 0.35rem !important;
+    padding: 0.25rem !important;
+    border: 1px solid rgba(148,163,184,0.18) !important;
+    border-radius: 12px !important;
+    background: rgba(255,255,255,0.74) !important;
+    overflow-x: auto !important;
+}}
+[data-testid="stTabs"] [role="tab"] {{
+    min-height: 2.25rem !important;
+    padding: 0.45rem 0.85rem !important;
+    border-radius: 9px !important;
+    border-bottom: 0 !important;
+    color: var(--ps-text-secondary) !important;
+}}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
+    background: rgba(124,58,237,0.14) !important;
+    color: var(--ps-accent-deep) !important;
+    border-bottom: 0 !important;
+    box-shadow: inset 0 0 0 1px rgba(124,58,237,0.18) !important;
+}}
+
+[data-testid="stExpander"],
+[data-testid="stMetric"],
+[data-testid="stDataFrame"],
+[data-testid="stTable"],
+.element-container:has(.stDataFrame),
+.element-container:has([data-testid="stTable"]) {{
+    border-radius: var(--ps-radius-lg) !important;
+}}
+[data-testid="stExpander"] {{
+    border-left-width: 1px !important;
+    background: rgba(255,255,255,0.92) !important;
+}}
+[data-testid="stExpander"] summary {{
+    background: rgba(255,255,255,0.72) !important;
+    border-radius: var(--ps-radius) !important;
+}}
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {{
+    overflow: hidden !important;
+    border: 1px solid rgba(148,163,184,0.22) !important;
+    box-shadow: var(--ps-shadow-sm) !important;
+}}
+
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea,
+.stDateInput input,
+.stSelectbox [data-baseweb="select"] {{
+    min-height: 2.55rem !important;
+    border-radius: 10px !important;
+}}
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus {{
+    box-shadow: var(--ps-focus) !important;
+}}
+.stAlert {{
+    border-radius: var(--ps-radius) !important;
+}}
+
+/* ── Global UI redesign phase 2: Accueil + Lots ── */
+.ps-home-kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin: 0.45rem 0 0.9rem;
+}}
+.ps-home-kpi-grid .ps-kpi-card {{
+    min-height: 8.15rem;
+}}
+.element-container:has(.ps-home-actions-marker) + div [data-testid="stHorizontalBlock"] {{
+    align-items: stretch !important;
+    gap: 0.85rem !important;
+}}
+.element-container:has(.ps-home-actions-marker) + div .stButton > button {{
+    min-height: 3.15rem !important;
+    border-radius: 14px !important;
+}}
+.element-container:has(.ps-home-chart-marker) + div [data-testid="stPlotlyChart"] {{
+    padding: 0.65rem !important;
+    border-radius: 18px !important;
+    box-shadow: 0 14px 34px rgba(76,29,149,0.08) !important;
+}}
+.ps-lot-image-placeholder {{
+    display: grid;
+    place-items: center;
+    gap: 0.2rem;
+    min-height: 9rem;
+    aspect-ratio: 0.72;
+    width: 100%;
+    padding: 0.9rem;
+    text-align: center;
+    border-radius: 14px;
+    border: 1px dashed rgba(124,58,237,0.28);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.88)),
+        radial-gradient(circle at 50% 0%, rgba(124,58,237,0.10), transparent 9rem);
+    color: var(--ps-text-secondary);
+}}
+.ps-lot-image-placeholder strong {{
+    color: var(--ps-text);
+    font-size: 0.88rem;
+}}
+.ps-lot-image-placeholder span {{
+    font-size: 0.76rem;
+    line-height: 1.25;
+}}
+.mobile-card-grid {{
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)) !important;
+    gap: 0.65rem !important;
+}}
+.mobile-card-tile {{
+    min-width: 0 !important;
+}}
+
+@media (max-width: 1180px) {{
+    .ps-home-kpi-grid {{
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }}
+}}
+@media (max-width: 900px) {{
+    .ps-home-kpi-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+}}
+
+@media (max-width: 760px) {{
+    .main .block-container {{
+        padding-left: 0.7rem !important;
+        padding-right: 0.7rem !important;
+        padding-bottom: 6.5rem !important;
+    }}
+    .ps-page-header {{
+        align-items: flex-start !important;
+        padding: 0.85rem !important;
+        gap: 0.65rem !important;
+    }}
+    .ps-page-title,
+    h2.ps-page-title {{
+        font-size: 1.14rem !important;
+    }}
+    .ps-page-subtitle {{
+        font-size: 0.78rem !important;
+    }}
+    .ps-section-header {{
+        display: grid;
+        align-items: start;
+    }}
+    [data-testid="stTabs"] [role="tablist"] {{
+        flex-wrap: nowrap !important;
+    }}
+    .stButton > button {{
+        min-height: 2.75rem !important;
+    }}
+    [data-testid="stMetric"] {{
+        padding: 0.85rem !important;
+    }}
+    [data-testid="stMetricValue"] {{
+        font-size: 1.25rem !important;
+    }}
+    .ps-home-kpi-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.6rem;
+    }}
+    .ps-home-kpi-grid .ps-kpi-card {{
+        min-height: 7.4rem;
+        padding: 0.9rem !important;
+    }}
+    .element-container:has(.ps-home-actions-marker) + div [data-testid="stHorizontalBlock"] {{
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 0.55rem !important;
+    }}
+    .mobile-card-grid {{
+        grid-template-columns: 1fr !important;
+    }}
+    .ps-lot-image-placeholder {{
+        min-height: 8rem;
+    }}
 }}
 </style>
 """

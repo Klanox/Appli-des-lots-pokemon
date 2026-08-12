@@ -120,8 +120,25 @@ def load_estimations(estimations_file="lot_estimations.json"):
     return data
 
 
+def _stable_payload(data):
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _read_existing_estimations_payload(estimations_file):
+    if not os.path.exists(estimations_file):
+        return None
+    try:
+        with open(estimations_file, "r", encoding="utf-8") as f:
+            return normalize_estimations_data(json.load(f))
+    except (IOError, json.JSONDecodeError):
+        return None
+
+
 def save_estimations(data, estimations_file="lot_estimations.json"):
     data = normalize_estimations_data(data)
+    existing = _read_existing_estimations_payload(estimations_file)
+    if existing is not None and _stable_payload(existing) == _stable_payload(data):
+        return data
     maybe_create_prewrite_backup()
     save_synced_dataset("lot_estimations", data, indent=2)
     return data

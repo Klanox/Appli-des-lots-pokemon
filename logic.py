@@ -9,6 +9,7 @@ import time
 from utils import fp, normalize_name, parse_float_input, parse_int_input, LOTS_ARCHIVES_FILE
 from data import ld, sd
 from services.perf_service import perf_count, perf_log
+from core.trade_economics import card_trade_sale_cost
 
 # Constants
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -93,8 +94,8 @@ def calc_cout_lot(lot, valeur_estimee=None, lot_idx=None):
             if lot.get("is_divers") and card.get("purchase_price"):
                 cout = float(card["purchase_price"]) * qty
             # Carte reçue par échange avec repartition connue
-            elif card.get("received_by_exchange") and card.get("exchange_repartition") and lot_idx is not None:
-                cout = float(card["exchange_repartition"].get(str(lot_idx), 0.))
+            elif card.get("received_by_exchange") and (card.get("trade_acquisition_unit_cost") is not None or card.get("trade_acquisition_total_cost") is not None or card.get("exchange_repartition")):
+                cout = card_trade_sale_cost(card, qty)
             elif lot.get("is_mixte") and float(lot.get("valeur_totale", 0.) or 0.) > 0:
                 real_price = float(lot.get("prix_achat_reel", lot.get("prix_achat", 0.)) or 0.)
                 cout = (cote_total / float(lot.get("valeur_totale", 1.) or 1.)) * real_price
@@ -123,11 +124,13 @@ def gst():
         for c in l.get("cards", []):
             cq = c.get("quantity", 0)
             csq = c.get("sold_quantity", 0)
+            outq = int(c.get("exchange_out_quantity", 0) or 0)
             tc += cq
             sc += csq
             if not c.get("is_collection_keep"):
-                rc += cq - csq
-                sv += (cq - csq) * c.get("suggested_price", 0.)
+                remaining = max(cq - csq - outq, 0)
+                rc += remaining
+                sv += remaining * c.get("suggested_price", 0.)
             for s in c.get("sold_entries", []):
                 tr += s.get("price", 0.)
     
@@ -145,11 +148,13 @@ def gst():
                 for c in l.get("cards", []):
                     cq = c.get("quantity", 0)
                     csq = c.get("sold_quantity", 0)
+                    outq = int(c.get("exchange_out_quantity", 0) or 0)
                     tc += cq
                     sc += csq
                     if not c.get("is_collection_keep"):
-                        rc += cq - csq
-                        sv += (cq - csq) * c.get("suggested_price", 0.)
+                        remaining = max(cq - csq - outq, 0)
+                        rc += remaining
+                        sv += remaining * c.get("suggested_price", 0.)
                     for s in c.get("sold_entries", []):
                         tr += s.get("price", 0.)
         except Exception as e:
@@ -199,6 +204,7 @@ def card_available_qty(card):
     return max(
         int(card.get("quantity", 0))
         - int(card.get("sold_quantity", 0))
+        - int(card.get("exchange_out_quantity", 0))
         - int(card.get("stored_quantity", 0)),
         0,
     )
@@ -248,7 +254,7 @@ def migrate_open_trade_cards(cd):
             continue
         kept_cards = []
         for card in lot.get("cards", []):
-            remaining = int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0))
+            remaining = card_available_qty(card)
             if (card.get("received_by_exchange") and card.get("exchange_repartition")
                     and remaining > 0 and not card.get("sold_entries")):
                 cd["lots"][trade_idx].setdefault("cards", []).append(card)
@@ -390,7 +396,7 @@ def trade_stock_value_for_lot(lots, lot_idx):
             repartition = card.get("exchange_repartition", {})
             if not repartition:
                 continue
-            remaining = max(int(card.get("quantity", 0)) - int(card.get("sold_quantity", 0)), 0)
+            remaining = card_available_qty(card)
             if remaining <= 0:
                 continue
             total_repartition = sum(float(v) for v in repartition.values()) or 1.

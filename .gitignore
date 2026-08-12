@@ -1,9 +1,73 @@
-venv/
+# ============================================
+# PokéStock - Git Ignore
+# ============================================
+
+# Python
 __pycache__/
-*.pyc
-.streamlit/secrets.toml
-.env
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
 *.tmp
+*.bak
+*.old
+*.cache
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Environment
+.env
+.env.*
+
+# Build
+dist/
+build/
+
+# Backup folders
+Appli des lots pokemon - BACKUP*/
 backups/
-lot_estimations.json
-cache/market_cardmarket/
+
+# Runtime
+*.pid
+
+# Local cache
+.cache/
+
+# Generated files
+*.sqlite
+*.db
+
+# Node (si utilisé plus tard)
+node_modules/
+
+# Gemini local cache
+.gemini/
+
+# VSCode history
+.history/
+
+# Windows
+ehthumbs.db

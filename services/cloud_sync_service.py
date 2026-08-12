@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import time
 from typing import Any
 
 import streamlit as st
@@ -43,6 +44,14 @@ SYNCED_DATASETS = {
     "monthly_goals": SyncDataset("monthly_goals", "monthly_goals.json", "Objectifs mensuels", {}, dict, True),
     "counters": SyncDataset("counters", "counters.json", "Compteurs", {}, dict, True),
     "vinted_drops": SyncDataset("vinted_drops", "vinted_drops.json", "Drops Vinted", {"drops": []}, dict, True),
+    "brocantes": SyncDataset(
+        "brocantes",
+        "brocantes.json",
+        "Brocantes",
+        {"schema_version": 1, "sessions": [], "checklist_template": []},
+        dict,
+        True,
+    ),
     "estimation_market_price_cache": SyncDataset(
         "estimation_market_price_cache",
         "estimation_market_price_cache.json",
@@ -52,6 +61,35 @@ SYNCED_DATASETS = {
         True,
     ),
 }
+
+
+def _short_hash(value: str | None) -> str:
+    return (value or "")[:10] or "-"
+
+
+def _log_sync(dataset: SyncDataset, *, action: str, result: str, source: str = "", local_hash: str = "", cloud_hash: str = "", conflict: bool = False):
+    event = {
+        "dataset": dataset.filename,
+        "action": action,
+        "source": source,
+        "result": result,
+        "local_version": _short_hash(local_hash),
+        "cloud_version": _short_hash(cloud_hash),
+        "conflict": bool(conflict),
+        "at": utc_now_iso(),
+    }
+    try:
+        st.session_state.setdefault("cloud_sync_log", []).append(event)
+        st.session_state["cloud_sync_log"] = st.session_state["cloud_sync_log"][-80:]
+    except Exception:
+        pass
+    print(
+        "[Cloud Sync] "
+        f"dataset={dataset.filename} action={action} source={source or '-'} "
+        f"result={result} local={event['local_version']} cloud={event['cloud_version']} "
+        f"conflict={'yes' if conflict else 'no'} at={event['at']}",
+        flush=True,
+    )
 
 
 def dataset_for_path(path: str) -> SyncDataset | None:
@@ -92,17 +130,23 @@ def save_synced_dataset(dataset_key: str, payload, *, indent=2):
     dataset = SYNCED_DATASETS[dataset_key]
     if not valid_dataset_payload(dataset, payload):
         raise ValueError(f"Dataset invalide: {dataset.filename}")
+    local_payload = read_local_dataset(dataset)
+    local_hash = json_fingerprint(local_payload) if valid_dataset_payload(dataset, local_payload) else ""
+    new_hash = json_fingerprint(payload)
+    if valid_dataset_payload(dataset, local_payload) and json_fingerprint(local_payload) == json_fingerprint(payload):
+        _log_sync(dataset, action="save", source="local", result="identical", local_hash=local_hash, cloud_hash=new_hash)
+        return {"local": False, "cloud": False, "skipped": True}
     safe_write_json(dataset.path, payload, indent=indent)
     if cloud_sync_enabled():
         if save_cloud_json(dataset.key, payload):
             update_cloud_sync_state(dataset.key, data=payload, source="local", dirty=False, last_save=utc_now_iso())
-            print(f'[Cloud Sync] save dataset="{dataset.filename}" local=ok cloud=ok', flush=True)
+            _log_sync(dataset, action="push", source="local", result="saved", local_hash=new_hash, cloud_hash=new_hash)
             return {"local": True, "cloud": True}
         update_cloud_sync_state(dataset.key, data=payload, source="local", dirty=True)
-        print(f'[Cloud Sync] save dataset="{dataset.filename}" local=ok cloud=failed', flush=True)
+        _log_sync(dataset, action="push", source="local", result="cloud_failed", local_hash=new_hash)
         return {"local": True, "cloud": False}
     update_cloud_sync_state(dataset.key, data=payload, source="local", dirty=True)
-    print(f'[Cloud Sync] save dataset="{dataset.filename}" local=ok cloud=disabled', flush=True)
+    _log_sync(dataset, action="push", source="local", result="cloud_disabled", local_hash=new_hash)
     return {"local": True, "cloud": False}
 
 
@@ -118,6 +162,7 @@ def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
     cloud_payload = load_cloud_json(dataset.key) if cloud_sync_enabled() else None
     local_payload = read_local_dataset(dataset)
     if not valid_dataset_payload(dataset, cloud_payload):
+        _log_sync(dataset, action="pull", source="local", result="fallback_local")
         return {"dataset": dataset.key, "filename": dataset.filename, "status": "fallback_local"}
     local_hash = json_fingerprint(local_payload) if local_payload is not None else ""
     cloud_hash = json_fingerprint(cloud_payload)
@@ -131,36 +176,57 @@ def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
             "cloud_fingerprint": cloud_hash,
             "at": utc_now_iso(),
         }
-        print(f'[Cloud Sync] conflict dataset="{dataset.filename}" local_dirty=yes remote_changed=yes', flush=True)
-        return {"dataset": dataset.key, "filename": dataset.filename, "status": "conflict"}
+        _log_sync(dataset, action="pull", source="cloud", result="conflict", local_hash=local_hash, cloud_hash=cloud_hash, conflict=True)
+        return {"dataset": dataset.key, "filename": dataset.filename, "status": "conflict", "changed": False}
+    changed = local_hash != cloud_hash
     if local_hash != cloud_hash:
         write_local_dataset_from_cloud(dataset, cloud_payload)
     else:
         update_cloud_sync_state(dataset.key, data=cloud_payload, source="cloud", dirty=False, last_read=utc_now_iso())
-    return {"dataset": dataset.key, "filename": dataset.filename, "status": "loaded"}
+    _log_sync(dataset, action="pull", source="cloud", result="loaded" if changed else "identical", local_hash=local_hash, cloud_hash=cloud_hash)
+    return {"dataset": dataset.key, "filename": dataset.filename, "status": "loaded", "changed": changed}
 
 
 def pull_all_cloud_datasets(*, force=False):
     if not cloud_sync_enabled():
         return {"enabled": False, "loaded": [], "fallback_local": list(SYNCED_DATASETS), "conflicts": []}
     loaded = []
+    changed = []
     fallback = []
     conflicts = []
     for dataset in SYNCED_DATASETS.values():
         result = pull_dataset_from_cloud(dataset, force=force)
         if result["status"] == "loaded":
             loaded.append(dataset.key)
+            if result.get("changed"):
+                changed.append(dataset.key)
         elif result["status"] == "conflict":
             conflicts.append(dataset.key)
         else:
             fallback.append(dataset.key)
-    st.session_state["cloud_sync_last_pull"] = {"loaded": loaded, "fallback_local": fallback, "conflicts": conflicts, "at": utc_now_iso()}
+    st.session_state["cloud_sync_last_pull"] = {"loaded": loaded, "changed": changed, "fallback_local": fallback, "conflicts": conflicts, "at": utc_now_iso()}
     print(
-        f"[Cloud Sync] startup pull datasets={len(SYNCED_DATASETS)} loaded={len(loaded)} "
+        f"[Cloud Sync] pull_all datasets={len(SYNCED_DATASETS)} loaded={len(loaded)} changed={len(changed)} "
         f"fallback_local={len(fallback)} conflicts={len(conflicts)}",
         flush=True,
     )
-    return {"enabled": True, "loaded": loaded, "fallback_local": fallback, "conflicts": conflicts}
+    return {"enabled": True, "loaded": loaded, "changed": changed, "fallback_local": fallback, "conflicts": conflicts}
+
+
+def maybe_pull_all_cloud_datasets(*, interval_seconds=20):
+    """Refresh local datasets from cloud periodically without pushing anything."""
+    now = time.time()
+    last = float(st.session_state.get("cloud_sync_last_auto_pull_ts", 0) or 0)
+    if now - last < interval_seconds:
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "changed": []}
+    st.session_state["cloud_sync_last_auto_pull_ts"] = now
+    result = pull_all_cloud_datasets(force=False)
+    for dataset_key in result.get("changed", []):
+        if dataset_key == "data":
+            st.session_state.pop("data_cache", None)
+            st.session_state["data_dirty"] = False
+            st.session_state["data_cloud_loaded_at"] = now
+    return result
 
 
 def cloud_sync_status_summary():

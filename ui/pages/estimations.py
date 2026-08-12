@@ -32,6 +32,7 @@ from services.market_price_cache_service import (
     save_market_price_cache,
     upsert_market_price,
 )
+from services.custom_card_image_service import resolve_custom_card_image
 
 
 _ESTIMATION_LOG_SIGNATURES = set()
@@ -48,7 +49,7 @@ _ESTIMATION_IMAGE_BACKFILL_CACHE = {}
 _ESTIMATION_IMAGE_BACKFILL_CACHE_MAX = 300
 _ESTIMATION_NORMALIZER_CACHE = {}
 _ESTIMATION_NORMALIZER_CACHE_MAX = 30000
-_ESTIMATION_KEYUP_DEBOUNCE_MS = 80
+_ESTIMATION_KEYUP_DEBOUNCE_MS = 180
 ESTIMATIONS_DEBUG = str(os.environ.get("POKESTOCK_ESTIMATIONS_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
 ESTIMATIONS_PERF_DEBUG = str(os.environ.get("POKESTOCK_ESTIMATIONS_PERF", "")).strip().lower() in {"1", "true", "yes", "on"}
 _KNOWN_ART_RARE_CARD_IDS = {"sv06.5-066"}
@@ -975,6 +976,40 @@ def _perf_log_once(namespace, signature, message):
         return
     _ESTIMATION_LOG_SIGNATURES.add(key)
     print(message, flush=True)
+
+
+def _est_perf_enabled():
+    if ESTIMATIONS_PERF_DEBUG or st.session_state.get("estimations_perf_debug"):
+        return True
+    try:
+        return str(st.query_params.get("est_debug", "")).strip().lower() in {"1", "true", "yes", "on"}
+    except Exception:
+        return False
+
+
+def _est_perf_record(label, elapsed_ms, **details):
+    if not _est_perf_enabled():
+        return
+    rows = st.session_state.setdefault("estimations_perf_rows", [])
+    rows.append({
+        "Étape": label,
+        "Durée ms": int(elapsed_ms),
+        **{key: value for key, value in details.items() if value not in (None, "")},
+    })
+    if len(rows) > 80:
+        del rows[:-80]
+
+
+def _render_est_perf_panel():
+    if not _est_perf_enabled():
+        return
+    rows = st.session_state.get("estimations_perf_rows", [])
+    with st.expander("Diagnostic performance Estimations", expanded=False):
+        st.caption("Diagnostic local de session. Aucune donnée sensible, aucune écriture JSON.")
+        if rows:
+            st.dataframe(rows[-30:], hide_index=True, width="stretch")
+        else:
+            st.caption("Aucune mesure enregistrée pour ce rendu.")
 
 
 def _event_log_once(namespace, signature, message):
@@ -2141,6 +2176,24 @@ def _resolve_estimation_card_image(card, *, log=True):
 
     card_id = card.get("card_id") or card.get("id")
     number = card.get("number") or card.get("localId")
+    custom_image_url = resolve_custom_card_image({**card, "card_id": card_id, "number": number})
+    if custom_image_url:
+        result = {"url": custom_image_url, "url_en": "", "fallbacks": [], "source": "custom_library"}
+        if len(_ESTIMATION_IMAGE_RESOLUTION_CACHE) >= _ESTIMATION_IMAGE_RESOLUTION_CACHE_MAX:
+            _ESTIMATION_IMAGE_RESOLUTION_CACHE.pop(next(iter(_ESTIMATION_IMAGE_RESOLUTION_CACHE)))
+        _ESTIMATION_IMAGE_RESOLUTION_CACHE[cache_key] = dict(result)
+        if log:
+            _log_once(
+                "estimation_image",
+                f'{card_id}|{number}|custom_library',
+                f'[Estimations Image] card="{card.get("name", "Carte")}" source=custom_library valid=yes',
+            )
+            _perf_log_once(
+                "image",
+                f'{card_id}|{number}|custom_library',
+                f'[Estimations Perf] image card="{card.get("name", "Carte")}" source=custom_library elapsed_ms={int((time.perf_counter() - started_at) * 1000)}',
+            )
+        return result
     rebuilt_candidates = []
     for lang in (["ja", "fr", "en"] if is_japanese else ["fr", "en"]):
         for candidate in _tcgdex_image_candidates_from_id(card_id, number, lang=lang):
@@ -2289,11 +2342,17 @@ def _set_tags_for_card(enriched, set_id, normalize_name_func):
 def _search_index_source_id(cards_index):
     if not isinstance(cards_index, dict):
         return None
+    cache_path = os.path.join(os.getcwd(), "cards_cache.json")
+    try:
+        stat = os.stat(cache_path)
+        disk_signature = (int(stat.st_mtime), int(stat.st_size))
+    except OSError:
+        disk_signature = ("missing", 0)
     total = 0
     for cards in cards_index.values():
         if isinstance(cards, (list, tuple)):
             total += len(cards)
-    return (id(cards_index), len(cards_index), total)
+    return (disk_signature, len(cards_index), total)
 
 
 def _jp_aliases_from_summary(card):
@@ -2363,6 +2422,7 @@ def _build_search_index(cards_index, normalize_name_func):
     started_at = time.perf_counter()
     source_id = _search_index_source_id(cards_index)
     if source_id and source_id == _ESTIMATION_SEARCH_INDEX_SOURCE_ID:
+        _est_perf_record("lecture index en cache", (time.perf_counter() - started_at) * 1000, cartes=len(_ESTIMATION_SEARCH_INDEX))
         return _ESTIMATION_SEARCH_INDEX
     index = []
     by_lang = {"fr": [], "ja": []}
@@ -2488,6 +2548,13 @@ def _build_search_index(cards_index, normalize_name_func):
         f"{source_id}|{len(index)}",
         f'[Estimations Perf] index build total={len(index)} fr={len(by_lang.get("fr", []))} ja={len(by_lang.get("ja", []))} elapsed_ms={int((time.perf_counter() - started_at) * 1000)}',
     )
+    _est_perf_record(
+        "construction index de recherche",
+        (time.perf_counter() - started_at) * 1000,
+        total=len(index),
+        fr=len(by_lang.get("fr", [])),
+        ja=len(by_lang.get("ja", [])),
+    )
     return index
 
 
@@ -2534,73 +2601,14 @@ def _ensure_japanese_cards_cache(normalize_name_func):
     existing_jp = _search_index_for_language(cards_index, normalize_name_func, "ja")
     if existing_jp:
         return {"loaded": True, "count": len(existing_jp), "source": "existing"}
-    if st.session_state.get("est_jp_cache_attempted"):
-        return {
-            "loaded": False,
-            "count": 0,
-            "source": st.session_state.get("est_jp_cache_source", "unavailable"),
-            "error": st.session_state.get("est_jp_cache_error", ""),
-        }
-
+    st.session_state["est_jp_cache_source"] = "local_only_unavailable"
     st.session_state["est_jp_cache_attempted"] = True
-    started_at = time.perf_counter()
-    try:
-        response = requests.get(_JP_CARDS_CACHE_URL, timeout=12)
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        st.session_state["est_jp_cache_error"] = str(exc)
-        st.session_state["est_jp_cache_source"] = "tcgdex_ja_failed"
-        _log_once(
-            "jp_cache",
-            f"error|{type(exc).__name__}",
-            f'[Estimations JP] source=tcgdex_ja loaded=no error="{type(exc).__name__}"',
-        )
-        return {"loaded": False, "count": 0, "source": "tcgdex_ja_failed", "error": str(exc)}
-
-    if not isinstance(payload, list):
-        st.session_state["est_jp_cache_error"] = "invalid_payload"
-        st.session_state["est_jp_cache_source"] = "tcgdex_ja_invalid"
-        return {"loaded": False, "count": 0, "source": "tcgdex_ja_invalid", "error": "invalid_payload"}
-
-    if not isinstance(cards_index, dict):
-        cards_index = {}
-    alias_maps = _jp_alias_maps_from_tcgdex(normalize_name_func)
-    seen = {
-        str((item[0] if isinstance(item, (list, tuple)) and item else {}).get("id") or "")
-        for values in cards_index.values()
-        if isinstance(values, (list, tuple))
-        for item in values
-        if isinstance(item, (list, tuple)) and item and isinstance(item[0], dict)
-    }
-    added = 0
-    for source_card in payload:
-        card = _jp_card_from_tcgdex_summary(source_card)
-        if not card or card["id"] in seen:
-            continue
-        card_id = str(card.get("id") or "")
-        for lang_key, field_key in (("en", "name_en"), ("fr", "name_fr")):
-            alias = str((alias_maps.get(lang_key) or {}).get(card_id) or "").strip()
-            if alias:
-                card[field_key] = alias
-                aliases = list(card.get("aliases") or [])
-                if alias not in aliases:
-                    aliases.append(alias)
-                card["aliases"] = aliases
-        seen.add(card["id"])
-        key = normalize_name_func(card["name"])
-        cards_index.setdefault(key, []).append((card, card.get("set", ""), card.get("set_id", "")))
-        added += 1
-    st.session_state["cards_index"] = cards_index
-    st.session_state["est_jp_cache_source"] = "tcgdex_ja"
-    _reset_estimation_search_memory_cache()
-    indexed = _search_index_for_language(cards_index, normalize_name_func, "ja")
     _log_once(
         "jp_cache",
-        f"loaded|{added}|{len(indexed)}",
-        f'[Estimations JP] source=tcgdex_ja fetched={len(payload)} added={added} index_cards={len(indexed)} elapsed_ms={int((time.perf_counter() - started_at) * 1000)}',
+        "local_only_unavailable",
+        "[Estimations JP] source=local loaded=no network=disabled",
     )
-    return {"loaded": bool(indexed), "count": len(indexed), "source": "tcgdex_ja", "added": added}
+    return {"loaded": False, "count": 0, "source": "local_only_unavailable", "error": "local_cache_missing"}
 
 
 def _candidate_matches_index_item(item, terms, requested_types, raw_norm, requested_set_tags):
@@ -2620,6 +2628,14 @@ def _candidate_matches_index_item(item, terms, requested_types, raw_norm, reques
         return any(tag in search_text or item.get("number_norm", "").startswith(tag) for tag in requested_types)
     if len(raw_norm) == 1:
         return name_norm.startswith(raw_norm) or raw_norm in name_norm
+    if len(raw_norm) == 2 and not requested_types and not requested_set_tags:
+        alias_norm = item.get("alias_norm", "")
+        return (
+            name_norm.startswith(raw_norm)
+            or any(word.startswith(raw_norm) for word in name_norm.split())
+            or any(word.startswith(raw_norm) for word in alias_norm.split())
+            or number_norm.startswith(raw_norm)
+        )
     return raw_norm in search_text or raw_norm in number_norm
 
 
@@ -2847,6 +2863,18 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
     started_at = time.perf_counter()
     cards_index = st.session_state.get("cards_index", {})
     language = "ja" if str(language or "").lower() in {"ja", "jp", "jpn"} else "fr"
+    raw_text = str(query or "").strip()
+    raw_norm_preview = normalize_name_func(raw_text)
+    explicit_number = str(current_number or "").strip()
+    if len(raw_norm_preview) < 2 and not explicit_number:
+        _est_perf_record(
+            "recherche utilisateur",
+            (time.perf_counter() - started_at) * 1000,
+            requete=raw_text,
+            resultat=0,
+            raison="seuil < 2 caractères",
+        )
+        return []
     index_started = time.perf_counter()
     indexed_cards = _search_index_for_language(cards_index, normalize_name_func, language)
     index_ms = int((time.perf_counter() - index_started) * 1000)
@@ -2854,7 +2882,7 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
     raw, base_query, broad_query, parsed_number, keywords, terms, requested_types, requested_set_tags = _query_parts(query, normalize_name_func, known_tags)
     number = str(current_number or parsed_number or "").strip()
     raw_norm = normalize_name_func(raw)
-    if not raw.strip():
+    if not raw.strip() and not number:
         return []
 
     cache_key = f"{language}|{normalize_name_func(raw)}|{number}|filters={','.join(requested_types)}|sets={','.join(requested_set_tags)}"
@@ -2866,6 +2894,14 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
             f"{cache_key}|hit",
             f'[Estimations Perf] search query="{raw}" lang={language} index_ms={index_ms} search_ms=0 text_ready_ms={int((time.perf_counter() - started_at) * 1000)} render_ms=0 total_ms={int((time.perf_counter() - started_at) * 1000)} cache_hit=yes',
         )
+        _est_perf_record(
+            "recherche utilisateur",
+            (time.perf_counter() - started_at) * 1000,
+            requete=raw,
+            langue=language,
+            resultats=len(result),
+            cache="oui",
+        )
         return result
 
     search_started = time.perf_counter()
@@ -2876,9 +2912,13 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
     for item in indexed_cards:
         if _card_language(item.get("card"), default="fr") != language:
             continue
-        if not _candidate_matches_index_item(item, terms, requested_types, raw_norm, requested_set_tags):
-            continue
         enriched = item["card"]
+        if number and _number_matches(enriched.get("number", ""), number):
+            candidate_match = True
+        else:
+            candidate_match = _candidate_matches_index_item(item, terms, requested_types, raw_norm, requested_set_tags)
+        if not candidate_match:
+            continue
         if not is_physical_pokemon_tcg_card(enriched):
             continue
         if strict_shiny_set and not _card_set_match(enriched, requested_set_tags):
@@ -2897,6 +2937,8 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
         if preference_count:
             score += min(preference_count * 4, _SEARCH_PREFERENCE_MAX_BONUS)
         suggestions.append({"match": item["match"], "card": enriched, "score": score, "strict_match": strict_match})
+        if len(suggestions) >= 260 and len(raw_norm) <= 2 and not requested_types and not requested_set_tags:
+            break
 
     if not suggestions and indexed_cards and not strict_shiny_set:
         for item in indexed_cards:
@@ -2938,6 +2980,14 @@ def _card_suggestions(query, current_number, search_in_cache_func, ecd_func, nor
         "search",
         f"{cache_key}|miss|{[(item['card'].get('id'), item['score']) for item in result[:3]]}",
         f'[Estimations Perf] search query="{raw}" lang={language} index_ms={index_ms} search_ms={int((time.perf_counter() - search_started) * 1000)} text_ready_ms={int((time.perf_counter() - started_at) * 1000)} render_ms=0 total_ms={int((time.perf_counter() - started_at) * 1000)} cache_hit=no',
+    )
+    _est_perf_record(
+        "recherche utilisateur",
+        (time.perf_counter() - started_at) * 1000,
+        requete=raw,
+        langue=language,
+        resultats=len(result),
+        cache="non",
     )
     return result
 
@@ -3373,6 +3423,29 @@ def _render_suggestion_card(enriched, proxy_img_func=None):
         unsafe_allow_html=True,
     )
     return bool(image_info.get("cache_hit"))
+
+
+def _render_compact_suggestion(enriched, language="fr"):
+    number = str(enriched.get("number") or "").strip()
+    set_name = str(enriched.get("set") or enriched.get("set_id") or "").strip()
+    rarity = str(enriched.get("rarity") or enriched.get("special") or "").strip()
+    lang = "JP" if _card_language(enriched, default=language) == "ja" else "FR"
+    alias = ""
+    if lang == "JP":
+        alias = str(enriched.get("name_fr") or enriched.get("name_en") or "").strip()
+    detail = " · ".join(part for part in [set_name, f"#{number}" if number else "", lang, rarity] if part)
+    st.markdown(
+        f"""
+        <div class="est-suggestion-card compact">
+            <div class="est-suggestion-copy">
+                <strong>{html.escape(str(enriched.get('name') or 'Carte'))}</strong>
+                {f'<span>{html.escape(alias)}</span>' if alias else ''}
+                <em>{html.escape(detail)}</em>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _estimation_card_filter_text(card, normalize_name_func):
@@ -4180,6 +4253,13 @@ def _render_css():
             min-height:68px;
             box-shadow:0 7px 16px rgba(15,23,42,0.05);
         }
+        .est-suggestion-card.compact {
+            display:block;
+            min-height:auto;
+            padding:0.48rem 0.58rem;
+            margin-bottom:0.35rem;
+            box-shadow:none;
+        }
         .est-suggestion-img {
             width:46px;
             aspect-ratio:0.72;
@@ -4688,7 +4768,7 @@ def _render_estimations_comparison(opportunities, fp_func, normalize_name_func):
         rows.sort(key=lambda row: row.get(sort_key, 0), reverse=reverse)
         display_rows = [{k: v for k, v in row.items() if not k.startswith("_")} for row in rows]
         if display_rows:
-            st.dataframe(display_rows, hide_index=True, use_container_width=True)
+            st.dataframe(display_rows, hide_index=True, width="stretch")
             open_label = st.selectbox("Ouvrir depuis la comparaison", [""] + selected, key="est_compare_open")
             if open_label and st.button("Ouvrir cette estimation", key="est_compare_open_btn", width="stretch"):
                 st.session_state["active_estimation_uid"] = label_to_uid.get(open_label, "")
@@ -4775,14 +4855,22 @@ def render_estimations_page(
     )
     _render_css()
 
+    page_started = time.perf_counter()
+    load_started = time.perf_counter()
     edata = load_estimations_func()
+    _est_perf_record("chargement des estimations", (time.perf_counter() - load_started) * 1000)
     settings = edata["settings"]
     estimates = edata["estimations"]
+    pref_started = time.perf_counter()
     st.session_state["estimation_search_preferences"] = _estimation_search_preferences(edata, normalize_name_func)
+    _est_perf_record("préférences recherche estimation", (time.perf_counter() - pref_started) * 1000, estimations=len(estimates))
+    market_started = time.perf_counter()
     market_cache = st.session_state.get("market_price_cache")
     if not isinstance(market_cache, dict):
         market_cache = load_market_price_cache()
         st.session_state["market_price_cache"] = market_cache
+    _est_perf_record("lecture cache cotes", (time.perf_counter() - market_started) * 1000)
+    _render_est_perf_panel()
 
     _render_market_alerts(market_cache, edata, fp_func)
     _render_market_cache_tools(market_cache, edata)
@@ -5120,7 +5208,16 @@ def _render_open_estimation(
         card_qty = a4.text_input("Qté", key=qty_key)
 
         search_context = _search_context(card_name, normalize_name_func)
-        suggestions = _card_suggestions(card_name, card_number, search_in_cache_func, ecd_func, normalize_name_func, language=search_language)
+        suggestion_limit = 8 if is_mobile_mode_func() else 12
+        suggestions = _card_suggestions(
+            card_name,
+            card_number,
+            search_in_cache_func,
+            ecd_func,
+            normalize_name_func,
+            limit=suggestion_limit,
+            language=search_language,
+        )
         enrichment_notice_key = f"est_cache_enrichment_notice_{uid}"
         if st.session_state.get(enrichment_notice_key):
             st.caption(st.session_state.pop(enrichment_notice_key))
@@ -5133,32 +5230,26 @@ def _render_open_estimation(
                 st.caption("Aucune AR exacte trouvée dans le cache. Résultats proches affichés.")
             if _suggestions_missing_type_match(card_name, suggestions, "rainbow", normalize_name_func):
                 st.caption("Aucune carte Rainbow exacte trouvée dans le cache. Résultats proches affichés.")
-            exact_suggestions, close_suggestions, strict_types = _strict_suggestion_sections(card_name, suggestions[:8], normalize_name_func)
+            exact_suggestions, close_suggestions, strict_types = _strict_suggestion_sections(card_name, suggestions[:suggestion_limit], normalize_name_func)
             suggestion_sections = []
             if strict_types and exact_suggestions:
                 suggestion_sections.append(("", exact_suggestions))
                 if close_suggestions:
                     suggestion_sections.append(("Résultats proches", close_suggestions))
             else:
-                suggestion_sections.append(("", suggestions[:8]))
-            cols_per_row = 1 if is_mobile_mode_func() else 6
+                suggestion_sections.append(("", suggestions[:suggestion_limit]))
             suggestion_offset = 0
-            suggestion_image_hits = 0
-            suggestion_image_misses = 0
             for section_title, section_suggestions in suggestion_sections:
                 if section_title:
                     st.caption(section_title)
-                for row_start in range(0, len(section_suggestions), cols_per_row):
-                    cols = st.columns(cols_per_row)
-                    for cidx, suggestion in enumerate(section_suggestions[row_start : row_start + cols_per_row]):
-                        enriched = suggestion["card"]
-                        button_ix = suggestion_offset + row_start + cidx
-                        with cols[cidx]:
-                            if _render_suggestion_card(enriched, proxy_img_func=proxy_img_func):
-                                suggestion_image_hits += 1
-                            else:
-                                suggestion_image_misses += 1
-                            if st.button("Choisir", key=f"est_suggestion_pick_{uid}_{button_ix}", width="stretch"):
+                for cidx, suggestion in enumerate(section_suggestions):
+                    enriched = suggestion["card"]
+                    button_ix = suggestion_offset + cidx
+                    row_cols = st.columns([4, 1])
+                    with row_cols[0]:
+                        _render_compact_suggestion(enriched, language=search_language)
+                    with row_cols[1]:
+                        if st.button("Choisir", key=f"est_suggestion_pick_{uid}_{button_ix}", width="stretch"):
                                 action_started = time.perf_counter()
                                 details = _selected_card_details(enriched)
                                 _perf_log_once(
@@ -5259,14 +5350,18 @@ def _render_open_estimation(
             _perf_log_once(
                 "suggestions_render",
                 f'{search_language}|{normalize_name_func(card_name)}|{len(suggestions)}',
-                f'[Estimations Perf] suggestions_render query="{card_name}" lang={search_language} count={min(len(suggestions), 8)} render_ms={int((time.perf_counter() - suggestion_render_started) * 1000)}',
+                f'[Estimations Perf] suggestions_render query="{card_name}" lang={search_language} count={min(len(suggestions), suggestion_limit)} render_ms={int((time.perf_counter() - suggestion_render_started) * 1000)} images=0',
             )
-            _perf_log_once(
-                "suggestion_images",
-                f'{search_language}|{normalize_name_func(card_name)}|{suggestion_image_hits}|{suggestion_image_misses}',
-                f'[Estimations Perf] suggestion_images visible={suggestion_image_hits + suggestion_image_misses} cache_hits={suggestion_image_hits} cache_misses={suggestion_image_misses} images_ready_ms={int((time.perf_counter() - suggestion_render_started) * 1000)} elapsed_ms={int((time.perf_counter() - suggestion_render_started) * 1000)}',
+            _est_perf_record(
+                "rendu suggestions",
+                (time.perf_counter() - suggestion_render_started) * 1000,
+                requete=card_name,
+                suggestions=min(len(suggestions), suggestion_limit),
+                images=0,
             )
-        elif str(card_name or "").strip():
+        elif str(card_name or "").strip() and len(normalize_name_func(card_name)) < 2 and not str(card_number or "").strip():
+            st.caption("Saisis au moins 2 caractères.")
+        elif str(card_name or "").strip() or str(card_number or "").strip():
             if _shiny_filter_requested(search_context.get("requested_set_tags")):
                 st.caption("Aucune carte Shiny / PAF correspondante trouvée dans le cache.")
             elif len(str(card_name or "").strip()) >= 3:
@@ -5574,7 +5669,7 @@ def _render_open_estimation(
         )
         mobile_mode = is_mobile_mode_func()
         display_limit_key = f"est_visible_card_limit_{uid}"
-        default_limit = 24 if mobile_mode else 48
+        default_limit = 20
         if display_limit_key not in st.session_state:
             st.session_state[display_limit_key] = default_limit
         if internal_query:
@@ -5582,7 +5677,7 @@ def _render_open_estimation(
         else:
             render_cards = visible_cards[: max(st.session_state.get(display_limit_key, default_limit), default_limit)]
         st.caption(f"{len(render_cards)} cartes affichées sur {len(visible_cards)} résultat(s) · {len(cards)} carte(s) dans l’estimation")
-        missing_image_cards = _cards_missing_estimation_image(cards)
+        missing_image_cards = _cards_missing_estimation_image(render_cards)
         repair_notice_key = f"est_image_repair_notice_{uid}"
         if st.session_state.get(repair_notice_key):
             st.caption(st.session_state.pop(repair_notice_key))
@@ -5757,8 +5852,14 @@ def _render_open_estimation(
             f'{uid}|{len(render_cards)}|{len(visible_cards)}|{normalize_name_func(internal_query)}',
             f'[Estimations Perf] tracked_cards count={len(render_cards)} total={len(visible_cards)} render_ms={int((time.perf_counter() - tracked_render_started) * 1000)}',
         )
+        _est_perf_record(
+            "rendu cartes estimation",
+            (time.perf_counter() - tracked_render_started) * 1000,
+            affichées=len(render_cards),
+            total=len(visible_cards),
+        )
         if len(render_cards) < len(visible_cards):
-            more_step = 24 if mobile_mode else 48
+            more_step = 20
             if st.button(
                 f"Afficher plus ({len(visible_cards) - len(render_cards)} restantes)",
                 key=f"est_show_more_cards_{uid}",

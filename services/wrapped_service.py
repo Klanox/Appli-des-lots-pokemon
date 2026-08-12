@@ -7,6 +7,8 @@ from datetime import datetime
 import json
 import os
 
+from core.trade_economics import trade_sale_stat_rows
+
 
 UNAVAILABLE = "Donnée indisponible"
 
@@ -158,6 +160,24 @@ def _collect_sales(data, archives, calc_cout_lot_func, effective_purchase_price_
             cote_total = _safe_float(sale.get("suggested_price_at_sale") or card.get("suggested_price")) * qty
             if cote_total <= 0:
                 cote_total = price
+            if card.get("received_by_exchange") and (card.get("trade_contributors") or card.get("exchange_repartition")):
+                for row in trade_sale_stat_rows(card, sale, lot_name):
+                    all_sales.append(
+                        {
+                            "date": sale_date,
+                            "month": sale_date.strftime("%Y-%m"),
+                            "price": row["price"],
+                            "quantity": qty,
+                            "card_name": sale.get("card_name", card.get("name", "?")),
+                            "lot": row["lot"],
+                            "cost": row["cost"],
+                            "benef": row["benef"],
+                            "cote": cote_total * _safe_float(row.get("ratio"), 1.0),
+                            "image_url": _card_image(card),
+                            "is_trade_allocation": row.get("allocation", False),
+                        }
+                    )
+                continue
             all_sales.append(
                 {
                     "date": sale_date,

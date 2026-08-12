@@ -13,6 +13,7 @@ from datetime import datetime
 import streamlit as st
 import plotly.graph_objects as go
 from services.perf_service import perf_log, perf_timer
+from core.trade_economics import trade_sale_stat_rows
 
 
 def render_statistics_page(
@@ -94,6 +95,21 @@ def render_statistics_page(
                 cote_total = float(se.get("suggested_price_at_sale", 0.) or card.get("suggested_price", 0.) or 0.) * qty
                 if cote_total <= 0:
                     cote_total = price
+                if card.get("received_by_exchange") and (card.get("trade_contributors") or card.get("exchange_repartition")):
+                    for row in trade_sale_stat_rows(card, se, lot.get("nom", "?")):
+                        all_sales.append({
+                            "date": d, "month": d.strftime("%Y-%m"),
+                            "price": row["price"], "quantity": qty,
+                            "card_name": se.get("card_name", card.get("name", "?")),
+                            "card_image": card_img,
+                            "lot": row["lot"],
+                            "unit_price": price / max(qty, 1),
+                            "cost": row["cost"],
+                            "benef": row["benef"],
+                            "cote": cote_total * float(row.get("ratio", 1.0)),
+                            "is_trade_allocation": row.get("allocation", False),
+                        })
+                    continue
                 all_sales.append({
                     "date": d, "month": d.strftime("%Y-%m"),
                     "price": price, "quantity": qty,

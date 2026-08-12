@@ -4,6 +4,12 @@ This module contains the existing Lots page body. It receives app.py globals
 as context to preserve behavior while moving the large page out of app.py.
 """
 
+import html
+
+from core.brocante import lot_reimbursement
+from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
+from ui.mobile_scan import render_assisted_scan
+
 
 def render_lots_page(context):
     globals().update(context)
@@ -15,8 +21,166 @@ def render_lots_page(context):
             sequence = 0
         return (sequence, original_index)
 
+    def compact_lot_reimbursement_html(lot, lot_index):
+        gauge = lot_reimbursement(lot, lot_index)
+        if not gauge["available"]:
+            return (
+                f'<div class="lot-reimbursement-row lot-reimbursement-unavailable" data-lot-gauge-for="{lot_index}">'
+                "Coût non renseigné — jauge indisponible"
+                "</div>"
+            )
+        pct = max(float(gauge.get("pct") or 0), 0.0)
+        clamped = min(pct, 100.0)
+        slots = 14
+        filled = int(round(clamped / 100 * slots))
+        bar = "█" * filled + "░" * (slots - filled)
+        if pct >= 100:
+            label = f"{bar} 100 % · Remboursé"
+        else:
+            recovered = fp(gauge.get("recovered", 0.0))
+            label = f"{bar} {pct:.0f} % · {recovered} récupérés"
+        return (
+            f'<div class="lot-reimbursement-row" data-lot-gauge-for="{lot_index}" aria-label="Jauge de remboursement du lot">'
+            f'<span class="lot-reimbursement-bar">{html.escape(label)}</span>'
+            "</div>"
+        )
+
+    def lot_detail_reimbursement_html(lot, lot_index):
+        gauge = lot_reimbursement(lot, lot_index)
+        if not gauge["available"]:
+            return (
+                '<div class="lot-detail-reimbursement-row lot-reimbursement-unavailable">'
+                "Coût non renseigné — jauge indisponible"
+                "</div>"
+            )
+        pct = max(float(gauge.get("pct") or 0), 0.0)
+        clamped = min(pct, 100.0)
+        recovered = fp(gauge.get("recovered", 0.0))
+        remaining = fp(gauge.get("remaining", 0.0))
+        label = "Remboursé" if pct >= 100 else f"{pct:.0f} % remboursé · {recovered} récupérés · reste {remaining}"
+        return (
+            '<div class="lot-detail-reimbursement-row">'
+            '<div class="lot-detail-reimbursement-track">'
+            f'<span style="width:{clamped:.1f}%"></span>'
+            "</div>"
+            f'<strong>{html.escape(label)}</strong>'
+            "</div>"
+        )
+
+    def editable_lot_purchase_price(lot, lot_index):
+        price_field = "prix_achat_reel" if lot.get("is_mixte") else "prix_achat"
+        current_price = float(lot.get(price_field, lot.get("prix_achat", 0.)) or 0.0)
+        edit_key = f"edit_lot_purchase_price_{lot_index}"
+        input_key = f"lot_purchase_price_input_{lot_index}"
+
+        if not st.session_state.get(edit_key, False):
+            label = "Prix d'achat réel" if lot.get("is_mixte") else "Prix d'achat"
+            display_col, action_col = st.columns([4, 1])
+            display_col.markdown(
+                f"""
+                <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;
+                            padding:0.75rem 0.9rem;margin:0.35rem 0 0.7rem 0;">
+                  <span style="color:#64748b;font-size:0.82rem;font-weight:800;">{label}</span><br>
+                  <span style="color:#0f172a;font-size:1.2rem;font-weight:950;">{fp(current_price)}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if action_col.button("Modifier", key=f"edit_lot_purchase_price_btn_{lot_index}", width="stretch"):
+                st.session_state[edit_key] = True
+                st.session_state[input_key] = current_price
+                st.rerun()
+            return
+
+        edit_col, save_col, cancel_col = st.columns([3, 1, 1])
+        new_price = edit_col.number_input(
+            "Prix d'achat (€)",
+            min_value=0.0,
+            max_value=999999.0,
+            value=float(st.session_state.get(input_key, current_price)),
+            step=0.5,
+            key=input_key,
+        )
+        if save_col.button("Enregistrer", key=f"save_lot_purchase_price_{lot_index}", width="stretch", type="primary"):
+            cdd = ld()
+            if 0 <= lot_index < len(cdd.get("lots", [])):
+                cdd["lots"][lot_index][price_field] = float(new_price)
+                if not cdd["lots"][lot_index].get("is_mixte"):
+                    cdd["lots"][lot_index]["prix_achat"] = float(new_price)
+                sd(cdd)
+            st.session_state[edit_key] = False
+            st.rerun()
+        if cancel_col.button("Annuler", key=f"cancel_lot_purchase_price_{lot_index}", width="stretch"):
+            st.session_state[edit_key] = False
+            st.rerun()
+
     st.markdown(
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <style>
+        .lot-reimbursement-row {
+            margin: 0.45rem 0 0 0;
+            padding: 0.38rem 0.55rem;
+            max-width: 100%;
+            color: #14532d;
+            font-size: 0.82rem;
+            font-weight: 800;
+            line-height: 1.25;
+            word-break: break-word;
+            background: rgba(34,197,94,0.08);
+            border: 1px solid rgba(34,197,94,0.18);
+            border-radius: 8px;
+        }
+        .lot-reimbursement-unavailable {
+            color: #64748b;
+            font-weight: 700;
+            background: rgba(148,163,184,0.10);
+            border-color: rgba(148,163,184,0.22);
+        }
+        .lot-reimbursement-bar {
+            display: inline-block;
+            max-width: 100%;
+            white-space: normal;
+        }
+        .lot-detail-reimbursement-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 0.65rem 0 1rem;
+            padding: 0.75rem 0.85rem;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(15,23,42,0.06);
+        }
+        .lot-detail-reimbursement-track {
+            height: 0.72rem;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #e2e8f0;
+        }
+        .lot-detail-reimbursement-track span {
+            display: block;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #7c3aed, #22c55e);
+        }
+        @media (max-width: 760px) {
+            .lot-reimbursement-row {
+                margin-left: 0.2rem;
+                font-size: 0.78rem;
+            }
+            .lot-detail-reimbursement-row {
+                grid-template-columns: 1fr;
+                gap: 0.45rem;
+            }
+        }
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -59,15 +223,22 @@ def render_lots_page(context):
                 target.style.setProperty('border-bottom', '1px solid #e2e8f0', 'important');
                 target.style.setProperty('justify-content', 'flex-start', 'important');
                 target.style.setProperty('text-align', 'left', 'important');
-                target.style.setProperty('align-items', 'center', 'important');
+                target.style.setProperty('white-space', 'normal', 'important');
+                target.style.setProperty('align-items', 'flex-start', 'important');
+                target.style.setProperty('flex-direction', 'column', 'important');
+                target.style.setProperty('gap', '0.2rem', 'important');
                 target.style.setProperty('text-transform', 'none', 'important');
-                target.style.setProperty('font-weight', '500', 'important');
+                target.style.setProperty('font-weight', '700', 'important');
                 target.style.setProperty('font-size', '0.95rem', 'important');
-                target.style.setProperty('min-height', '68px', 'important');
+                target.style.setProperty('min-height', '86px', 'important');
                 target.style.setProperty('padding', '1rem 1.25rem', 'important');
                 target.style.setProperty('box-shadow', '0 4px 12px rgba(15, 23, 42, 0.08)', 'important');
                 target.style.setProperty('transform', 'none', 'important');
                 target.style.setProperty('margin-bottom', '0.35rem', 'important');
+                const gauge = doc.querySelector('[data-lot-gauge-for="' + marker.getAttribute('data-lot-index') + '"]');
+                if (gauge && gauge.parentElement !== target) {
+                    target.appendChild(gauge);
+                }
                 target.querySelectorAll('div, p, span').forEach(function(child) {
                     child.style.setProperty('text-align', 'left', 'important');
                     child.style.setProperty('justify-content', 'flex-start', 'important');
@@ -251,6 +422,7 @@ def render_lots_page(context):
                 else:
                     st.session_state["active_lot_ix"] = ix
                 st.rerun()
+            st.markdown(compact_lot_reimbursement_html(lt, ix), unsafe_allow_html=True)
 
             if not is_active_lot:
                 continue
@@ -273,6 +445,8 @@ def render_lots_page(context):
                     status_text = "✅ REMBOURSÉ" if is_profitable else "❌ NON REMBOURSÉ"
                     border_color = "#22c55e" if is_profitable else "#ee1515"
                     st.markdown(f'<b style="color:{border_color};font-size:1.2rem">{status_text}</b>',unsafe_allow_html=True)
+
+                st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
 
                 # Pour un lot mixte : recalculer le prix_achat effectif dynamiquement
                 if lt.get("is_mixte") and lt.get("valeur_totale", 0) > 0:
@@ -304,6 +478,8 @@ def render_lots_page(context):
                 pa = lt.get("prix_achat", 0.)
                 rp_estime = ((rv + stock_val) / pa * 100) if pa > 0 else 100.
                 rp_estime_color = "#22c55e" if rv + stock_val >= pa else "#ee1515"
+
+                editable_lot_purchase_price(lt, ix)
 
                 c1,c2,c3,c4,c5=st.columns(5)
                 c1.metric("Stock", f"{stock_qty} · {fp(stock_val)}")
@@ -408,81 +584,37 @@ def render_lots_page(context):
                         st.error(mg)
 
                 with st.expander("Scan bêta", expanded=False):
-                    st.caption("Capture locale uniquement. La photo n'est pas envoyée à un service externe et aucune carte n'est ajoutée sans confirmation.")
-                    scan_source = st.radio(
-                        "Source image",
-                        ["Caméra", "Galerie"],
-                        horizontal=True,
-                        key=f"scan_source_{ix}_{ts}",
-                    )
-                    if scan_source == "Caméra":
-                        st.camera_input("Prendre une photo", key=f"scan_camera_{ix}_{ts}")
-                    else:
-                        st.file_uploader(
-                            "Importer une photo",
-                            type=["jpg", "jpeg", "png", "webp"],
-                            key=f"scan_gallery_{ix}_{ts}",
+                    def on_lot_scan_confirm(candidate):
+                        card_dict = candidate["card"]
+                        ok, mg = acm(
+                            ix,
+                            card_dict.get("name", ""),
+                            str(candidate.get("set_name") or ""),
+                            str(card_dict.get("localId") or card_dict.get("number") or candidate.get("number") or ""),
+                            qt,
+                            cn,
+                            pi,
+                            rv_check,
+                            ed,
+                            lang="ja" if candidate.get("language") == "ja" else "fr",
+                            purchase_price=pa_divers if is_divers_lot else 0.,
+                            special_tag=special_tag,
+                            collection_keep=collection_keep,
                         )
-                    st.caption("Reconnaissance automatique complète non activée : renseigne le nom ou le numéro visible pour obtenir des candidats locaux.")
-                    scan_cols = st.columns([2, 1, 1])
-                    scan_name = scan_cols[0].text_input("Nom lu", key=f"scan_name_{ix}_{ts}", placeholder="Dracaufeu, Eevee...")
-                    scan_number = scan_cols[1].text_input("Numéro lu", key=f"scan_number_{ix}_{ts}", placeholder="199")
-                    scan_jp = scan_cols[2].checkbox("JP", key=f"scan_jp_{ix}_{ts}")
-
-                    def local_scan_candidates():
-                        cards_index = st.session_state.get("cards_index", {}) or {}
-                        q_name = normalize_name(scan_name)
-                        q_num = str(scan_number or "").strip()
-                        seen = set()
-                        results = []
-                        for indexed_name, rows in cards_index.items():
-                            if q_name and q_name not in indexed_name:
-                                continue
-                            for card_dict, set_name, _set_id in rows:
-                                num_val = str(card_dict.get("localId") or card_dict.get("number") or "")
-                                if q_num and num_val != q_num and num_val.zfill(3) != q_num.zfill(3):
-                                    continue
-                                cid = card_dict.get("id") or f"{indexed_name}|{set_name}|{num_val}"
-                                if cid in seen:
-                                    continue
-                                seen.add(cid)
-                                score = 85 if q_name and q_num else (65 if q_name or q_num else 0)
-                                results.append((score, card_dict, set_name))
-                                if len(results) >= 5:
-                                    return results
-                        return results
-
-                    scan_candidates = local_scan_candidates()
-                    if scan_name or scan_number:
-                        if not scan_candidates:
-                            st.info("Aucun candidat local fiable. Utilise l'ajout classique ou précise le numéro/la série.")
+                        if ok:
+                            st.session_state[f"form_ts_{ix}"] = time.time()
+                            st.success(mg)
                         else:
-                            st.caption("Candidats à confirmer")
-                            for cand_idx, (score, card_dict, set_name) in enumerate(scan_candidates):
-                                label = f"{card_dict.get('name', 'Carte')} · {set_name} · {card_dict.get('localId') or card_dict.get('number') or '?'} · confiance {score}%"
-                                if st.button(f"Confirmer : {label}", key=f"scan_confirm_{ix}_{ts}_{cand_idx}", width="stretch"):
-                                    add_lang = "ja" if scan_jp else "fr"
-                                    ok, mg = acm(
-                                        ix,
-                                        card_dict.get("name", scan_name),
-                                        "",
-                                        str(card_dict.get("localId") or card_dict.get("number") or scan_number or ""),
-                                        qt,
-                                        cn,
-                                        pi,
-                                        rv_check,
-                                        ed,
-                                        lang=add_lang,
-                                        purchase_price=pa_divers if is_divers_lot else 0.,
-                                        special_tag=special_tag,
-                                        collection_keep=collection_keep,
-                                    )
-                                    if ok:
-                                        st.session_state[f"form_ts_{ix}"] = time.time()
-                                        st.success(mg)
-                                        st.rerun()
-                                    else:
-                                        st.error(mg)
+                            st.error(mg)
+
+                    render_assisted_scan(
+                        key_prefix=f"lot_scan_{ix}_{ts}",
+                        cards_index=st.session_state.get("cards_index", {}) or {},
+                        normalize_name_func=normalize_name,
+                        proxy_img_func=proxy_img,
+                        on_confirm=on_lot_scan_confirm,
+                        button_label="Confirmer",
+                    )
                  
                 st.markdown(f'<div data-add-card-form-end-marker="{ix}"></div>', unsafe_allow_html=True)
                 st.markdown("---")
@@ -593,7 +725,7 @@ def render_lots_page(context):
                             stock = card_available_qty(crd)
                             name = html.escape(str(crd.get("name", "Carte")))
                             price = float(crd.get("suggested_price", 0.) or 0.)
-                            img_url = crd.get("image_url", "")
+                            img_url = crd.get("image_url", "") or resolve_custom_card_image(crd)
                             img_html = lot_image_markup(img_url, crd.get("image_url_en", ""), img_style="width:100%;border-radius:12px;")
                             past_note_html = ""
                             if not sold and not collection:
@@ -617,7 +749,7 @@ def render_lots_page(context):
                             )
                         st.markdown('<div class="mobile-card-grid">' + "".join(tiles) + '</div>', unsafe_allow_html=True)
                         return
-                    COLS_PER_ROW = 5 if is_mobile_mode() else 8
+                    COLS_PER_ROW = 1 if is_mobile_mode() else 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         cols = st.columns(COLS_PER_ROW)
                         for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
@@ -625,7 +757,7 @@ def render_lots_page(context):
 
                             with cols[col_idx]:
                                 # Image
-                                img_url = crd.get("image_url","")
+                                img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
                                 img_url_en = crd.get("image_url_en", "")
                                 if img_url or img_url_en:
                                     if sold:
@@ -638,30 +770,15 @@ def render_lots_page(context):
                                         if past_notes:
                                             st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
                                 else:
-                                    # Pas d'image — bouton upload
-                                    st.markdown("🃏 *Pas d'image*")
-                                    uploaded = st.file_uploader(
-                                        "📷 Uploader",
-                                        type=["jpg","jpeg","png","webp"],
-                                        key=f"upload_{ix}_{real_cix}",
-                                        label_visibility="collapsed"
+                                    st.markdown(
+                                        '<div class="ps-lot-image-placeholder">'
+                                        '<strong>Image indisponible</strong>'
+                                        '<span>Ajoute une photo si tu veux illustrer cette carte.</span>'
+                                        '</div>',
+                                        unsafe_allow_html=True,
                                     )
-                                    if uploaded:
-                                        # Sauvegarder dans card_images/
-                                        img_dir = os.path.join(os.getcwd(), "card_images")
-                                        os.makedirs(img_dir, exist_ok=True)
-                                        card_id = crd.get("id","") or f"{ix}_{real_cix}"
-                                        safe_id = card_id.replace("/","_").replace(" ","_")
-                                        ext = uploaded.name.split(".")[-1]
-                                        img_path = os.path.join(img_dir, f"{safe_id}.{ext}")
-                                        with open(img_path, "wb") as f:
-                                            f.write(uploaded.read())
-                                        # Mettre à jour data.json
-                                        cdd = ld()
-                                        cdd["lots"][ix]["cards"][real_cix]["image_url"] = f"card_images/{safe_id}.{ext}"
-                                        sd(cdd)
-                                        st.success("✅ Photo ajoutée !")
-                                        st.rerun()
+                                    if st.button("Ajouter une photo", key=f"add_img_{ix}_{real_cix}", width="stretch"):
+                                        st.session_state[f"show_upload_{ix}_{real_cix}"] = True
 
                                 # Nom + badges + stock sur une ligne
                                 badges = card_status_badges(crd)
@@ -778,7 +895,9 @@ def render_lots_page(context):
                                         with open(img_path, "wb") as f:
                                             f.write(uploaded.read())
                                         cdd = ld()
-                                        cdd["lots"][ix]["cards"][real_cix]["image_url"] = f"card_images/{safe_id}.{ext}"
+                                        image_ref = f"card_images/{safe_id}.{ext}"
+                                        cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
+                                        register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
                                         sd(cdd)
                                         st.session_state[f"show_upload_{ix}_{real_cix}"] = False
                                         st.rerun()
@@ -931,7 +1050,3 @@ def render_lots_page(context):
                     st.session_state.pop("active_lot_ix", None)
                     st.rerun()
             
-            st.markdown('</div>', unsafe_allow_html=True)
-
-
-

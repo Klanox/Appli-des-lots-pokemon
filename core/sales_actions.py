@@ -4,6 +4,8 @@ Extracted conservatively from app.py. Dependencies are injected from app.py
 to preserve formulas and sold_entries behavior.
 """
 
+from core.trade_economics import sale_allocation_for_trade_card
+
 
 def configure_sales_actions(context):
     globals().update(context)
@@ -34,30 +36,28 @@ def _scu_in_data(cd, li, ci, q, p, canal="Main propre"):
 
     # ── Redistribution du bénéfice aux lots contributeurs ──
     # Si cette carte a été reçue par échange avec contribution de plusieurs lots,
-    # on ajoute une vente virtuelle dans chaque lot contributeur proportionnelle à leur part
-    repartition = crd.get("exchange_repartition", {})
-    if repartition:
-        # valeur totale des contributions
-        total_contrib = sum(float(v) for v in repartition.values()) or 1.
-        for lot_idx_str, valeur_contrib in repartition.items():
-            lot_idx_contrib = int(lot_idx_str)
-            if lot_idx_contrib == li:
-                continue  # le lot hôte garde son bénéfice normalement
+    if crd.get("received_by_exchange") and (crd.get("trade_contributors") or crd.get("exchange_repartition")):
+        allocation = sale_allocation_for_trade_card(crd, prix_total, q)
+        crd["last_trade_sale_cost"] = allocation["cost"]
+        crd["last_trade_sale_profit"] = allocation["profit"]
+        crd["last_trade_sale_allocations"] = allocation["allocations"]
+        for item in allocation["allocations"]:
+            lot_idx_contrib = item.get("lot_idx")
+            if lot_idx_contrib is None or lot_idx_contrib == li:
+                continue
             if lot_idx_contrib >= len(cd.get("lots", [])):
                 continue
-            # Part de bénéfice pour ce lot = (sa contribution / total) × prix de vente
-            part = float(valeur_contrib) / total_contrib
-            benefice_part = prix_total * part
-            # Vente virtuelle dans ce lot pour matérialiser sa part du bénéfice
             cd["lots"][lot_idx_contrib].setdefault("ventes", []).append({
                 "date": datetime.now().isoformat(),
-                "price": benefice_part,
-                "card_name": f"[Échange] Part bénéf. {crd['name']}",
+                "price": item["revenue"],
+                "card_name": f"[Echange] Allocation CA {crd['name']}",
                 "is_exchange_benefit": True,
+                "is_exchange_allocation": True,
+                "allocated_profit": item["profit"],
                 "from_lot": cd["lots"][li]["nom"],
                 "from_card": crd["name"],
                 "source_sale_id": sale_id,
-                "part_pct": round(part * 100, 1),
+                "part_pct": round(float(item.get("ratio", 0.0)) * 100, 2),
             })
 
     return True,"Vendu!"

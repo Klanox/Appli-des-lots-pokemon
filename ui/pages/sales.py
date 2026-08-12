@@ -7,6 +7,21 @@ globals as context to preserve behavior while moving the large page out of app.p
 import html
 import os
 
+from core.brocante import BRO_CATEGORIES, PAYMENT_METHODS, append_off_stock_sale
+from services.brocante_data import load_brocantes, save_brocantes
+from core.brocante import active_session, record_transaction
+from core.trade_economics import (
+    aggregate_contributors,
+    allocate_received_cards,
+    build_trade_id,
+    card_historical_unit_cost,
+    compute_trade_summary,
+    contributors_from_card,
+    search_received_cards,
+    safe_float,
+)
+from services.custom_card_image_service import resolve_custom_card_image
+
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
     """Render a sale card image with a clean fallback instead of a broken icon."""
@@ -59,6 +74,143 @@ def _sale_image_html(card, *, in_cart=False, width="100%"):
     )
 
 
+def _received_trade_image_html(card, *, width="45px"):
+    """Render a received-trade preview image without leaving a broken icon."""
+    _normalize_received_trade_image_fields(card)
+    image_html = globals().get("img_with_fallback")
+    if callable(image_html):
+        url = str(card.get("image_url") or "").strip()
+        url_en = str(card.get("image_url_en") or "").strip()
+        if url or url_en:
+            return image_html(url, url_en, width=width, style="border-radius:6px;")
+    return (
+        '<div style="width:45px;height:62px;border-radius:6px;background:#f8fafc;'
+        'border:1px dashed #cbd5e1;color:#64748b;display:flex;align-items:center;'
+        'justify-content:center;font-size:0.75rem;font-weight:700;text-align:center;">'
+        'Image<br>indispo.</div>'
+    )
+
+
+def _tcgdex_series_from_set_id(set_id):
+    set_id = str(set_id or "").strip()
+    prefix = []
+    for char in set_id:
+        if char.isalpha():
+            prefix.append(char)
+        else:
+            break
+    return "".join(prefix)
+
+
+def _tcgdex_image_url(lang, set_id, number):
+    set_id = str(set_id or "").strip()
+    number = str(number or "").strip()
+    series = _tcgdex_series_from_set_id(set_id)
+    if not (lang and series and set_id and number):
+        return ""
+    return f"https://assets.tcgdex.net/{lang}/{series}/{set_id}/{number}/high.webp"
+
+
+def _normalize_received_trade_image_fields(card):
+    """Preserve TCGDex image fields under the names used by the UI and Trade lot."""
+    if not isinstance(card, dict):
+        return card
+
+    raw_card = card.get("raw_cache_card") if isinstance(card.get("raw_cache_card"), dict) else {}
+    if not raw_card and not (card.get("image_url") or card.get("image")):
+        st_obj = globals().get("st")
+        normalize_func = globals().get("normalize_name")
+        cards_index = getattr(getattr(st_obj, "session_state", {}), "get", lambda *_: {})("cards_index", {}) if st_obj is not None else {}
+        if callable(normalize_func) and isinstance(cards_index, dict) and card.get("name"):
+            wanted_number = str(card.get("number") or "").strip().lstrip("0")
+            for found_card, found_set_name, found_set_id in search_received_cards(card.get("name"), cards_index, normalize_func, limit=24):
+                found_number = str(found_card.get("localId") or found_card.get("number") or "").strip().lstrip("0")
+                if wanted_number and found_number != wanted_number:
+                    continue
+                raw_card = found_card
+                card.setdefault("set", found_set_name)
+                card.setdefault("set_id", found_set_id)
+                break
+
+    images = raw_card.get("images") if isinstance(raw_card.get("images"), dict) else {}
+
+    image_url = (
+        card.get("image_url")
+        or card.get("image")
+        or card.get("imageUrl")
+        or raw_card.get("image_url")
+        or raw_card.get("image")
+        or raw_card.get("imageUrl")
+        or images.get("large")
+        or images.get("small")
+        or ""
+    )
+    if image_url and "tcgdex.net" in str(image_url) and not str(image_url).endswith((".jpg", ".jpeg", ".png", ".webp")):
+        image_url = f"{image_url}/high.webp"
+
+    set_id = card.get("set_id") or raw_card.get("set_id") or ""
+    if not set_id:
+        card_id = str(card.get("card_id") or card.get("id") or raw_card.get("id") or "")
+        if "-" in card_id:
+            set_id = card_id.rsplit("-", 1)[0]
+    number = card.get("number") or raw_card.get("localId") or raw_card.get("number") or ""
+
+    if not image_url:
+        custom_image_url = resolve_custom_card_image(
+            {
+                **card,
+                "card_id": card.get("card_id") or card.get("id") or raw_card.get("id"),
+                "id": card.get("id") or raw_card.get("id"),
+                "set_id": set_id,
+                "number": number,
+            }
+        )
+        if custom_image_url:
+            image_url = custom_image_url
+
+    if not image_url:
+        image_url = _tcgdex_image_url("fr", set_id, number)
+    image_url_en = card.get("image_url_en") or _tcgdex_image_url("en", set_id, number)
+    image_url_ja = card.get("image_url_ja") or _tcgdex_image_url("ja", set_id, number)
+
+    if image_url:
+        card["image_url"] = str(image_url)
+    if image_url_en:
+        card["image_url_en"] = str(image_url_en)
+    if image_url_ja:
+        card["image_url_ja"] = str(image_url_ja)
+    if set_id and not card.get("set_id"):
+        card["set_id"] = str(set_id)
+    return card
+
+
+def _selected_trade_given_records(cd, selected_cards):
+    """Resolve selected UI cards back to stock cards and compute real costs."""
+    records = []
+    for selected in selected_cards:
+        li, ci, lot, card = resolve_card_ref(cd, selected)
+        if li is None or card is None:
+            continue
+        reference_value = safe_float(selected.get("value"), safe_float(card.get("suggested_price")))
+        historical_cost = card_historical_unit_cost(lot, card)
+        contributors = contributors_from_card(li, lot, card, historical_cost)
+        selected["lot_idx"], selected["card_idx"] = li, ci
+        selected["historical_cost"] = historical_cost
+        selected["lot_uid"] = lot.get("lot_uid")
+        selected["lot_name"] = lot.get("nom", selected.get("lot_name", ""))
+        records.append({
+            "lot_idx": li,
+            "card_idx": ci,
+            "lot": lot,
+            "card": card,
+            "reference_value": reference_value,
+            "historical_cost": historical_cost,
+            "contributors": contributors,
+            "ui": selected,
+        })
+    return records
+
+
 def render_sales_page(context):
     globals().update(context)
     if st.session_state.pop("sale_scroll_top_pending", False):
@@ -104,6 +256,66 @@ def render_sales_page(context):
         else:
             if "bulk_cart" not in st.session_state:
                 st.session_state.bulk_cart = []
+
+            with st.expander("Vente hors stock", expanded=False):
+                st.caption("Pour co/unco, reverses, holos ou petits lots non suivis. Le stock n'est pas diminué.")
+                hs1, hs2 = st.columns([2, 1])
+                hs_category = hs1.selectbox("Catégorie", list(BRO_CATEGORIES), key="classic_offstock_category")
+                hs_qty = hs2.number_input("Quantité", 1, 9999, 1, 1, key="classic_offstock_qty")
+                hs_desc = st.text_input("Description facultative", key="classic_offstock_desc")
+                hs_amount = st.number_input("Prix total encaissé (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
+                hs_payment = st.selectbox("Paiement", list(PAYMENT_METHODS), key="classic_offstock_payment")
+                lot_choices = [("Non attribuée", None)] + [
+                    (f"{idx + 1}. {lot.get('nom', f'Lot {idx + 1}')}", idx)
+                    for idx, lot in enumerate(cd.get("lots", []) or [])
+                ]
+                hs_lot_label = st.selectbox("Lot source facultatif", [label for label, _ in lot_choices], key="classic_offstock_lot")
+                hs_source_lot_idx = next(value for label, value in lot_choices if label == hs_lot_label)
+                hs_cost = st.number_input("Coût d'achat attribué facultatif (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_cost")
+                hs_notes = st.text_area("Notes facultatives", key="classic_offstock_notes")
+                if st.button("Enregistrer la vente hors stock", type="primary", width="stretch", key="classic_offstock_save"):
+                    if hs_amount <= 0:
+                        st.error("Saisis un prix encaissé supérieur à 0 €.")
+                    else:
+                        cdd = ld()
+                        brocante_data = load_brocantes()
+                        active_bro = active_session(brocante_data)
+                        sale = append_off_stock_sale(
+                            cdd,
+                            category=hs_category,
+                            description=hs_desc,
+                            quantity=hs_qty,
+                            amount=hs_amount,
+                            payment_method=hs_payment,
+                            source_lot_idx=hs_source_lot_idx,
+                            cost_basis=hs_cost if hs_cost > 0 else None,
+                            notes=hs_notes,
+                            brocante_id=active_bro.get("id") if active_bro else None,
+                        )
+                        if active_bro:
+                            record_transaction(
+                                active_bro,
+                                {
+                                    "transaction_id": sale.get("sale_id"),
+                                    "type": "off_stock_sale",
+                                    "label": sale.get("card_name"),
+                                    "category": hs_category,
+                                    "description": hs_desc,
+                                    "quantity": int(hs_qty or 1),
+                                    "amount": float(hs_amount or 0),
+                                    "payment_method": hs_payment,
+                                    "inventory_impact": "none",
+                                    "source_lot_id": sale.get("source_lot_id"),
+                                    "source_lot_name": sale.get("source_lot_name"),
+                                    "cost_basis_known": bool(sale.get("cost_basis_known")),
+                                    "cost_basis": sale.get("cost_basis"),
+                                    "notes": hs_notes,
+                                },
+                            )
+                            save_brocantes(brocante_data)
+                        sd(cdd)
+                        st.success("Vente hors stock enregistrée sans modifier le stock.")
+                        st.rerun()
 
             # ── Barre de recherche + filtre lot + compteur panier ──
             col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
@@ -404,6 +616,20 @@ def render_sales_page(context):
             sd(cd_sw)
             # No need to reload - sd() updates the cache
 
+        if st.session_state.pop("swap_reset_pending", False):
+            for key in (
+                "swap_cart_give", "swap_cart_receive", "swap_cash_give", "swap_cash_receive",
+                "search_swap", "recv_name", "recv_num", "recv_val", "recv_collection_keep",
+                "recv_query", "recv_selected_card",
+            ):
+                st.session_state.pop(key, None)
+            st.session_state["swap_cart_give"] = []
+            st.session_state["swap_cart_receive"] = []
+            st.session_state["swap_cash_give"] = 0.0
+            st.session_state["swap_cash_receive"] = 0.0
+            st.session_state["recv_name_val"] = ""
+            st.session_state["recv_num_val"] = ""
+
         # ── Panier d'échange (cartes à donner) ──
         if "swap_cart_give" not in st.session_state:
             st.session_state.swap_cart_give = []  # liste de {lot_idx, card_idx, card_name, set, number, value}
@@ -422,7 +648,7 @@ def render_sales_page(context):
             all_stock_sw = []
             for li, lot in enumerate(cd_sw.get("lots", [])):
                 for ci, card in enumerate(lot.get("cards", [])):
-                    stock = card.get("quantity", 0) - card.get("sold_quantity", 0)
+                    stock = card_available_qty(card)
                     if stock > 0:
                         if not search_sw or normalize_name(search_sw) in normalize_name(card.get("name", "")):
                             all_stock_sw.append((li, ci, card, lot, stock))
@@ -451,19 +677,24 @@ def render_sales_page(context):
                             st.rerun()
                     else:
                         if st.button("➕", key=f"sw_add_{li}_{ci}"):
-                            st.session_state.swap_cart_give.append({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"card_name":card["name"],"set":card.get("set",""),"number":card.get("number",""),"value":float(card.get("suggested_price",0)),"lot_name":lot["nom"]})
+                            unit_cost = card_historical_unit_cost(lot, card)
+                            st.session_state.swap_cart_give.append({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"card_name":card["name"],"set":card.get("set",""),"number":card.get("number",""),"value":float(card.get("suggested_price",0)),"historical_cost":unit_cost,"lot_name":lot["nom"]})
                             save_activity_state()
                             st.rerun()
 
             if st.session_state.swap_cart_give:
                 st.markdown("---")
                 st.markdown("**Cartes à donner :**")
+                _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
                 total_give = 0.
+                total_given_cost_preview = 0.
                 for g in st.session_state.swap_cart_give:
                     st.markdown(f"• {g['card_name']} ({fp(g['value'])})")
                     total_give += g["value"]
+                    total_given_cost_preview += safe_float(g.get("historical_cost"))
                 cash_give = st.number_input("Argent ajouté par moi (€)", 0., 99999., float(st.session_state.get("swap_cash_give", 0.0)), 0.5, key="swap_cash_give")
                 st.metric("Total donné", fp(total_give + cash_give))
+                st.caption(f"Coût historique estimé des cartes données : {fp(total_given_cost_preview)}")
 
         # ── Colonne RECEVOIR ──
         with col_receive:
@@ -474,7 +705,7 @@ def render_sales_page(context):
             with st.expander("➕ Ajouter une carte reçue", expanded=len(st.session_state.swap_cart_receive)==0):
                 # Initialiser les clés si absentes
                 if st.session_state.pop("clear_recv_fields", False):
-                    for key in ("recv_name", "recv_num", "recv_val", "recv_collection_keep"):
+                    for key in ("recv_name", "recv_num", "recv_val", "recv_collection_keep", "recv_query", "recv_selected_card"):
                         st.session_state.pop(key, None)
                     st.session_state.recv_name_val = ""
                     st.session_state.recv_num_val = ""
@@ -482,6 +713,13 @@ def render_sales_page(context):
                     st.session_state.recv_name_val = ""
                 if "recv_num_val" not in st.session_state:
                     st.session_state.recv_num_val = ""
+                pending_recv = st.session_state.pop("recv_selected_pending", None)
+                if pending_recv:
+                    for key in ("recv_name", "recv_num"):
+                        st.session_state.pop(key, None)
+                    st.session_state.recv_name_val = pending_recv.get("name", "")
+                    st.session_state.recv_num_val = pending_recv.get("number", "")
+                    st.session_state["recv_selected_card"] = pending_recv
 
                 def on_recv_change():
                     st.rerun()
@@ -500,68 +738,75 @@ def render_sales_page(context):
                 st.session_state.recv_name_val = recv_name
                 st.session_state.recv_num_val = recv_num
 
-                # Recherche image via le cache - utilise ecd comme acm
-                recv_image_url = ""
-                recv_set_name = ""
-                set_id_sw_prev = ""
-                local_id_sw_prev = ""
-                if recv_name and recv_num:
-                    try:
-                        cards_index = st.session_state.get("cards_index", {})
-                        name_norm_sw = normalize_name(recv_name.lower())
-                        candidates = []
-                        if name_norm_sw in cards_index:
-                            candidates = list(cards_index[name_norm_sw])
-                        if not candidates:
-                            for k, v in cards_index.items():
-                                if name_norm_sw in k:
-                                    candidates.extend(v)
-
-                        st.caption(f"🔍 {len(candidates)} carte(s) trouvée(s) pour « {recv_name} » dans le cache")
-
-                        if candidates:
-                            num_filtered = [
-                                (c,sn,sid) for c,sn,sid in candidates
-                                if str(c.get("localId","")).lstrip("0") == recv_num.lstrip("0")
-                                or str(c.get("number","")).lstrip("0") == recv_num.lstrip("0")
-                            ]
-                            st.caption(f"🔢 Après filtrage numéro {recv_num} : {len(num_filtered)} résultat(s)")
-                            if num_filtered:
-                                card_sw, set_name_sw, set_id_sw = num_filtered[0]
-                                local_id_sw_prev = str(card_sw.get("localId","") or card_sw.get("number",""))
-                                set_id_sw_prev = set_id_sw
-                                st.caption(f"✅ Carte sélectionnée : {card_sw.get('name','')} — set={set_id_sw} n°{local_id_sw_prev}")
+                recv_query = st.text_input("Recherche cache", key="recv_query", placeholder="Pikachu, Dracaufeu, 104...")
+                cards_index = st.session_state.get("cards_index", {})
+                selected_card = st.session_state.get("recv_selected_card") or {}
+                if recv_query and len(recv_query.strip()) >= 2:
+                    candidates = search_received_cards(recv_query, cards_index, normalize_name, limit=10)
+                    if candidates:
+                        st.caption(f"{len(candidates)} résultat(s) dans le cache local")
+                        for idx, (card_sw, set_name_sw, set_id_sw) in enumerate(candidates):
+                            local_id = str(card_sw.get("localId", "") or card_sw.get("number", ""))
+                            label = f"{card_sw.get('name','?')} ? {local_id or 'n? ?'} ? {set_name_sw or set_id_sw or 'extension ?'}"
+                            if st.button(label, key=f"recv_pick_{idx}_{card_sw.get('id','')}_{local_id}", width="stretch"):
                                 enriched_sw = ecd(card_sw, set_name_sw, lang="fr")
-                                recv_image_url = enriched_sw.get("image_url", "")
-                                recv_set_name = set_name_sw
-                                st.caption(f"🖼️ URL image : {recv_image_url[:60] if recv_image_url else 'VIDE'}")
-                            else:
-                                st.caption(f"⚠️ Aucune carte avec le numéro {recv_num} dans le cache")
-                        else:
-                            st.caption(f"⚠️ Nom « {recv_name} » introuvable dans le cache")
-                    except Exception as e:
-                        st.caption(f"❌ Erreur : {e}")
+                                enriched_sw["set_id"] = set_id_sw
+                                enriched_sw["raw_cache_card"] = card_sw
+                                if set_id_sw:
+                                    number_sw = str(enriched_sw.get("number") or card_sw.get("localId") or card_sw.get("number") or "").strip()
+                                    if number_sw:
+                                        if not enriched_sw.get("image_url"):
+                                            enriched_sw["image_url"] = f"https://assets.tcgdex.net/fr/{set_id_sw}/{number_sw}/high.webp"
+                                        if not enriched_sw.get("image_url_en"):
+                                            enriched_sw["image_url_en"] = f"https://assets.tcgdex.net/en/{set_id_sw}/{number_sw}/high.webp"
+                                st.session_state["recv_selected_pending"] = enriched_sw
+                                st.rerun()
+                    else:
+                        st.caption("Aucun résultat dans le cache local pour cette recherche.")
+                elif recv_query:
+                    st.caption("Saisis au moins 2 caractères pour chercher dans le cache local.")
+
+                # Mettre a jour les valeurs en session
+                st.session_state.recv_name_val = recv_name
+                st.session_state.recv_num_val = recv_num
+
+                recv_image_url = str(selected_card.get("image_url") or "")
+                recv_image_url_en = str(selected_card.get("image_url_en") or "")
+                recv_image_url_ja = str(selected_card.get("image_url_ja") or "")
+                recv_set_name = str(selected_card.get("set") or "")
+                recv_rarity = str(selected_card.get("rarity") or "")
+                recv_lang = str(selected_card.get("lang") or "fr")
+                if selected_card and (not recv_name or recv_name == selected_card.get("name")):
+                    recv_name = selected_card.get("name", recv_name)
+                    recv_num = selected_card.get("number", recv_num)
 
                 recv_name = recv_name.strip().title() if recv_name else recv_name
 
                 if recv_image_url and recv_name and recv_num:
-                    url_en_prev = f"https://assets.tcgdex.net/en/{set_id_sw_prev}/{local_id_sw_prev}/high.webp" if set_id_sw_prev else ""
-                    st.markdown(img_with_fallback(recv_image_url, url_en_prev, width="80px", style="border-radius:8px;margin:0.3rem 0;"), unsafe_allow_html=True)
+                    st.markdown(img_with_fallback(recv_image_url, recv_image_url_en, width="80px", style="border-radius:8px;margin:0.3rem 0;"), unsafe_allow_html=True)
                 elif recv_name and recv_num:
-                    st.warning("📷 Carte non trouvée dans la base. Tu pourras ajouter la photo manuellement via 🖼️ une fois la carte ajoutée au lot.")
+                    st.warning("Carte sans image locale. Tu pourras ajouter la photo manuellement une fois la carte ajoutée au lot.")
                 elif recv_name and not recv_num:
-                    st.caption("💡 Ajoute le numéro pour afficher la bonne carte")
+                    st.caption("Ajoute le numéro ou sélectionne un résultat du cache pour afficher la bonne carte.")
 
                 if st.button("➕ Ajouter cette carte", key="add_recv"):
                     if recv_name:
-                        st.session_state.swap_cart_receive.append({
+                        received_card = {
                             "name": recv_name,
                             "set": recv_set_name,
                             "number": recv_num,
                             "value": recv_val,
                             "image_url": recv_image_url,
+                            "image_url_en": recv_image_url_en,
+                            "image_url_ja": recv_image_url_ja,
+                            "rarity": recv_rarity,
+                            "lang": recv_lang,
+                            "card_id": selected_card.get("id", ""),
+                            "set_id": selected_card.get("set_id", ""),
                             "is_collection_keep": recv_collection_keep,
-                        })
+                        }
+                        _normalize_received_trade_image_fields(received_card)
+                        st.session_state.swap_cart_receive.append(received_card)
                         # Vider vraiment les champs du formulaire au prochain affichage.
                         st.session_state.recv_name_val = ""
                         st.session_state.recv_num_val = ""
@@ -574,10 +819,7 @@ def render_sales_page(context):
                 total_receive = 0.
                 for i, r in enumerate(st.session_state.swap_cart_receive):
                     rc1, rc2, rc3 = st.columns([1, 4, 1])
-                    if r.get("image_url"):
-                        rc1.markdown(f'<img src="{proxy_img(r["image_url"])}" style="width:45px;border-radius:6px;">', unsafe_allow_html=True)
-                    else:
-                        rc1.markdown("🃏")
+                    rc1.markdown(_received_trade_image_html(r), unsafe_allow_html=True)
                     rc2.markdown(f"**{r['name']}** ({fp(r['value'])})")
                     if r.get("is_collection_keep"):
                         rc2.caption("Collection / à garder")
@@ -589,102 +831,200 @@ def render_sales_page(context):
                 cash_receive = st.number_input("Argent reçu en plus (€)", 0., 99999., float(st.session_state.get("swap_cash_receive", 0.0)), 0.5, key="swap_cash_receive")
                 st.metric("Total reçu", fp(total_receive + cash_receive))
 
-                # Afficher la répartition prévue
+                # Afficher la repartition prevue
                 if st.session_state.swap_cart_give:
-                    total_give_val = sum(g["value"] for g in st.session_state.swap_cart_give)
+                    preview_records = _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
+                    total_give_val = sum(item["reference_value"] for item in preview_records)
+                    total_given_cost_preview = sum(item["historical_cost"] for item in preview_records)
                     cash_give = float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
-                    cash_receive = float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
-                    diff = (total_receive + cash_receive) - (total_give_val + cash_give)
-                    diff_color = "#10b981" if diff >= 0 else "#ef4444"
-                    st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:{diff_color};">{"📈" if diff>=0 else "📉"} Différence : {diff:+.2f}€</div>', unsafe_allow_html=True)
+                    cash_receive = float(cash_receive or 0.0)
+                    preview = compute_trade_summary(
+                        total_give_val,
+                        total_receive,
+                        cash_paid=cash_give,
+                        cash_received=cash_receive,
+                        given_historical_cost=total_given_cost_preview,
+                    )
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Valeur économique donnée", fp(preview["trade_economic_given_total"]))
+                    m2.metric("Valeur économique reçue", fp(preview["trade_economic_received_total"]))
+                    m3.metric("Différence de valeur", fp(preview["trade_value_difference"]))
+                    st.caption(
+                        f"Coût historique donné : {fp(total_given_cost_preview)} · "
+                        f"coût transmis au Trade après cash : {fp(preview['trade_acquisition_total_cost'])}"
+                    )
 
-                    # Prévisualiser la répartition par lot
-                    st.markdown("---")
-                    st.markdown("**📊 Répartition automatique du bénéfice par lot :**")
-                    st.caption("Les cartes reçues iront dans le lot Trade. Ici, on affiche seulement la part de valeur attribuée à chaque lot contributeur : la carte n'est pas dupliquée.")
-                    valeur_par_lot = {}
-                    for g in st.session_state.swap_cart_give:
-                        li, _, _, _ = resolve_card_ref(cd_sw, g)
-                        if li is None:
-                            continue
-                        valeur_par_lot[li] = valeur_par_lot.get(li, 0.) + g["value"]
-                    total_contrib = sum(valeur_par_lot.values()) or 1.
-                    for li, val in valeur_par_lot.items():
-                        lot_nom = cd_sw["lots"][li]["nom"]
-                        pct = val / total_contrib * 100
-                        valeur_estimee_trade = sum(r["value"] for r in st.session_state.swap_cart_receive) * pct / 100
-                        st.markdown(f'<div style="font-size:0.82rem;color:#64748b;">🗂️ <b>{lot_nom}</b> — contribution {pct:.0f}% → {valeur_estimee_trade:.2f}€ de valeur Trade attribuée</div>', unsafe_allow_html=True)
+                    contributors_preview, _, _ = aggregate_contributors(
+                        preview_records,
+                        cash_paid=cash_give,
+                        cash_received=cash_receive,
+                    )
+                    lot_contributors = [c for c in contributors_preview if c.get("source_type") == "lot"]
+                    ratio_total = sum(safe_float(c.get("ratio")) for c in lot_contributors)
+                    for contributor in lot_contributors:
+                        pct = safe_float(contributor.get("ratio")) * 100
+                        st.caption(
+                            f"{contributor.get('lot_name') or 'Lot'} · "
+                            f"coût contribué {fp(contributor.get('historical_cost_contributed'))} · "
+                            f"capital restant {fp(contributor.get('remaining_cost'))} · "
+                            f"contribution {pct:.1f} %"
+                        )
+                    if lot_contributors:
+                        st.caption(f"Somme des contributions lots : {ratio_total * 100:.1f} %")
 
         # ── Bouton confirmer l'échange ──
         if st.session_state.swap_cart_give and st.session_state.swap_cart_receive:
             st.markdown("---")
-            if st.button("✅ Confirmer l'échange", type="primary", width="stretch"):
+            if st.button("Confirmer l'échange", type="primary", width="stretch"):
                 cdd = ld()
                 cash_give = float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
                 cash_receive = float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
-                # Calculer la valeur totale donnée par lot
-                valeur_par_lot_donne = {}
-                for g in st.session_state.swap_cart_give:
-                    li, ci, lot_g, card_g_ref = resolve_card_ref(cdd, g)
-                    if card_g_ref is None:
-                        st.error(f"Carte introuvable dans l'échange : {g.get('card_name', 'carte inconnue')}")
+                trade_id = build_trade_id()
+                trade_date = datetime.now().isoformat()
+                given_records = _selected_trade_given_records(cdd, st.session_state.swap_cart_give)
+                if len(given_records) != len(st.session_state.swap_cart_give):
+                    st.error("Une carte de l'échange est introuvable dans le stock actuel.")
+                    st.stop()
+                for record in given_records:
+                    if card_available_qty(record["card"]) <= 0:
+                        st.error(f"Stock insuffisant pour {record['card'].get('name', 'cette carte')}.")
                         st.stop()
-                    g["lot_idx"], g["card_idx"] = li, ci
-                    valeur_par_lot_donne[li] = valeur_par_lot_donne.get(li, 0.) + g["value"]
-                total_valeur_donnee = sum(valeur_par_lot_donne.values()) or 1.
-                total_cards_given_value = sum(float(g.get("value", 0.) or 0.) for g in st.session_state.swap_cart_give) or 1.
 
-                # Marquer les cartes données comme échangées
-                for g in st.session_state.swap_cart_give:
-                    _, _, _, card_g = resolve_card_ref(cdd, g)
-                    if card_g is None:
-                        continue
-                    cash_part = cash_receive * (float(g.get("value", 0.) or 0.) / total_cards_given_value) if cash_receive > 0 else 0.
-                    card_g["sold_quantity"] = card_g.get("sold_quantity", 0) + 1
-                    card_g.setdefault("sold_entries", []).append({
-                        "date": datetime.now().isoformat(),
-                        "quantity": 1, "price": cash_part,
-                        "card_name": card_g["name"],
-                        "card_set": card_g.get("set",""),
-                        "card_number": card_g.get("number",""),
-                        "suggested_price_at_sale": float(card_g.get("suggested_price",0)),
-                        "canal": "Échange", "is_exchange": True,
-                        "exchange_cash_received": cash_receive,
-                        "exchange_cash_part": cash_part,
-                        "exchanged_for": ", ".join(r["name"] for r in st.session_state.swap_cart_receive),
+                total_given_value = sum(item["reference_value"] for item in given_records)
+                total_received_value = sum(float(r.get("value", 0.0) or 0.0) for r in st.session_state.swap_cart_receive)
+                total_given_historical_cost = sum(item["historical_cost"] for item in given_records)
+                contributors, historical_before_cash, historical_remaining = aggregate_contributors(
+                    given_records, cash_paid=cash_give, cash_received=cash_receive
+                )
+                summary = compute_trade_summary(
+                    total_given_value,
+                    total_received_value,
+                    cash_paid=cash_give,
+                    cash_received=cash_receive,
+                    given_historical_cost=total_given_historical_cost,
+                )
+
+                received_allocated = allocate_received_cards(
+                    st.session_state.swap_cart_receive,
+                    historical_remaining,
+                    contributors,
+                )
+
+                received_names = ", ".join(r.get("name", "") for r in st.session_state.swap_cart_receive)
+                for record in given_records:
+                    card_g = record["card"]
+                    lot_g = record["lot"]
+                    card_g.setdefault("card_uid", new_uid("card"))
+                    card_g["exchange_out_quantity"] = int(card_g.get("exchange_out_quantity", 0) or 0) + 1
+                    card_g.setdefault("exchange_out_entries", []).append({
+                        "exchange_id": trade_id,
+                        "date": trade_date,
+                        "quantity": 1,
+                        "card_uid": card_g.get("card_uid"),
+                        "card_name": card_g.get("name", ""),
+                        "card_set": card_g.get("set", ""),
+                        "card_number": card_g.get("number", ""),
+                        "image_url": card_g.get("image_url", ""),
+                        "image_url_en": card_g.get("image_url_en", ""),
+                        "reference_value": record["reference_value"],
+                        "historical_cost": round(record["historical_cost"], 2),
+                        "lot_idx": record["lot_idx"],
+                        "lot_uid": lot_g.get("lot_uid"),
+                        "lot_name": lot_g.get("nom", ""),
+                        "contributors": record["contributors"],
+                        "exchanged_for": received_names,
                     })
 
-                # Ajouter les cartes reçues dans le lot Trade unique.
                 trade_lot_idx = ensure_trade_lot(cdd)
-
-                for r in st.session_state.swap_cart_receive:
+                for r in received_allocated:
+                    _normalize_received_trade_image_fields(r)
                     new_card = {
-                        "name": r["name"], "set": r.get("set",""), "number": r.get("number",""),
-                        "suggested_price": r["value"], "quantity": 1, "sold_quantity": 0,
-                        "condition": "NM", "is_reverse": False, "is_ed1": False,
-                        "image_url": r.get("image_url",""), "sold_entries": [],
+                        "card_uid": new_uid("card"),
+                        "id": r.get("card_id") or r.get("id", ""),
+                        "name": r.get("name", ""),
+                        "set": r.get("set", ""),
+                        "set_id": r.get("set_id", ""),
+                        "number": r.get("number", ""),
+                        "rarity": r.get("rarity", ""),
+                        "lang": r.get("lang", "fr"),
+                        "suggested_price": float(r.get("value", 0.0) or 0.0),
+                        "quantity": 1,
+                        "sold_quantity": 0,
+                        "condition": "NM",
+                        "is_reverse": False,
+                        "is_ed1": False,
+                        "image_url": r.get("image_url", ""),
+                        "image_url_en": r.get("image_url_en", ""),
+                        "image_url_ja": r.get("image_url_ja", ""),
+                        "sold_entries": [],
                         "received_by_exchange": True,
+                        "exchange_id": trade_id,
+                        "exchange_date": trade_date[:10],
                         "exchange_cash_paid": cash_give,
                         "exchange_cash_received": cash_receive,
-                        "exchanged_from": ", ".join(g["card_name"] for g in st.session_state.swap_cart_give),
-                        "exchange_repartition": {
-                            str(li_donne): (valeur_par_lot_donne[li_donne] / total_valeur_donnee) * r["value"]
-                            for li_donne in valeur_par_lot_donne
-                        },
+                        "exchanged_from": ", ".join(item["card"].get("name", "") for item in given_records),
+                        "trade_reference_value": float(r.get("value", 0.0) or 0.0),
+                        "trade_acquisition_cost": r.get("trade_acquisition_total_cost", 0.0),
+                        "trade_acquisition_unit_cost": r.get("trade_acquisition_unit_cost", 0.0),
+                        "trade_acquisition_total_cost": r.get("trade_acquisition_total_cost", 0.0),
+                        "trade_contributors": r.get("trade_contributors", []),
+                        "exchange_repartition": r.get("exchange_repartition", {}),
+                        "trade_received_cards_value": summary["trade_received_cards_value"],
+                        "trade_given_cards_value": summary["trade_given_cards_value"],
+                        "trade_cash_paid": summary["trade_cash_paid"],
+                        "trade_cash_received": summary["trade_cash_received"],
+                        "trade_economic_received_total": summary["trade_economic_received_total"],
+                        "trade_economic_given_total": summary["trade_economic_given_total"],
+                        "trade_value_difference": summary["trade_value_difference"],
+                        "trade_cost_method": summary["trade_cost_method"],
                         "is_collection_keep": bool(r.get("is_collection_keep")),
-                        "exchange_date": datetime.now().isoformat()[:10],
                     }
-                    cdd["lots"][trade_lot_idx]["cards"].append(new_card)
+                    cdd["lots"][trade_lot_idx].setdefault("cards", []).append(new_card)
+
+                cdd.setdefault("trade_history", []).append({
+                    "exchange_id": trade_id,
+                    "date": trade_date,
+                    **summary,
+                    "trade_historical_cost_before_cash": historical_before_cash,
+                    "trade_acquisition_total_cost": historical_remaining,
+                    "contributors": contributors,
+                    "given_cards": [
+                        {
+                            "name": item["card"].get("name", ""),
+                            "number": item["card"].get("number", ""),
+                            "set": item["card"].get("set", ""),
+                            "lot_idx": item["lot_idx"],
+                            "lot_uid": item["lot"].get("lot_uid"),
+                            "lot_name": item["lot"].get("nom", ""),
+                            "reference_value": item["reference_value"],
+                            "historical_cost": round(item["historical_cost"], 2),
+                            "contributors": item["contributors"],
+                        }
+                        for item in given_records
+                    ],
+                    "received_cards": [
+                        {
+                            "name": r.get("name", ""),
+                            "number": r.get("number", ""),
+                            "set": r.get("set", ""),
+                            "reference_value": float(r.get("value", 0.0) or 0.0),
+                            "historical_cost": r.get("trade_acquisition_total_cost", 0.0),
+                            "contributors": r.get("trade_contributors", []),
+                        }
+                        for r in received_allocated
+                    ],
+                })
+
                 sd(cdd)
                 nb_give = len(st.session_state.swap_cart_give)
                 nb_recv = len(st.session_state.swap_cart_receive)
                 st.session_state.swap_cart_give = []
                 st.session_state.swap_cart_receive = []
-                st.session_state.swap_cash_give = 0.0
-                st.session_state.swap_cash_receive = 0.0
+                st.session_state["swap_reset_pending"] = True
                 save_activity_state()
-                st.success(f"✅ Échange confirmé : {nb_give} carte(s) donnée(s) contre {nb_recv} carte(s) reçue(s) !")
+                st.success(f"Échange confirmé : {nb_give} carte(s) donnée(s) contre {nb_recv} carte(s) reçue(s).")
                 st.rerun()
+
 
 
 
