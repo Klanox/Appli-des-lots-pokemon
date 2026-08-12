@@ -119,6 +119,7 @@ def render_home_page(
         render_page_header_func("Tableau de bord", "Vue d'ensemble de votre activité", "📊"),
         unsafe_allow_html=True,
     )
+    st.caption("build: mobile-grid-v2")
 
     metrics_main = [
         ("Vendues", str(sts["sold_cards"]), None, "✅"),
