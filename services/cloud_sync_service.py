@@ -124,6 +124,10 @@ def valid_dataset_payload(dataset: SyncDataset, payload) -> bool:
 def write_local_dataset_from_cloud(dataset: SyncDataset, payload):
     safe_write_json(dataset.path, payload, indent=2 if dataset.key != "data" else None)
     update_cloud_sync_state(dataset.key, data=payload, source="cloud", dirty=False, last_read=utc_now_iso())
+    if dataset.key == "data":
+        st.session_state["data_cache"] = payload
+        st.session_state["data_dirty"] = False
+        st.session_state["data_cloud_loaded_at"] = time.time()
 
 
 def save_synced_dataset(dataset_key: str, payload, *, indent=2):
@@ -183,6 +187,10 @@ def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
         write_local_dataset_from_cloud(dataset, cloud_payload)
     else:
         update_cloud_sync_state(dataset.key, data=cloud_payload, source="cloud", dirty=False, last_read=utc_now_iso())
+        if dataset.key == "data":
+            st.session_state["data_cache"] = cloud_payload
+            st.session_state["data_dirty"] = False
+            st.session_state["data_cloud_loaded_at"] = time.time()
     _log_sync(dataset, action="pull", source="cloud", result="loaded" if changed else "identical", local_hash=local_hash, cloud_hash=cloud_hash)
     return {"dataset": dataset.key, "filename": dataset.filename, "status": "loaded", "changed": changed}
 
@@ -213,12 +221,23 @@ def pull_all_cloud_datasets(*, force=False):
     return {"enabled": True, "loaded": loaded, "changed": changed, "fallback_local": fallback, "conflicts": conflicts}
 
 
-def maybe_pull_all_cloud_datasets(*, interval_seconds=20):
-    """Refresh local datasets from cloud periodically without pushing anything."""
+def maybe_pull_all_cloud_datasets(*, interval_seconds=60, debounce_seconds=5):
+    """Refresh local datasets from cloud without running a full pull in hot rerun bursts."""
     now = time.time()
+    previous_check = float(st.session_state.get("cloud_sync_last_maybe_pull_check_ts", 0) or 0)
+    st.session_state["cloud_sync_last_maybe_pull_check_ts"] = now
+    if previous_check and now - previous_check < debounce_seconds:
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "debounce", "changed": []}
     last = float(st.session_state.get("cloud_sync_last_auto_pull_ts", 0) or 0)
     if now - last < interval_seconds:
-        return {"enabled": cloud_sync_enabled(), "skipped": True, "changed": []}
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "ttl", "changed": []}
+    pending_since = float(st.session_state.get("cloud_sync_auto_pull_pending_since", 0) or 0)
+    if not pending_since:
+        st.session_state["cloud_sync_auto_pull_pending_since"] = now
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "pending", "changed": []}
+    if now - pending_since < debounce_seconds:
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "pending_debounce", "changed": []}
+    st.session_state.pop("cloud_sync_auto_pull_pending_since", None)
     st.session_state["cloud_sync_last_auto_pull_ts"] = now
     result = pull_all_cloud_datasets(force=False)
     for dataset_key in result.get("changed", []):

@@ -21,6 +21,7 @@ from core.trade_economics import (
     safe_float,
 )
 from services.custom_card_image_service import resolve_custom_card_image
+from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
@@ -429,10 +430,20 @@ def render_sales_page(context):
                         if stock > 0 and search_norm in normalize_name(card.get("name", "")):
                             all_found.append((li, ci, card, lot, stock))
 
-                all_found_total = len(all_found)
-                if is_mobile_mode() and len(all_found) > 30:
-                    all_found = all_found[:30]
-                    st.caption("Affichage mobile limite aux 30 premiers resultats. Precise la recherche pour reduire la liste.")
+                sale_signature = stable_list_signature(
+                    "sales_search",
+                    search_vente,
+                    selected_lot_idx,
+                    [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in all_found],
+                )
+                sale_initial = 24 if is_mobile_mode() else 48
+                sale_step = 12 if is_mobile_mode() else 24
+                all_found, rendered_sale_cards_count, all_found_total, sale_count_key = progressive_slice(
+                    "sales_search",
+                    all_found,
+                    sale_signature,
+                    initial_count=sale_initial,
+                )
                 if "perf_count" in globals():
                     perf_count("cards_sales_rendered", len(all_found))
                     perf_count("cards_sales_available", all_found_total)
@@ -452,33 +463,47 @@ def render_sales_page(context):
                                     st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
                                 else:
                                     st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+                render_infinite_sentinel(
+                    "sales_search",
+                    count_key=sale_count_key,
+                    visible_count=rendered_sale_cards_count,
+                    total_count=all_found_total,
+                    batch_size=sale_step,
+                    root_margin_px=1800,
+                    run_html_func=run_html,
+                )
             else:
-                # Pas de recherche : rendu progressif si tous les lots sont affiches.
-                rendered_sale_cards_count = 0
-                available_sale_cards_count = 0
-                hidden_sale_cards_count = 0
-                sale_batch_size = 24 if is_mobile_mode() else 64
-                st.session_state.setdefault("sale_visible_limit", sale_batch_size)
-                sale_visible_limit = int(st.session_state.get("sale_visible_limit", sale_batch_size) or sale_batch_size)
-
+                sale_items = []
                 for li, lot in vente_lots_with_idx:
                     if selected_lot_idx is not None and li != selected_lot_idx:
                         continue
-                    cards_in_stock = []
                     for ci, card in enumerate(lot.get("cards", [])):
                         stock = card_available_qty(card)
                         if stock > 0:
-                            cards_in_stock.append((ci, card, stock))
-                    available_sale_cards_count += len(cards_in_stock)
+                            sale_items.append((li, ci, card, lot, stock))
+                sale_signature = stable_list_signature(
+                    "sales_all",
+                    selected_lot_idx,
+                    [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in sale_items],
+                )
+                sale_initial = 24 if is_mobile_mode() else 48
+                sale_step = 12 if is_mobile_mode() else 24
+                visible_sale_items, rendered_sale_cards_count, available_sale_cards_count, sale_count_key = progressive_slice(
+                    "sales_all",
+                    sale_items,
+                    sale_signature,
+                    initial_count=sale_initial,
+                )
+                by_lot = {}
+                lot_order = []
+                for li, ci, card, lot, stock in visible_sale_items:
+                    if li not in by_lot:
+                        by_lot[li] = (lot, [])
+                        lot_order.append(li)
+                    by_lot[li][1].append((ci, card, stock))
 
-                    if selected_lot_idx is None:
-                        remaining = max(sale_visible_limit - rendered_sale_cards_count, 0)
-                        cards_to_render = cards_in_stock[:remaining]
-                        hidden_sale_cards_count += max(len(cards_in_stock) - len(cards_to_render), 0)
-                    else:
-                        cards_to_render = cards_in_stock
-
-                    rendered_sale_cards_count += len(cards_to_render)
+                for li in lot_order:
+                    lot, cards_to_render = by_lot[li]
                     if cards_to_render:
                         st.markdown(f"### Lot {lot['nom']}")
                         with st.container(key=f"search_results_grid_sales_lot_{li}", horizontal=True, gap="small"):
@@ -500,12 +525,15 @@ def render_sales_page(context):
                 if "perf_count" in globals():
                     perf_count("cards_sales_available", available_sale_cards_count)
                     perf_count("cards_sales_rendered", rendered_sale_cards_count)
-
-                if selected_lot_idx is None and hidden_sale_cards_count > 0:
-                    st.info(f"Affichage rapide : {rendered_sale_cards_count} carte(s) affichee(s) sur {available_sale_cards_count}. Utilise la recherche pour trouver une carte precise, ou affiche la suite.")
-                    if st.button(f"Afficher plus ({min(sale_batch_size, hidden_sale_cards_count)} carte(s))", key="sale_show_more", width="stretch"):
-                        st.session_state["sale_visible_limit"] = sale_visible_limit + sale_batch_size
-                        st.rerun()
+                render_infinite_sentinel(
+                    "sales_all",
+                    count_key=sale_count_key,
+                    visible_count=rendered_sale_cards_count,
+                    total_count=available_sale_cards_count,
+                    batch_size=sale_step,
+                    root_margin_px=1800,
+                    run_html_func=run_html,
+                )
 
             # Panier
             st.markdown('<div id="cart-anchor"></div>', unsafe_allow_html=True)

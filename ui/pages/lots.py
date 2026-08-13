@@ -8,6 +8,7 @@ import html
 
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
+from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 from ui.mobile_scan import render_assisted_scan
 
 
@@ -118,7 +119,6 @@ def render_lots_page(context):
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
         unsafe_allow_html=True,
     )
-    st.caption("build: deploy-auto-v2")
     st.markdown(
         """
         <style>
@@ -690,32 +690,33 @@ def render_lots_page(context):
                 cards_in_stock_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) > 0]
                 cards_stored_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) <= 0 and int(c.get("stored_quantity", 0)) > 0]
                 cards_sold_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) <= 0 and int(c.get("stored_quantity", 0)) <= 0]
-                show_all_cards = st.checkbox(
-                    "Afficher toutes les cartes du lot",
-                    key=f"show_all_cards_{ix}",
-                    value=False,
-                    help="Désactivé par défaut pour accélérer l'ajout quand le lot contient beaucoup de cartes."
+                lot_render_items = (
+                    [("stock", item) for item in cards_in_stock_lot]
+                    + [("stored", item) for item in cards_stored_lot]
+                    + [("collection", item) for item in cards_collection_lot]
+                    + [("sold", item) for item in cards_sold_lot]
                 )
-                if not show_all_cards:
-                    stock_quick_limit = 24 if is_mobile_mode() else 48
-                    secondary_quick_limit = 12 if is_mobile_mode() else 24
-                    visible_stock_lot = cards_in_stock_lot[:stock_quick_limit]
-                    visible_sold_lot = cards_sold_lot[:secondary_quick_limit]
-                    visible_stored_lot = cards_stored_lot[:secondary_quick_limit]
-                    visible_collection_lot = cards_collection_lot[:secondary_quick_limit]
-                    hidden_cards_count = (
-                        max(len(cards_in_stock_lot) - len(visible_stock_lot), 0)
-                        + max(len(cards_sold_lot) - len(visible_sold_lot), 0)
-                        + max(len(cards_stored_lot) - len(visible_stored_lot), 0)
-                        + max(len(cards_collection_lot) - len(visible_collection_lot), 0)
-                    )
-                    if hidden_cards_count > 0:
-                        st.caption(f"Affichage rapide : {hidden_cards_count} ancienne(s) carte(s) masquée(s). Coche la case pour tout afficher.")
-                else:
-                    visible_stock_lot = cards_in_stock_lot
-                    visible_stored_lot = cards_stored_lot
-                    visible_collection_lot = cards_collection_lot
-                    visible_sold_lot = cards_sold_lot
+                lot_signature = stable_list_signature(
+                    "lot_cards",
+                    lt.get("lot_uid") or ix,
+                    lot_card_search,
+                    [
+                        (section, real_cix, card.get("card_uid") or card.get("name"))
+                        for section, (real_cix, card) in lot_render_items
+                    ],
+                )
+                lot_initial = 24 if is_mobile_mode() else 48
+                lot_step = 12 if is_mobile_mode() else 24
+                visible_lot_items, lot_visible_count, lot_total_count, lot_count_key = progressive_slice(
+                    f"lot_cards_{lt.get('lot_uid') or ix}",
+                    lot_render_items,
+                    lot_signature,
+                    initial_count=lot_initial,
+                )
+                visible_stock_lot = [item for section, item in visible_lot_items if section == "stock"]
+                visible_stored_lot = [item for section, item in visible_lot_items if section == "stored"]
+                visible_collection_lot = [item for section, item in visible_lot_items if section == "collection"]
+                visible_sold_lot = [item for section, item in visible_lot_items if section == "sold"]
                 if "perf_count" in globals():
                     perf_count(
                         "cards_lots_rendered",
@@ -972,6 +973,16 @@ def render_lots_page(context):
                     if visible_sold_lot:
                         st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>', unsafe_allow_html=True)
                         render_card_grid(visible_sold_lot, sold=True)
+
+                    render_infinite_sentinel(
+                        f"lot_cards_{lt.get('lot_uid') or ix}",
+                        count_key=lot_count_key,
+                        visible_count=lot_visible_count,
+                        total_count=lot_total_count,
+                        batch_size=lot_step,
+                        root_margin_px=1800,
+                        run_html_func=run_html,
+                    )
                 
                 # Actions lot
                 st.markdown("### Actions")

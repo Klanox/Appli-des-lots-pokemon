@@ -7,6 +7,7 @@ import tomllib
 import os
 import json
 import hashlib
+import time
 from datetime import datetime, timezone
 from utils import safe_write_json
 
@@ -24,6 +25,7 @@ SUPABASE_DATA_KEY = "data"
 SUPABASE_ESTIMATIONS_KEY = "lot_estimations"
 SUPABASE_MARKET_PRICE_CACHE_KEY = "estimation_market_price_cache"
 CLOUD_SYNC_STATE_FILE = os.path.join(APP_DIR, "cloud_sync_state.json")
+CLOUD_STATUS_TTL_SECONDS = 60
 
 
 def utc_now_iso():
@@ -40,26 +42,51 @@ def json_fingerprint(data):
 
 
 def load_cloud_sync_state():
+    try:
+        cached = st.session_state.get("cloud_sync_state_cache")
+        if isinstance(cached, dict):
+            cached.setdefault("files", {})
+            return cached
+    except Exception:
+        pass
     if not os.path.exists(CLOUD_SYNC_STATE_FILE):
-        return {"files": {}}
+        state = {"files": {}}
+        try:
+            st.session_state["cloud_sync_state_cache"] = state
+        except Exception:
+            pass
+        return state
     try:
         with open(CLOUD_SYNC_STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             data.setdefault("files", {})
+            try:
+                st.session_state["cloud_sync_state_cache"] = data
+            except Exception:
+                pass
             return data
     except Exception as e:
         try:
             st.session_state["cloud_sync_error"] = f"Etat cloud local illisible: {e}"
         except Exception:
             pass
-    return {"files": {}}
+    state = {"files": {}}
+    try:
+        st.session_state["cloud_sync_state_cache"] = state
+    except Exception:
+        pass
+    return state
 
 
 def save_cloud_sync_state(state):
     if not isinstance(state, dict):
         state = {"files": {}}
     state.setdefault("files", {})
+    try:
+        st.session_state["cloud_sync_state_cache"] = state
+    except Exception:
+        pass
     safe_write_json(CLOUD_SYNC_STATE_FILE, state, indent=2)
 
 
@@ -82,6 +109,29 @@ def update_cloud_sync_state(key, *, data=None, source="", dirty=None, last_read=
 
 def cloud_sync_entry(key):
     return load_cloud_sync_state().get("files", {}).get(key, {})
+
+
+def remember_cloud_status(ready: bool, message: str):
+    """Cache the latest observed cloud status for hot reruns."""
+    try:
+        st.session_state["cloud_sync_status_probe"] = {
+            "ready": bool(ready),
+            "message": str(message or ""),
+            "at": time.time(),
+        }
+    except Exception:
+        pass
+
+
+def cached_cloud_status(ttl_seconds: int = CLOUD_STATUS_TTL_SECONDS):
+    try:
+        cached = st.session_state.get("cloud_sync_status_probe") or {}
+        age = time.time() - float(cached.get("at", 0) or 0)
+        if age < ttl_seconds and "ready" in cached:
+            return bool(cached.get("ready")), str(cached.get("message") or "")
+    except Exception:
+        return None
+    return None
 
 
 @st.cache_resource(show_spinner=False)
@@ -151,9 +201,11 @@ def test_cloud_connection():
         if client is None:
             return False, "Could not create Supabase client"
         res = client.table(SUPABASE_STATE_TABLE).select("key").limit(1).execute()
+        remember_cloud_status(True, "Synchronisation cloud prête")
         return True, "Connection successful"
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Test cloud impossible: {e}"
+        remember_cloud_status(False, st.session_state["cloud_sync_error"])
         return False, st.session_state["cloud_sync_error"]
 
 
@@ -165,10 +217,12 @@ def load_cloud_json(key):
     try:
         res = client.table(SUPABASE_STATE_TABLE).select("data").eq("key", key).limit(1).execute()
         rows = getattr(res, "data", None) or []
+        remember_cloud_status(True, "Synchronisation cloud prête")
         if rows:
             return rows[0].get("data")
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Lecture cloud impossible: {e}"
+        remember_cloud_status(False, st.session_state["cloud_sync_error"])
     return None
 
 
@@ -180,6 +234,7 @@ def load_cloud_json_meta(key):
     try:
         res = client.table(SUPABASE_STATE_TABLE).select("data, updated_at").eq("key", key).limit(1).execute()
         rows = getattr(res, "data", None) or []
+        remember_cloud_status(True, "Synchronisation cloud prête")
         if not rows:
             return {"available": True, "lots_count": 0, "updated_at": "", "error": ""}
         data = rows[0].get("data")
@@ -192,6 +247,7 @@ def load_cloud_json_meta(key):
         }
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Lecture statut cloud impossible: {e}"
+        remember_cloud_status(False, st.session_state["cloud_sync_error"])
         return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state["cloud_sync_error"]}
 
 
@@ -207,7 +263,9 @@ def save_cloud_json(key, data):
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
         st.session_state["cloud_sync_error"] = ""
+        remember_cloud_status(True, "Synchronisation cloud prête")
         return True
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Écriture cloud impossible: {e}"
+        remember_cloud_status(False, st.session_state["cloud_sync_error"])
         return False

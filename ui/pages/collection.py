@@ -10,6 +10,7 @@ import time
 import streamlit as st
 
 from services.custom_card_image_service import resolve_custom_card_image
+from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 
 
 def _collection_parse_float(value):
@@ -524,14 +525,22 @@ def render_collection_page(
         ]
     total_collection_matches = len(collection_cards)
     mobile = bool(is_mobile_mode_func())
-    if mobile and not search_collection:
-        collection_limit = int(st.session_state.get("collection_mobile_visible_limit", 24) or 24)
-        if len(collection_cards) > collection_limit:
-            collection_cards = collection_cards[:collection_limit]
-            st.caption(
-                f"Affichage mobile : {collection_limit} carte(s) sur {total_collection_matches}. "
-                "Utilise la recherche ou affiche la suite."
-            )
+    collection_signature = stable_list_signature(
+        "collection",
+        search_collection,
+        [
+            (lot_idx, card_idx, card.get("card_uid") or card.get("id") or card.get("name"))
+            for lot_idx, card_idx, _, card in collection_cards
+        ],
+    )
+    collection_initial = 24 if mobile else 48
+    collection_step = 12 if mobile else 24
+    collection_cards, collection_visible_count, total_collection_matches, collection_count_key = progressive_slice(
+        "collection_cards",
+        collection_cards,
+        collection_signature,
+        initial_count=collection_initial,
+    )
     if perf_count_func is not None:
         perf_count_func("cards_collection_available", total_collection_matches)
         perf_count_func("cards_collection_rendered", len(collection_cards))
@@ -642,9 +651,11 @@ def render_collection_page(
                                 st.session_state.pop(confirm_key, None)
                                 st.rerun()
 
-    if mobile and not search_collection and total_collection_matches > len(collection_cards):
-        if st.button("Afficher plus de cartes Collection", key="collection_mobile_show_more", width="stretch"):
-            st.session_state["collection_mobile_visible_limit"] = int(
-                st.session_state.get("collection_mobile_visible_limit", 24) or 24
-            ) + 24
-            st.rerun()
+    render_infinite_sentinel(
+        "collection_cards",
+        count_key=collection_count_key,
+        visible_count=collection_visible_count,
+        total_count=total_collection_matches,
+        batch_size=collection_step,
+        root_margin_px=1800,
+    )

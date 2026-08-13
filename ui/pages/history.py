@@ -11,6 +11,7 @@ from datetime import datetime
 
 import streamlit as st
 from core.trade_economics import trade_sale_stat_rows
+from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 
 
 def _money(value):
@@ -469,14 +470,26 @@ def render_history_page(
         s2.metric("💰 CA", f"{total_ca_h:.2f}€")
         s3.metric("💎 Bénéfice estimé", f"{total_benef_h:.2f}€")
     
-        current_hist_signature = f"{search_hist}|{filter_month or ''}|{sort_opt}|{len(filtered)}"
-        if st.session_state.get("history_signature") != current_hist_signature:
-            st.session_state["history_signature"] = current_hist_signature
-            st.session_state["history_visible_count"] = 40
-        history_visible_count = int(st.session_state.get("history_visible_count", 40))
-        visible_history = filtered[:history_visible_count]
-        if len(visible_history) < len(filtered):
-            st.caption(f"Affichage progressif : {len(visible_history)} vente(s) sur {len(filtered)}.")
+        current_hist_signature = stable_list_signature(
+            "history",
+            search_hist,
+            filter_month,
+            sort_opt,
+            [
+                (
+                    h.get("type"),
+                    h.get("sale_id") or h.get("exchange_id") or h.get("date"),
+                    h.get("card_name"),
+                )
+                for h in filtered
+            ],
+        )
+        visible_history, history_visible_count, history_total_count, history_count_key = progressive_slice(
+            "history",
+            filtered,
+            current_hist_signature,
+            initial_count=20,
+        )
         st.markdown("---")
     
         # ── Lignes de l'historique ──
@@ -584,32 +597,12 @@ def render_history_page(
     
             st.markdown('<hr style="margin:0.4rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
     
-        if len(visible_history) < len(filtered):
-            st.markdown('<div id="history-load-more-anchor"></div>', unsafe_allow_html=True)
-            if st.button("Charger plus d'historique", key="history_load_more", width="stretch"):
-                st.session_state["history_visible_count"] = history_visible_count + 40
-                st.rerun()
-            run_html_func("""
-            <script>
-            (function() {
-                const win = parent.window;
-                const doc = parent.document;
-                if (win.codexHistoryAutoLoadAttached) return;
-                win.codexHistoryAutoLoadAttached = true;
-                win.addEventListener('scroll', function() {
-                    clearTimeout(win.codexHistoryAutoLoadTimer);
-                    win.codexHistoryAutoLoadTimer = setTimeout(function() {
-                        const anchor = doc.getElementById('history-load-more-anchor');
-                        if (!anchor) return;
-                        const rect = anchor.getBoundingClientRect();
-                        if (rect.top > win.innerHeight + 300) return;
-                        const buttons = Array.from(doc.querySelectorAll('button'));
-                        const btn = buttons.find(function(b) {
-                            return (b.innerText || '').trim() === "Charger plus d'historique";
-                        });
-                        if (btn && !btn.disabled) btn.click();
-                    }, 200);
-                }, {passive: true});
-            })();
-            </script>
-            """, height=0)
+        render_infinite_sentinel(
+            "history",
+            count_key=history_count_key,
+            visible_count=history_visible_count,
+            total_count=history_total_count,
+            batch_size=20,
+            root_margin_px=1800,
+            run_html_func=run_html_func,
+        )

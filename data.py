@@ -82,6 +82,13 @@ def ld():
     perf_count("ld")
     perf_start = time.perf_counter()
     perf_source = "unknown"
+
+    if "data_cache" in st.session_state and not st.session_state.get("data_dirty", False):
+        cached = st.session_state["data_cache"]
+        if _valid_data_snapshot(cached) and len(cached.get("lots", [])) > 0:
+            perf_log("ld()", time.perf_counter() - perf_start, "cache/session_first")
+            return cached
+
     local_data = _read_local_data_file()
     if local_data is not None:
         perf_source = "file"
@@ -94,14 +101,9 @@ def ld():
         cached_lots_count = len(cached.get("lots", [])) if isinstance(cached, dict) else 0
         if cached_lots_count == 0 and local_lots_count > 0:
             st.session_state.pop("data_cache", None)
-        else:
-            if not cloud_sync_enabled():
-                perf_log("ld()", time.perf_counter() - perf_start, "cache")
-                return cached
-            last_cloud_load = float(st.session_state.get("data_cloud_loaded_at", 0) or 0)
-            if time.time() - last_cloud_load < 10:
-                perf_log("ld()", time.perf_counter() - perf_start, "cache/cloud_recent")
-                return cached
+        elif _valid_data_snapshot(cached):
+            perf_log("ld()", time.perf_counter() - perf_start, "cache/after_empty_guard")
+            return cached
 
     cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
     cloud_valid = _valid_data_snapshot(cloud_data)

@@ -30,9 +30,12 @@ from utils import (
     ESTIMATIONS_FILE,
 )
 from cloud import (
+    CLOUD_STATUS_TTL_SECONDS,
+    cached_cloud_status,
     get_supabase_client,
     cloud_sync_entry,
     load_cloud_json_meta,
+    remember_cloud_status,
     save_cloud_json,
     update_cloud_sync_state,
     utc_now_iso,
@@ -202,19 +205,29 @@ def cloud_sync_status():
     has_url = bool(_secret_value("SUPABASE_URL"))
     has_key = bool(_secret_value("SUPABASE_KEY", "SUPABASE_ANON_KEY"))
     if not has_url and not has_key:
+        remember_cloud_status(False, "Secrets Supabase absents.")
         return False, "Secrets Supabase absents."
     if not has_url:
+        remember_cloud_status(False, "SUPABASE_URL absent.")
         return False, "SUPABASE_URL absent."
     if not has_key:
+        remember_cloud_status(False, "SUPABASE_KEY absent.")
         return False, "SUPABASE_KEY absent."
+    cached = cached_cloud_status(CLOUD_STATUS_TTL_SECONDS)
+    if cached is not None:
+        return cached
     client = get_supabase_client()
     if client is None:
-        return False, st.session_state.get("cloud_sync_error", "Client Supabase indisponible.")
+        message = st.session_state.get("cloud_sync_error", "Client Supabase indisponible.")
+        remember_cloud_status(False, message)
+        return False, message
     try:
         client.table(SUPABASE_STATE_TABLE).select("key").limit(1).execute()
+        remember_cloud_status(True, "Synchronisation cloud prête")
         return True, "Synchronisation cloud prête"
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Test cloud impossible: {e}"
+        remember_cloud_status(False, st.session_state["cloud_sync_error"])
         return False, st.session_state["cloud_sync_error"]
 
 
@@ -1367,7 +1380,7 @@ if "full_cloud_pull_checked" not in st.session_state:
         st.session_state["full_cloud_pull_error"] = str(e)
 else:
     try:
-        maybe_pull_all_cloud_datasets(interval_seconds=20)
+        maybe_pull_all_cloud_datasets(interval_seconds=60, debounce_seconds=5)
     except Exception as e:
         st.session_state["full_cloud_pull_error"] = str(e)
 
