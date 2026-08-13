@@ -3,13 +3,17 @@ Cloud sync functions for PokéStock application using Supabase.
 """
 
 import streamlit as st
-import tomllib
 import os
 import json
 import hashlib
 import time
 from datetime import datetime, timezone
 from utils import safe_write_json
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 try:
     import truststore
@@ -153,6 +157,8 @@ def get_supabase_client():
 def _local_secrets():
     """Load secrets from local secrets.toml file."""
     try:
+        if tomllib is None:
+            return {}
         if os.path.exists(LOCAL_SECRETS_FILE):
             with open(LOCAL_SECRETS_FILE, "r", encoding="utf-8-sig") as f:
                 return tomllib.loads(f.read())
