@@ -118,7 +118,7 @@ def render_lots_page(context):
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
         unsafe_allow_html=True,
     )
-    st.caption("build: deploy-auto-v1")
+    st.caption("build: deploy-auto-v2")
     st.markdown(
         """
         <style>
