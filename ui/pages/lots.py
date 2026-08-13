@@ -723,7 +723,10 @@ def render_lots_page(context):
                         len(visible_stock_lot) + len(visible_stored_lot) + len(visible_collection_lot) + len(visible_sold_lot),
                     )
                 
-                def render_card_grid(card_list_with_idx, sold=False, collection=False):
+                def render_card_grid(card_list_with_idx, sold=False, collection=False, grid_scope="active"):
+                    safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
+                    safe_scope = str(grid_scope or ("sold" if sold else "collection" if collection else "active")).replace(" ", "_").replace("/", "_")
+
                     def lot_image_markup(img_url, img_url_en="", *, img_style="", wrapper_style=""):
                         candidates = []
                         for raw_url in (img_url, img_url_en):
@@ -768,14 +771,16 @@ def render_lots_page(context):
                     COLS_PER_ROW = 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         with st.container(
-                            key=f"lot_cards_grid_{ix}_{'sold' if sold else 'collection' if collection else 'active'}_{row_start}",
+                            key=f"lot_cards_grid_{safe_lot_key}_{safe_scope}_{row_start}",
                             horizontal=True,
                             gap="small",
                         ):
                             for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
                                 stock = card_available_qty(crd)
+                                card_key_part = str(crd.get("card_uid") or real_cix).replace(" ", "_").replace("/", "_")
+                                widget_key = f"{ix}_{safe_scope}_{real_cix}"
 
-                                with st.container(key=f"lot_card_item_{ix}_{real_cix}_{col_idx}"):
+                                with st.container(key=f"lot_card_item_{safe_lot_key}_{safe_scope}_{card_key_part}_{col_idx}"):
                                     # Image
                                     img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
                                     img_url_en = crd.get("image_url_en", "")
@@ -797,8 +802,8 @@ def render_lots_page(context):
                                             '</div>',
                                             unsafe_allow_html=True,
                                         )
-                                        if st.button("Ajouter une photo", key=f"add_img_{ix}_{real_cix}", width="stretch"):
-                                            st.session_state[f"show_upload_{ix}_{real_cix}"] = True
+                                        if st.button("Ajouter une photo", key=f"add_img_{widget_key}", width="stretch"):
+                                            st.session_state[f"show_upload_{widget_key}"] = True
 
                                     # Nom + badges + stock sur une ligne
                                     badges = card_status_badges(crd)
@@ -817,9 +822,9 @@ def render_lots_page(context):
                                             pass  # sera corrigé par le bouton global
                                     else:
                                         # Prix modifiable - sauvegarde sur perte de focus (Enter)
-                                        def save_price(ix=ix, real_cix=real_cix):
+                                        def save_price(ix=ix, real_cix=real_cix, widget_key=widget_key):
                                             cdd = ld()
-                                            new_price = st.session_state[f"ep{ix}_{real_cix}"]
+                                            new_price = st.session_state[f"ep{widget_key}"]
                                             old_price = cdd["lots"][ix]["cards"][real_cix].get("suggested_price", 0.)
                                             cdd["lots"][ix]["cards"][real_cix]["suggested_price"] = new_price
                                             if cdd["lots"][ix]["cards"][real_cix].get("is_collection_keep"):
@@ -831,7 +836,7 @@ def render_lots_page(context):
                                                 })
                                             sd(cdd)
 
-                                        st.number_input("Valeur actuelle (€)" if collection else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{ix}_{real_cix}", on_change=save_price)
+                                        st.number_input("Valeur actuelle (€)" if collection else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
                                         # Historique prix mini
                                         ph = crd.get("price_history", [])
@@ -847,13 +852,13 @@ def render_lots_page(context):
                                             max_value=9999,
                                             value=int(crd.get("quantity", 1)),
                                             step=1,
-                                            key=f"qty_edit_{ix}_{real_cix}",
+                                            key=f"qty_edit_{widget_key}",
                                             on_change=update_card_quantity,
                                             args=(ix, real_cix),
                                         )
                                         if (not is_storage) and stock > 0:
-                                            store_panel_key = f"show_store_{ix}_{real_cix}"
-                                            if st.button("📈 Stocker", key=f"store_btn_{ix}_{real_cix}", width="stretch"):
+                                            store_panel_key = f"show_store_{widget_key}"
+                                            if st.button("📈 Stocker", key=f"store_btn_{widget_key}", width="stretch"):
                                                 st.session_state[store_panel_key] = True
 
                                             if st.session_state.get(store_panel_key, False):
@@ -863,7 +868,7 @@ def render_lots_page(context):
                                                     max_value=int(stock),
                                                     value=1,
                                                     step=1,
-                                                    key=f"store_qty_{ix}_{real_cix}",
+                                                    key=f"store_qty_{widget_key}",
                                                 )
                                                 storage_cote = st.number_input(
                                                     "Cote stockage (€)",
@@ -871,10 +876,10 @@ def render_lots_page(context):
                                                     max_value=99999.0,
                                                     value=float(crd.get("suggested_price", 0.) or 0.),
                                                     step=0.5,
-                                                    key=f"store_cote_{ix}_{real_cix}",
+                                                    key=f"store_cote_{widget_key}",
                                                 )
                                                 col_store_ok, col_store_cancel = st.columns(2)
-                                                if col_store_ok.button("Valider", key=f"store_confirm_{ix}_{real_cix}", width="stretch"):
+                                                if col_store_ok.button("Valider", key=f"store_confirm_{widget_key}", width="stretch"):
                                                     ok, msg = transfer_card_to_storage(ix, real_cix, transfer_qty, storage_cote)
                                                     if ok:
                                                         st.session_state[store_panel_key] = False
@@ -882,28 +887,28 @@ def render_lots_page(context):
                                                         st.rerun()
                                                     else:
                                                         st.error(msg)
-                                                if col_store_cancel.button("Annuler", key=f"store_cancel_{ix}_{real_cix}", width="stretch"):
+                                                if col_store_cancel.button("Annuler", key=f"store_cancel_{widget_key}", width="stretch"):
                                                     st.session_state[store_panel_key] = False
                                                     st.rerun()
 
                                     # Checkboxes Reverse / 1ère Éd + bouton modifier image
-                                    def save_badges(ix=ix, real_cix=real_cix):
+                                    def save_badges(ix=ix, real_cix=real_cix, widget_key=widget_key):
                                         cdd = ld()
-                                        cdd["lots"][ix]["cards"][real_cix]["is_reverse"] = st.session_state.get(f"erv{ix}_{real_cix}", False)
-                                        cdd["lots"][ix]["cards"][real_cix]["is_ed1"] = st.session_state.get(f"eed{ix}_{real_cix}", False)
+                                        cdd["lots"][ix]["cards"][real_cix]["is_reverse"] = st.session_state.get(f"erv{widget_key}", False)
+                                        cdd["lots"][ix]["cards"][real_cix]["is_ed1"] = st.session_state.get(f"eed{widget_key}", False)
                                         sd(cdd)
 
                                     col_rv, col_ed, col_img = st.columns([2, 2, 1])
-                                    col_rv.checkbox("Reverse", value=crd.get("is_reverse", False), key=f"erv{ix}_{real_cix}", on_change=save_badges)
-                                    col_ed.checkbox("1ère Éd", value=crd.get("is_ed1", False), key=f"eed{ix}_{real_cix}", on_change=save_badges)
-                                    if col_img.button("🖼️", key=f"edit_img_{ix}_{real_cix}", help="Modifier l'image"):
-                                        st.session_state[f"show_upload_{ix}_{real_cix}"] = True
+                                    col_rv.checkbox("Reverse", value=crd.get("is_reverse", False), key=f"erv{widget_key}", on_change=save_badges)
+                                    col_ed.checkbox("1ère Éd", value=crd.get("is_ed1", False), key=f"eed{widget_key}", on_change=save_badges)
+                                    if col_img.button("🖼️", key=f"edit_img_{widget_key}", help="Modifier l'image"):
+                                        st.session_state[f"show_upload_{widget_key}"] = True
 
-                                    if st.session_state.get(f"show_upload_{ix}_{real_cix}", False):
+                                    if st.session_state.get(f"show_upload_{widget_key}", False):
                                         uploaded = st.file_uploader(
                                             "Nouvelle image",
                                             type=["jpg","jpeg","png","webp"],
-                                            key=f"reupload_{ix}_{real_cix}",
+                                            key=f"reupload_{widget_key}",
                                         )
                                         if uploaded:
                                             img_dir = os.path.join(os.getcwd(), "card_images")
@@ -919,12 +924,12 @@ def render_lots_page(context):
                                             cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
                                             register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
                                             sd(cdd)
-                                            st.session_state[f"show_upload_{ix}_{real_cix}"] = False
+                                            st.session_state[f"show_upload_{widget_key}"] = False
                                             st.rerun()
 
                                     # Restaurer (cartes vendues)
                                     if sold:
-                                        if st.button("↩️ Restaurer", key=f"restore_card_{ix}_{real_cix}", width="stretch"):
+                                        if st.button("↩️ Restaurer", key=f"restore_card_{widget_key}", width="stretch"):
                                             cdd = ld()
                                             card_data = cdd["lots"][ix]["cards"][real_cix]
                                             # Retirer la dernière vente
@@ -946,7 +951,7 @@ def render_lots_page(context):
                                             st.rerun()
 
                                     # Supprimer
-                                    if st.button("🗑️", key=f"dc{ix}_{real_cix}", width="stretch"):
+                                    if st.button("🗑️", key=f"dc{widget_key}", width="stretch"):
                                         ok, er = dc(ix, real_cix)
                                         if ok:
                                             st.rerun()
@@ -959,20 +964,20 @@ def render_lots_page(context):
                     # ── En stock ──
                     if visible_stock_lot:
                         st.markdown(f"**🟢 En stock ({len(cards_in_stock_lot)})**")
-                        render_card_grid(visible_stock_lot, sold=False)
+                        render_card_grid(visible_stock_lot, sold=False, grid_scope="stock")
 
                     if visible_stored_lot:
                         st.markdown(f"**📈 En stockage ({len(cards_stored_lot)})**")
-                        render_card_grid(visible_stored_lot, sold=False)
+                        render_card_grid(visible_stored_lot, sold=False, grid_scope="stored")
 
                     if visible_collection_lot:
                         st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🧾 COLLECTION ({len(cards_collection_lot)})</span></div>', unsafe_allow_html=True)
-                        render_card_grid(visible_collection_lot, sold=False, collection=True)
+                        render_card_grid(visible_collection_lot, sold=False, collection=True, grid_scope="collection")
                     
                     # ── Vendues ──
                     if visible_sold_lot:
                         st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>', unsafe_allow_html=True)
-                        render_card_grid(visible_sold_lot, sold=True)
+                        render_card_grid(visible_sold_lot, sold=True, grid_scope="sold")
 
                     render_infinite_sentinel(
                         f"lot_cards_{lt.get('lot_uid') or ix}",
@@ -982,6 +987,7 @@ def render_lots_page(context):
                         batch_size=lot_step,
                         root_margin_px=1800,
                         run_html_func=run_html,
+                        button_label="\u200b",
                     )
                 
                 # Actions lot

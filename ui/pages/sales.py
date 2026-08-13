@@ -410,130 +410,167 @@ def render_sales_page(context):
 
             # Construire liste panier pour verification rapide
             cart_keys = {item.get("card_uid") for item in st.session_state.bulk_cart if item.get("card_uid")}
-            lot_profitable_cache = {}
+            sale_items = []
+            for li, lot in vente_lots_with_idx:
+                if selected_lot_idx is not None and li != selected_lot_idx:
+                    continue
+                for ci, card in enumerate(lot.get("cards", [])):
+                    stock = card_available_qty(card)
+                    if stock > 0:
+                        sale_items.append((li, ci, card, lot, stock))
 
-            def sale_lot_profitable(li, lot):
-                if li not in lot_profitable_cache:
-                    lot_profitable_cache[li] = cp(lot) >= 0
-                return lot_profitable_cache[li]
+            @st.fragment
+            def render_sales_progressive_grid(search_text, selected_lot, items, cart_card_uids):
+                lot_profitable_cache = {}
 
-            # Grille par lot ou grille globale si recherche
-            if search_vente:
-                # Recherche active : toutes les cartes trouvees restent affichables.
-                all_found = []
-                search_norm = normalize_name(search_vente)
-                for li, lot in vente_lots_with_idx:
-                    if selected_lot_idx is not None and li != selected_lot_idx:
-                        continue
-                    for ci, card in enumerate(lot.get("cards", [])):
-                        stock = card_available_qty(card)
-                        if stock > 0 and search_norm in normalize_name(card.get("name", "")):
-                            all_found.append((li, ci, card, lot, stock))
+                def sale_lot_profitable(li, lot):
+                    if li not in lot_profitable_cache:
+                        lot_profitable_cache[li] = cp(lot) >= 0
+                    return lot_profitable_cache[li]
 
-                sale_signature = stable_list_signature(
-                    "sales_search",
-                    search_vente,
-                    selected_lot_idx,
-                    [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in all_found],
-                )
+                def render_sale_card(li, ci, card, lot, stock, *, include_lot_caption=False):
+                    in_cart = card.get("card_uid") in cart_card_uids
+                    with st.container(key=f"search_result_card_sales_{'search' if include_lot_caption else 'lot'}_{li}_{ci}"):
+                        st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
+                        st.markdown(f"**{card['name']}**")
+                        st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
+                        st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
+                        if include_lot_caption and not is_mobile_mode():
+                            st.caption(f"Lot {lot['nom']}")
+                        q_key = card.get("card_uid") or f"{li}_{ci}"
+                        q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
+                        if in_cart:
+                            if st.button(
+                                "Dans le panier",
+                                key=f"add_{li}_{ci}",
+                                width="stretch",
+                            ):
+                                bulk_cart_remove(card_uid=card.get("card_uid"))
+                                st.rerun()
+                        else:
+                            if st.button(
+                                "Ajouter",
+                                key=f"add_{li}_{ci}",
+                                width="stretch",
+                                type="primary",
+                            ):
+                                bulk_cart_add({
+                                    "lot_idx": li,
+                                    "card_idx": ci,
+                                    "lot_uid": lot.get("lot_uid"),
+                                    "card_uid": card.get("card_uid"),
+                                    "lot_name": lot["nom"],
+                                    "card_name": card["name"],
+                                    "card_set": card.get("set", ""),
+                                    "quantity": q_add,
+                                    "price_base": card.get("suggested_price", 0),
+                                    "lot_profitable": sale_lot_profitable(li, lot),
+                                })
+                                st.rerun()
+
+                def render_sale_grid_rows(scope, row_items, *, include_lot_caption=False):
+                    slots_per_row = 2 if is_mobile_mode() else 6
+                    for row_start in range(0, len(row_items), slots_per_row):
+                        row_index = row_start // slots_per_row
+                        row = row_items[row_start:row_start + slots_per_row]
+                        with st.container(
+                            key=f"search_results_grid_sales_{scope}_row_{row_index}",
+                            horizontal=True,
+                            gap="small",
+                        ):
+                            for li, ci, card, lot, stock in row:
+                                render_sale_card(
+                                    li,
+                                    ci,
+                                    card,
+                                    lot,
+                                    stock,
+                                    include_lot_caption=include_lot_caption,
+                                )
+                            for spacer_index in range(slots_per_row - len(row)):
+                                with st.container(
+                                    key=(
+                                        f"search_result_card_sales_spacer_"
+                                        f"{scope}_{row_index}_{spacer_index}"
+                                    )
+                                ):
+                                    st.empty()
+
+                search_text = str(search_text or "")
                 sale_initial = 24 if is_mobile_mode() else 48
                 sale_step = 12 if is_mobile_mode() else 24
-                all_found, rendered_sale_cards_count, all_found_total, sale_count_key = progressive_slice(
-                    "sales_search",
-                    all_found,
-                    sale_signature,
-                    initial_count=sale_initial,
-                )
-                if "perf_count" in globals():
-                    perf_count("cards_sales_rendered", len(all_found))
-                    perf_count("cards_sales_available", all_found_total)
-                with st.container(key="search_results_grid_sales_search", horizontal=True, gap="small"):
-                    for li, ci, card, lot, stock in all_found:
-                        in_cart = card.get("card_uid") in cart_keys
-                        with st.container(key=f"search_result_card_sales_search_{li}_{ci}"):
-                                st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
-                                st.markdown(f"**{card['name']}**")
-                                st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
-                                st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
-                                if not is_mobile_mode():
-                                    st.caption(f"Lot {lot['nom']}")
-                                q_key = card.get("card_uid") or f"{li}_{ci}"
-                                q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
-                                if in_cart:
-                                    st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
-                                else:
-                                    st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card.get('set',''),"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
+
+                # Grille par lot ou grille globale si recherche
+                if search_text:
+                    search_norm = normalize_name(search_text)
+                    filtered_items = [
+                        item for item in items
+                        if search_norm in normalize_name(item[2].get("name", ""))
+                    ]
+                    sale_signature = stable_list_signature(
+                        "sales_search",
+                        search_text,
+                        selected_lot,
+                        [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in filtered_items],
+                    )
+                    visible_items, rendered_count, total_count, sale_count_key = progressive_slice(
+                        "sales_search",
+                        filtered_items,
+                        sale_signature,
+                        initial_count=sale_initial,
+                    )
+                    if "perf_count" in globals():
+                        perf_count("cards_sales_rendered", len(visible_items))
+                        perf_count("cards_sales_available", total_count)
+                    render_sale_grid_rows("search", visible_items, include_lot_caption=True)
+                    sentinel_key_prefix = "sales_search"
+                else:
+                    sale_signature = stable_list_signature(
+                        "sales_all",
+                        selected_lot,
+                        [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in items],
+                    )
+                    visible_items, rendered_count, total_count, sale_count_key = progressive_slice(
+                        "sales_all",
+                        items,
+                        sale_signature,
+                        initial_count=sale_initial,
+                    )
+                    by_lot = {}
+                    lot_order = []
+                    for li, ci, card, lot, stock in visible_items:
+                        if li not in by_lot:
+                            by_lot[li] = (lot, [])
+                            lot_order.append(li)
+                        by_lot[li][1].append((ci, card, stock))
+
+                    for li in lot_order:
+                        lot, cards_to_render = by_lot[li]
+                        if cards_to_render:
+                            st.markdown(f"### Lot {lot['nom']}")
+                            render_sale_grid_rows(
+                                f"lot_{li}",
+                                [(li, ci, card, lot, stock) for ci, card, stock in cards_to_render],
+                            )
+                            st.markdown("---")
+
+                    if "perf_count" in globals():
+                        perf_count("cards_sales_available", total_count)
+                        perf_count("cards_sales_rendered", rendered_count)
+                    sentinel_key_prefix = "sales_all"
+
                 render_infinite_sentinel(
-                    "sales_search",
+                    sentinel_key_prefix,
                     count_key=sale_count_key,
-                    visible_count=rendered_sale_cards_count,
-                    total_count=all_found_total,
+                    visible_count=rendered_count,
+                    total_count=total_count,
                     batch_size=sale_step,
                     root_margin_px=1800,
                     run_html_func=run_html,
+                    rerun_scope="fragment",
                 )
-            else:
-                sale_items = []
-                for li, lot in vente_lots_with_idx:
-                    if selected_lot_idx is not None and li != selected_lot_idx:
-                        continue
-                    for ci, card in enumerate(lot.get("cards", [])):
-                        stock = card_available_qty(card)
-                        if stock > 0:
-                            sale_items.append((li, ci, card, lot, stock))
-                sale_signature = stable_list_signature(
-                    "sales_all",
-                    selected_lot_idx,
-                    [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in sale_items],
-                )
-                sale_initial = 24 if is_mobile_mode() else 48
-                sale_step = 12 if is_mobile_mode() else 24
-                visible_sale_items, rendered_sale_cards_count, available_sale_cards_count, sale_count_key = progressive_slice(
-                    "sales_all",
-                    sale_items,
-                    sale_signature,
-                    initial_count=sale_initial,
-                )
-                by_lot = {}
-                lot_order = []
-                for li, ci, card, lot, stock in visible_sale_items:
-                    if li not in by_lot:
-                        by_lot[li] = (lot, [])
-                        lot_order.append(li)
-                    by_lot[li][1].append((ci, card, stock))
 
-                for li in lot_order:
-                    lot, cards_to_render = by_lot[li]
-                    if cards_to_render:
-                        st.markdown(f"### Lot {lot['nom']}")
-                        with st.container(key=f"search_results_grid_sales_lot_{li}", horizontal=True, gap="small"):
-                            for ci, card, stock in cards_to_render:
-                                in_cart = card.get("card_uid") in cart_keys
-                                with st.container(key=f"search_result_card_sales_lot_{li}_{ci}"):
-                                        st.markdown(_sale_image_html(card, in_cart=in_cart), unsafe_allow_html=True)
-                                        st.markdown(f"**{card['name']}**")
-                                        st.caption(f"#{card.get('number','')}" if is_mobile_mode() else f"{card.get('set','')} - #{card.get('number','')}")
-                                        st.caption(f"Prix {fp(card.get('suggested_price', 0))} - Stock {stock}")
-                                        q_key = card.get("card_uid") or f"{li}_{ci}"
-                                        q_add = st.number_input("Qté", 1, stock, 1, key=f"bulk_q_{q_key}")
-                                        if in_cart:
-                                            st.button("Dans le panier", key=f"add_{li}_{ci}", width="stretch", on_click=bulk_cart_remove, kwargs={"card_uid": card.get("card_uid")})
-                                        else:
-                                            st.button("Ajouter", key=f"add_{li}_{ci}", width="stretch", type="primary", on_click=bulk_cart_add, args=({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"lot_name":lot['nom'],"card_name":card['name'],"card_set":card['set'],"quantity":q_add,"price_base":card.get("suggested_price",0),"lot_profitable":sale_lot_profitable(li, lot)},))
-                        st.markdown("---")
-
-                if "perf_count" in globals():
-                    perf_count("cards_sales_available", available_sale_cards_count)
-                    perf_count("cards_sales_rendered", rendered_sale_cards_count)
-                render_infinite_sentinel(
-                    "sales_all",
-                    count_key=sale_count_key,
-                    visible_count=rendered_sale_cards_count,
-                    total_count=available_sale_cards_count,
-                    batch_size=sale_step,
-                    root_margin_px=1800,
-                    run_html_func=run_html,
-                )
+            render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
 
             # Panier
             st.markdown('<div id="cart-anchor"></div>', unsafe_allow_html=True)

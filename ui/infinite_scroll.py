@@ -40,6 +40,8 @@ def render_infinite_sentinel(
     batch_size: int,
     root_margin_px: int = 1800,
     run_html_func=None,
+    button_label: str = "Afficher plus",
+    rerun_scope: str | None = None,
 ):
     if visible_count >= total_count:
         return
@@ -54,7 +56,9 @@ def render_infinite_sentinel(
     st.markdown(
         f"""
         <style>
-        .st-key-{control_key} {{
+        .st-key-{control_key},
+        .st-key-{control_key} [data-testid="stButton"],
+        .st-key-{control_key} button {{
             position: absolute !important;
             width: 1px !important;
             height: 1px !important;
@@ -69,9 +73,15 @@ def render_infinite_sentinel(
         unsafe_allow_html=True,
     )
     with st.container(key=control_key):
-        if st.button("Afficher plus", key=button_key):
+        if st.button(str(button_label or "\u200b"), key=button_key):
             st.session_state[count_key] = min(total_count, visible_count + int(batch_size))
-            st.rerun()
+            if rerun_scope == "fragment":
+                try:
+                    st.rerun(scope="fragment")
+                except Exception:
+                    st.rerun()
+            else:
+                st.rerun()
 
     st.markdown(f'<div id="{anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
     script = f"""
