@@ -468,6 +468,16 @@
       "captured_at": "2026-08-12T13:18:58",
       "value": 5937.5,
       "provenance": "snapshot"
+    },
+    {
+      "captured_at": "2026-08-13T20:29:40",
+      "value": 5905.5,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-13T22:53:16",
+      "value": 5895.5,
+      "provenance": "live"
     }
   ],
   "annotations": []

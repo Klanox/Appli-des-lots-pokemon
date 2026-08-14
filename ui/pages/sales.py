@@ -5,6 +5,7 @@ globals as context to preserve behavior while moving the large page out of app.p
 """
 
 import html
+import math
 import os
 
 from core.brocante import BRO_CATEGORIES, PAYMENT_METHODS, append_off_stock_sale
@@ -21,7 +22,11 @@ from core.trade_economics import (
     safe_float,
 )
 from services.custom_card_image_service import resolve_custom_card_image
-from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
+from ui.infinite_scroll import (
+    render_virtual_scroll_sensor,
+    stable_list_signature,
+    virtual_window_slice,
+)
 
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
@@ -73,6 +78,27 @@ def _sale_image_html(card, *, in_cart=False, width="100%"):
         f'<img src="{proxied[0]}" onerror="{onerror}" style="width:100%;border-radius:12px;{border}">'
         f'{badge}</div>'
     )
+
+
+def _sale_image_preload_urls(card, *, limit=1):
+    """Return the same first useful image URL as the sale card renderer, without rendering a widget."""
+    proxy = globals().get("proxy_img", lambda value, *_: value)
+    urls = []
+    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url", "image_url", "image_url_en"):
+        url = str(card.get(key) or "").strip()
+        if not url or url == "__placeholder__":
+            continue
+        if (url.startswith(("card_images/", "card_images\\")) or os.path.exists(url)) and not os.path.exists(url):
+            continue
+        if url in urls:
+            continue
+        try:
+            urls.append(str(proxy(url)))
+        except Exception:
+            urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
 
 
 def _received_trade_image_html(card, *, width="45px"):
@@ -468,10 +494,10 @@ def render_sales_page(context):
                                 })
                                 st.rerun()
 
-                def render_sale_grid_rows(scope, row_items, *, include_lot_caption=False):
+                def render_sale_grid_rows(scope, row_items, *, include_lot_caption=False, row_index_offset=0):
                     slots_per_row = 2 if is_mobile_mode() else 6
                     for row_start in range(0, len(row_items), slots_per_row):
-                        row_index = row_start // slots_per_row
+                        row_index = (int(row_index_offset) + row_start) // slots_per_row
                         row = row_items[row_start:row_start + slots_per_row]
                         with st.container(
                             key=f"search_results_grid_sales_{scope}_row_{row_index}",
@@ -496,9 +522,51 @@ def render_sales_page(context):
                                 ):
                                     st.empty()
 
+                def render_virtual_spacer(height_px, key):
+                    height_px = max(0, int(height_px or 0))
+                    if height_px <= 0:
+                        return
+                    st.markdown(
+                        f'<div data-sale-virtual-spacer="{html.escape(str(key), quote=True)}" '
+                        f'style="height:{height_px}px;min-height:{height_px}px;"></div>',
+                        unsafe_allow_html=True,
+                    )
+
+                def preload_urls_for(source_items, start, end):
+                    urls = []
+                    for _, _, card, _, _ in list(source_items or [])[max(0, start):max(0, end)]:
+                        urls.extend(_sale_image_preload_urls(card))
+                        if len(urls) >= 32:
+                            break
+                    return urls[:32]
+
+                def current_window_bounds(key_prefix, fallback_initial, total):
+                    start = int(st.session_state.get(f"{key_prefix}_window_start", 0) or 0)
+                    end = int(st.session_state.get(f"{key_prefix}_window_end", fallback_initial) or fallback_initial)
+                    return max(0, min(start, total)), max(0, min(end, total))
+
                 search_text = str(search_text or "")
                 sale_initial = 24 if is_mobile_mode() else 48
                 sale_step = 12 if is_mobile_mode() else 24
+                sale_window = 96 if is_mobile_mode() else 72
+                sale_slots_per_row = 2 if is_mobile_mode() else 6
+                sale_row_height_default = 520 if is_mobile_mode() else 560
+                st.markdown(
+                    """
+                    <style>
+                    [class*="st-key-search_results_grid_sales_"],
+                    [class*="st-key-search_result_card_sales_"],
+                    [data-sale-virtual-spacer],
+                    #sale-virtual-top-sales-search,
+                    #sale-virtual-bottom-sales-search,
+                    #sale-virtual-top-sales-all,
+                    #sale-virtual-bottom-sales-all {
+                        overflow-anchor: none !important;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
                 # Grille par lot ou grille globale si recherche
                 if search_text:
@@ -513,28 +581,86 @@ def render_sales_page(context):
                         selected_lot,
                         [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in filtered_items],
                     )
-                    visible_items, rendered_count, total_count, sale_count_key = progressive_slice(
+                    previous_start, previous_end = current_window_bounds(
+                        "sales_search",
+                        sale_initial,
+                        len(filtered_items),
+                    )
+                    event = render_virtual_scroll_sensor(
+                        "sales_search",
+                        top_anchor_id="sale-virtual-top-sales-search",
+                        bottom_anchor_id="sale-virtual-bottom-sales-search",
+                        row_selector='[class*="st-key-search_results_grid_sales_search_row_"][data-testid="stHorizontalBlock"]',
+                        root_margin_px=1800,
+                        top_margin_px=900,
+                        preload_urls=preload_urls_for(
+                            filtered_items,
+                            previous_end,
+                            previous_end + sale_step * 2,
+                        ),
+                        default_row_height=sale_row_height_default,
+                    )
+                    visible_items, window_start, window_end, total_count, row_height = virtual_window_slice(
                         "sales_search",
                         filtered_items,
                         sale_signature,
                         initial_count=sale_initial,
+                        window_count=sale_window,
+                        step_count=sale_step,
+                        event=event,
+                        row_height_default=sale_row_height_default,
+                        slots_per_row=sale_slots_per_row,
                     )
                     if "perf_count" in globals():
                         perf_count("cards_sales_rendered", len(visible_items))
                         perf_count("cards_sales_available", total_count)
-                    render_sale_grid_rows("search", visible_items, include_lot_caption=True)
-                    sentinel_key_prefix = "sales_search"
+                    top_rows = window_start // sale_slots_per_row
+                    bottom_rows = max(0, math.ceil(max(0, total_count - window_end) / sale_slots_per_row))
+                    render_virtual_spacer(top_rows * row_height, "sales_search_top")
+                    st.markdown('<div id="sale-virtual-top-sales-search" style="height:1px;"></div>', unsafe_allow_html=True)
+                    render_sale_grid_rows(
+                        "search",
+                        visible_items,
+                        include_lot_caption=True,
+                        row_index_offset=window_start,
+                    )
+                    st.markdown('<div id="sale-virtual-bottom-sales-search" style="height:1px;"></div>', unsafe_allow_html=True)
+                    render_virtual_spacer(bottom_rows * row_height, "sales_search_bottom")
                 else:
                     sale_signature = stable_list_signature(
                         "sales_all",
                         selected_lot,
                         [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in items],
                     )
-                    visible_items, rendered_count, total_count, sale_count_key = progressive_slice(
+                    previous_start, previous_end = current_window_bounds(
+                        "sales_all",
+                        sale_initial,
+                        len(items),
+                    )
+                    event = render_virtual_scroll_sensor(
+                        "sales_all",
+                        top_anchor_id="sale-virtual-top-sales-all",
+                        bottom_anchor_id="sale-virtual-bottom-sales-all",
+                        row_selector='[class*="st-key-search_results_grid_sales_lot_"][data-testid="stHorizontalBlock"]',
+                        root_margin_px=1800,
+                        top_margin_px=900,
+                        preload_urls=preload_urls_for(
+                            items,
+                            previous_end,
+                            previous_end + sale_step * 2,
+                        ),
+                        default_row_height=sale_row_height_default,
+                    )
+                    visible_items, window_start, window_end, total_count, row_height = virtual_window_slice(
                         "sales_all",
                         items,
                         sale_signature,
                         initial_count=sale_initial,
+                        window_count=sale_window,
+                        step_count=sale_step,
+                        event=event,
+                        row_height_default=sale_row_height_default,
+                        slots_per_row=sale_slots_per_row,
                     )
                     by_lot = {}
                     lot_order = []
@@ -544,31 +670,26 @@ def render_sales_page(context):
                             lot_order.append(li)
                         by_lot[li][1].append((ci, card, stock))
 
-                    for li in lot_order:
-                        lot, cards_to_render = by_lot[li]
-                        if cards_to_render:
-                            st.markdown(f"### Lot {lot['nom']}")
-                            render_sale_grid_rows(
-                                f"lot_{li}",
-                                [(li, ci, card, lot, stock) for ci, card, stock in cards_to_render],
-                            )
-                            st.markdown("---")
-
                     if "perf_count" in globals():
                         perf_count("cards_sales_available", total_count)
-                        perf_count("cards_sales_rendered", rendered_count)
-                    sentinel_key_prefix = "sales_all"
-
-                render_infinite_sentinel(
-                    sentinel_key_prefix,
-                    count_key=sale_count_key,
-                    visible_count=rendered_count,
-                    total_count=total_count,
-                    batch_size=sale_step,
-                    root_margin_px=1800,
-                    run_html_func=run_html,
-                    rerun_scope="fragment",
-                )
+                        perf_count("cards_sales_rendered", len(visible_items))
+                    top_rows = window_start // sale_slots_per_row
+                    bottom_rows = max(0, math.ceil(max(0, total_count - window_end) / sale_slots_per_row))
+                    render_virtual_spacer(top_rows * row_height, "sales_all_top")
+                    st.markdown('<div id="sale-virtual-top-sales-all" style="height:1px;"></div>', unsafe_allow_html=True)
+                    if by_lot:
+                        for li in lot_order:
+                            lot, cards_to_render = by_lot[li]
+                            if cards_to_render:
+                                st.markdown(f"### Lot {lot['nom']}")
+                                render_sale_grid_rows(
+                                    f"lot_{li}",
+                                    [(li, ci, card, lot, stock) for ci, card, stock in cards_to_render],
+                                    row_index_offset=window_start,
+                                )
+                                st.markdown("---")
+                    st.markdown('<div id="sale-virtual-bottom-sales-all" style="height:1px;"></div>', unsafe_allow_html=True)
+                    render_virtual_spacer(bottom_rows * row_height, "sales_all_bottom")
 
             render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
 
