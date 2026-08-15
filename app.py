@@ -87,9 +87,11 @@ from core.collection_actions import (
     add_direct_collection_card,
     add_or_merge_collection_card,
     delete_collection_card_from_system,
+    get_or_create_collection_lot,
     remove_collection_status_from_lot,
     save_collection_manual_image,
 )
+from core.trade_transfers import transfer_trade_card
 from core.card_add import (
     configure_card_add,
     acm_japanese,
@@ -1203,6 +1205,8 @@ def ecd(c, s, lang="fr"):
 def set_current_page(page):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
+    if page == "Vente":
+        st.session_state["sales_active_section"] = "Vente"
 
 def render_with_perf(label, render_func, *args, **kwargs):
     with perf_timer(label):
@@ -1272,6 +1276,20 @@ def transfer_card_to_storage(li, ci, qty, storage_cote=None):
     cd["lots"][storage_idx].setdefault("cards", []).append(moved_card)
     sd(cd)
     return True, "Carte transferee vers Stockage."
+
+
+def transfer_trade_card_to_system_lot(li, ci, destination, qty):
+    cd = ld()
+    ensure_system_lots(cd)
+    destination_key = str(destination or "").strip().lower()
+    if destination_key == "collection":
+        get_or_create_collection_lot(cd)
+    ok, msg, _details = transfer_trade_card(cd, li, ci, destination_key, qty, new_uid)
+    if not ok:
+        return False, msg
+    sd(cd)
+    label = "Collection" if destination_key == "collection" else "Stockage"
+    return True, f"Carte déplacée vers {label}."
 
 
 configure_card_add(globals())
@@ -1793,6 +1811,8 @@ if "current_page" not in st.session_state:
         "archives": "Archivés",
     }
     st.session_state.current_page = page_map.get(query_page, "Vente" if is_mobile_mode() else "Accueil")
+    if st.session_state.current_page == "Vente" and query_page in ("echange", "échange"):
+        st.session_state["sales_active_section"] = "Échange"
 
 perf_reset_rerun()
 

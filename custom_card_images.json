@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "images": {
     "id:2019sm-fr-2": {
       "card_name": "Chenipan",
@@ -6,7 +7,13 @@
       "number": "2",
       "set": "Collection McDonald's 2019",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:29",
+      "local_image_ref": "card_images/2019sm-fr-2.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2019sm-fr-2.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2019sm-fr-2.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2019sm-fr-2.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:29"
     },
     "id:2021swsh-19": {
       "card_name": "Gobou",
@@ -14,7 +21,13 @@
       "number": "19",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:29",
+      "local_image_ref": "card_images/2021swsh-19.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-19.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-19.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-19.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:29"
     },
     "id:2021swsh-2": {
       "card_name": "Germignon",
@@ -22,7 +35,27 @@
       "number": "2",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:29",
+      "local_image_ref": "card_images/2021swsh-2.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-2.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-2.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-2.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:29"
+    },
+    "id:2021swsh-21": {
+      "card_name": "Moustillon",
+      "image_ref": "card_images/2021swsh-21.jpg",
+      "number": "21",
+      "set": "Collection McDonald's 2021",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T20:57:30",
+      "local_image_ref": "card_images/2021swsh-21.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-21.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-21.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-21.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:30"
     },
     "id:2021swsh-22": {
       "card_name": "Grenousse",
@@ -30,7 +63,13 @@
       "number": "22",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:30",
+      "local_image_ref": "card_images/2021swsh-22.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-22.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-22.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-22.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:30"
     },
     "id:2021swsh-23": {
       "card_name": "Otaquin",
@@ -38,7 +77,13 @@
       "number": "23",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:30",
+      "local_image_ref": "card_images/2021swsh-23.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-23.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-23.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-23.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:30"
     },
     "id:2021swsh-24": {
       "card_name": "Larméléon",
@@ -46,7 +91,13 @@
       "number": "24",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:31",
+      "local_image_ref": "card_images/2021swsh-24.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-24.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-24.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-24.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:31"
     },
     "id:2021swsh-3": {
       "card_name": "Arcko",
@@ -54,7 +105,13 @@
       "number": "3",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:31",
+      "local_image_ref": "card_images/2021swsh-3.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-3.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-3.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-3.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:31"
     },
     "id:2021swsh-5": {
       "card_name": "Vipélierre",
@@ -62,7 +119,13 @@
       "number": "5",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:31",
+      "local_image_ref": "card_images/2021swsh-5.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-5.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-5.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-5.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:31"
     },
     "id:2021swsh-6": {
       "card_name": "Marisson",
@@ -70,7 +133,13 @@
       "number": "6",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:31",
+      "local_image_ref": "card_images/2021swsh-6.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-6.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-6.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-6.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:31"
     },
     "id:2021swsh-7": {
       "card_name": "Brindibou",
@@ -78,7 +147,13 @@
       "number": "7",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:31",
+      "local_image_ref": "card_images/2021swsh-7.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-7.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-7.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-7.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:31"
     },
     "id:2021swsh-8": {
       "card_name": "Ouistempo",
@@ -86,7 +161,13 @@
       "number": "8",
       "set": "Collection McDonald's 2021",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:32",
+      "local_image_ref": "card_images/2021swsh-8.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2021swsh-8.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2021swsh-8.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2021swsh-8.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:32"
     },
     "id:2022swsh-5": {
       "card_name": "Victini",
@@ -94,7 +175,27 @@
       "number": "5",
       "set": "Collection McDonald's 2022",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T12:32:16"
+      "updated_at": "2026-08-15T20:57:32",
+      "local_image_ref": "card_images/2022swsh-5.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2022swsh-5.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2022swsh-5.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2022swsh-5.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:32"
+    },
+    "id:2023sv-11": {
+      "card_name": "Craparoi",
+      "image_ref": "card_images/2023sv-11.jpg",
+      "number": "11",
+      "set": "Collection McDonald's 2023",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T20:57:32",
+      "local_image_ref": "card_images/2023sv-11.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2023sv-11.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2023sv-11.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2023sv-11.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:32"
     },
     "id:2023sv-2": {
       "card_name": "Chochodile",
@@ -102,7 +203,27 @@
       "number": "2",
       "set": "Collection McDonald's 2023",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T12:19:36"
+      "updated_at": "2026-08-15T20:57:33",
+      "local_image_ref": "card_images/2023sv-2.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2023sv-2.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2023sv-2.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2023sv-2.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:33"
+    },
+    "id:2023sv-5": {
+      "card_name": "Balbalèze",
+      "image_ref": "card_images/2023sv-5.jpg",
+      "number": "5",
+      "set": "Collection McDonald's 2023",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T20:57:33",
+      "local_image_ref": "card_images/2023sv-5.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2023sv-5.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2023sv-5.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2023sv-5.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:33"
     },
     "id:2024sv-10": {
       "card_name": "Trioxhydre",
@@ -110,7 +231,13 @@
       "number": "10",
       "set": "Collection McDonald's 2024",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:33",
+      "local_image_ref": "card_images/2024sv-10.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2024sv-10.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2024sv-10.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2024sv-10.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:33"
     },
     "id:2024sv-12": {
       "card_name": "Dracolosse",
@@ -118,7 +245,13 @@
       "number": "12",
       "set": "Collection McDonald's 2024",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T13:06:07"
+      "updated_at": "2026-08-15T20:57:33",
+      "local_image_ref": "card_images/2024sv-12.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2024sv-12.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2024sv-12.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2024sv-12.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:33"
     },
     "id:bw5-62": {
       "card_name": "Ténéfix",
@@ -126,7 +259,13 @@
       "number": "62",
       "set": "Explorateurs Obscurs",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:33",
+      "local_image_ref": "card_images/bw5-62.jpg",
+      "storage_ref": "supabase://card-images/custom/id_bw5-62.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_bw5-62.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_bw5-62.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:33"
     },
     "id:cel25-25": {
       "card_name": "Mew",
@@ -134,7 +273,13 @@
       "number": "25",
       "set": "Célébrations",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T21:34:24"
+      "updated_at": "2026-08-15T20:57:34",
+      "local_image_ref": "card_images/cel25-25.jpg",
+      "storage_ref": "supabase://card-images/custom/id_cel25-25.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_cel25-25.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_cel25-25.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:34"
     },
     "id:e3-065": {
       "card_name": "Herbizarre",
@@ -142,7 +287,13 @@
       "number": "065",
       "set": "🇯🇵 ",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:34",
+      "local_image_ref": "card_images/E3-065.jpeg",
+      "storage_ref": "supabase://card-images/custom/id_e3-065.jpeg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_e3-065.jpeg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_e3-065.jpeg",
+      "storage_uploaded_at": "2026-08-15T20:57:34"
     },
     "id:me02-055": {
       "card_name": "Spectrum",
@@ -150,7 +301,13 @@
       "number": "055",
       "set": "Flammes Fantasmagoriques",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:34",
+      "local_image_ref": "card_images/me02-055.webp",
+      "storage_ref": "supabase://card-images/custom/id_me02-055.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_me02-055.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_me02-055.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:34"
     },
     "id:mep-025": {
       "card_name": "Méga-Kangourex-ex",
@@ -158,7 +315,13 @@
       "number": "025",
       "set": "MEP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:34",
+      "local_image_ref": "card_images/mep-025.png",
+      "storage_ref": "supabase://card-images/custom/id_mep-025.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_mep-025.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_mep-025.png",
+      "storage_uploaded_at": "2026-08-15T20:57:34"
     },
     "id:mep-031": {
       "card_name": "Zekrom de N",
@@ -166,7 +329,13 @@
       "number": "031",
       "set": "MEP Black Star Promos",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T12:50:25"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/mep-031.png",
+      "storage_ref": "supabase://card-images/custom/id_mep-031.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_mep-031.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_mep-031.png",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:mep-080": {
       "card_name": "Feunnec",
@@ -174,7 +343,13 @@
       "number": "080",
       "set": "",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T12:34:12"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/mep-080.png",
+      "storage_ref": "supabase://card-images/custom/id_mep-080.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_mep-080.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_mep-080.png",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:neo3-006": {
       "card_name": "Palkia",
@@ -182,7 +357,13 @@
       "number": "006",
       "set": "🇯🇵 ",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/neo3-006.jpg",
+      "storage_ref": "supabase://card-images/custom/id_neo3-006.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_neo3-006.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_neo3-006.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:sm3.5-1": {
       "card_name": "Bulbizarre",
@@ -190,7 +371,13 @@
       "number": "1",
       "set": "Légendes Brillantes",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/sm3.5-1.jpg",
+      "storage_ref": "supabase://card-images/custom/id_sm3.5-1.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_sm3.5-1.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_sm3.5-1.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:smp-sm98": {
       "card_name": "Pikachu",
@@ -198,7 +385,13 @@
       "number": "SM98",
       "set": "Promo SM",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/smp-SM98.jpg",
+      "storage_ref": "supabase://card-images/custom/id_smp-sm98.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_smp-sm98.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_smp-sm98.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:svp-203": {
       "card_name": "Qulbutoké de la Team Rocket",
@@ -206,7 +399,13 @@
       "number": "203",
       "set": "SVP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:35",
+      "local_image_ref": "card_images/svp-203.webp",
+      "storage_ref": "supabase://card-images/custom/id_svp-203.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-203.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-203.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:35"
     },
     "id:svp-205": {
       "card_name": "Mewtwo-ex de la Team Rocket",
@@ -214,7 +413,13 @@
       "number": "205",
       "set": "SVP Black Star Promos",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T13:14:31"
+      "updated_at": "2026-08-15T20:57:36",
+      "local_image_ref": "card_images/svp-205.jpg",
+      "storage_ref": "supabase://card-images/custom/id_svp-205.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-205.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-205.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:36"
     },
     "id:svp-208": {
       "card_name": "Victini",
@@ -222,7 +427,13 @@
       "number": "208",
       "set": "SVP Black Star Promos",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T21:28:04"
+      "updated_at": "2026-08-15T20:57:36",
+      "local_image_ref": "card_images/svp-208.png",
+      "storage_ref": "supabase://card-images/custom/id_svp-208.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-208.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-208.png",
+      "storage_uploaded_at": "2026-08-15T20:57:36"
     },
     "id:svp-209": {
       "card_name": "Fulguris",
@@ -230,7 +441,13 @@
       "number": "209",
       "set": "SVP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:36",
+      "local_image_ref": "card_images/svp-209.webp",
+      "storage_ref": "supabase://card-images/custom/id_svp-209.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-209.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-209.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:36"
     },
     "id:svp-210": {
       "card_name": "Boréas",
@@ -238,7 +455,13 @@
       "number": "210",
       "set": "SVP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:36",
+      "local_image_ref": "card_images/svp-210.webp",
+      "storage_ref": "supabase://card-images/custom/id_svp-210.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-210.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-210.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:36"
     },
     "id:svp-211": {
       "card_name": "Sidérella",
@@ -246,7 +469,13 @@
       "number": "211",
       "set": "SVP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:36",
+      "local_image_ref": "card_images/svp-211.webp",
+      "storage_ref": "supabase://card-images/custom/id_svp-211.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-211.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-211.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:36"
     },
     "id:svp-212": {
       "card_name": "Symbios",
@@ -254,7 +483,13 @@
       "number": "212",
       "set": "SVP Black Star Promos",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:37",
+      "local_image_ref": "card_images/svp-212.webp",
+      "storage_ref": "supabase://card-images/custom/id_svp-212.webp",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_svp-212.webp",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_svp-212.webp",
+      "storage_uploaded_at": "2026-08-15T20:57:37"
     },
     "id:swsh12-138": {
       "card_name": "Lugia V",
@@ -262,7 +497,13 @@
       "number": "138",
       "set": "Tempête Argentée",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:37",
+      "local_image_ref": "card_images/swsh12-138.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swsh12-138.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swsh12-138.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swsh12-138.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:37"
     },
     "id:swsh7-63": {
       "card_name": "Artikodin de Galar",
@@ -270,7 +511,13 @@
       "number": "63",
       "set": "Évolution Céleste",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:37",
+      "local_image_ref": "card_images/swsh7-63.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swsh7-63.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swsh7-63.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swsh7-63.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:37"
     },
     "id:swsh7-82": {
       "card_name": "Électhor de Galar",
@@ -278,7 +525,13 @@
       "number": "82",
       "set": "Évolution Céleste",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:37",
+      "local_image_ref": "card_images/swsh7-82.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swsh7-82.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swsh7-82.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swsh7-82.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:37"
     },
     "id:swsh7-93": {
       "card_name": "Sulfura de Galar",
@@ -286,7 +539,13 @@
       "number": "93",
       "set": "Évolution Céleste",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:37",
+      "local_image_ref": "card_images/swsh7-93.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swsh7-93.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swsh7-93.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swsh7-93.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:37"
     },
     "id:swshp-swsh039": {
       "card_name": "Pikachu",
@@ -294,7 +553,13 @@
       "number": "SWSH039",
       "set": "Promo SWSH",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:38",
+      "local_image_ref": "card_images/swshp-SWSH039.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swshp-swsh039.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swshp-swsh039.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swshp-swsh039.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:38"
     },
     "id:swshp-swsh283": {
       "card_name": "Électhor de Galar",
@@ -302,7 +567,13 @@
       "number": "SWSH283",
       "set": "Promo SWSH",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:38",
+      "local_image_ref": "card_images/swshp-SWSH283.jpg",
+      "storage_ref": "supabase://card-images/custom/id_swshp-swsh283.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_swshp-swsh283.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_swshp-swsh283.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:38"
     },
     "id:tk-ex-m-3": {
       "card_name": "Reptincel",
@@ -310,7 +581,13 @@
       "number": "3",
       "set": "EX Kit dresseur (Négapi)",
       "source": "lots_upload",
-      "updated_at": "2026-08-09T13:05:01"
+      "updated_at": "2026-08-15T20:57:38",
+      "local_image_ref": "card_images/tk-ex-m-3.png",
+      "storage_ref": "supabase://card-images/custom/id_tk-ex-m-3.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_tk-ex-m-3.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_tk-ex-m-3.png",
+      "storage_uploaded_at": "2026-08-15T20:57:38"
     },
     "id:web1-003": {
       "card_name": "Lugia",
@@ -318,8 +595,27 @@
       "number": "003",
       "set": "🇯🇵 ",
       "source": "migration:image_url",
-      "updated_at": "2026-08-09T12:03:30"
+      "updated_at": "2026-08-15T20:57:38",
+      "local_image_ref": "card_images/web1-003.jpg",
+      "storage_ref": "supabase://card-images/custom/id_web1-003.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_web1-003.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_web1-003.jpg",
+      "storage_uploaded_at": "2026-08-15T20:57:38"
+    },
+    "uid:card_5b8f78af50074baf8b46fa4407689ef2": {
+      "image_ref": "card_images/11_8.jpg",
+      "source": "migration:image_url",
+      "updated_at": "2026-08-15T21:00:03",
+      "card_name": "Pikachu",
+      "number": "30",
+      "set": "",
+      "local_image_ref": "card_images/11_8.jpg",
+      "storage_ref": "supabase://card-images/custom/uid_card_5b8f78af50074baf8b46fa4407689ef2.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/uid_card_5b8f78af50074baf8b46fa4407689ef2.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/uid_card_5b8f78af50074baf8b46fa4407689ef2.jpg",
+      "storage_uploaded_at": "2026-08-15T21:00:03"
     }
-  },
-  "schema_version": 1
+  }
 }

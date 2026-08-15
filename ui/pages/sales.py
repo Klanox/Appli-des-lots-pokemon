@@ -20,6 +20,7 @@ from core.trade_economics import (
     contributors_from_card,
     search_received_cards,
     safe_float,
+    safe_int,
 )
 from services.custom_card_image_service import resolve_custom_card_image
 from ui.infinite_scroll import (
@@ -27,6 +28,7 @@ from ui.infinite_scroll import (
     stable_list_signature,
     virtual_window_slice,
 )
+from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_grid
 
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
@@ -99,6 +101,33 @@ def _sale_image_preload_urls(card, *, limit=1):
         if len(urls) >= limit:
             break
     return urls
+
+
+def _sale_frontend_items(source_items, fp_func):
+    lightweight = []
+    for li, ci, card, lot, stock in source_items:
+        card_uid = card.get("card_uid") or f"{lot.get('lot_uid') or li}_{ci}"
+        price = safe_float(card.get("suggested_price"), 0.0)
+        image_url = ""
+        image_urls = _sale_image_preload_urls(card, limit=1)
+        if image_urls:
+            image_url = image_urls[0]
+        lightweight.append({
+            "card_key": str(card_uid),
+            "card_uid": card.get("card_uid"),
+            "lot_uid": lot.get("lot_uid"),
+            "lot_idx": li,
+            "card_idx": ci,
+            "name": str(card.get("name", "")),
+            "set": str(card.get("set", "")),
+            "number": str(card.get("number", "")),
+            "lot_name": str(lot.get("nom", "")),
+            "price": price,
+            "price_label": fp_func(price),
+            "stock": int(stock or 0),
+            "image_url": image_url,
+        })
+    return lightweight
 
 
 def _received_trade_image_html(card, *, width="45px"):
@@ -218,10 +247,15 @@ def _selected_trade_given_records(cd, selected_cards):
         li, ci, lot, card = resolve_card_ref(cd, selected)
         if li is None or card is None:
             continue
-        reference_value = safe_float(selected.get("value"), safe_float(card.get("suggested_price")))
-        historical_cost = card_historical_unit_cost(lot, card)
+        available_qty = card_available_qty(card)
+        quantity = max(safe_int(selected.get("quantity"), 1), 1)
+        unit_reference_value = safe_float(selected.get("value"), safe_float(card.get("suggested_price")))
+        unit_historical_cost = card_historical_unit_cost(lot, card)
+        reference_value = unit_reference_value * quantity
+        historical_cost = unit_historical_cost * quantity
         contributors = contributors_from_card(li, lot, card, historical_cost)
         selected["lot_idx"], selected["card_idx"] = li, ci
+        selected["quantity"] = quantity
         selected["historical_cost"] = historical_cost
         selected["lot_uid"] = lot.get("lot_uid")
         selected["lot_name"] = lot.get("nom", selected.get("lot_name", ""))
@@ -231,7 +265,11 @@ def _selected_trade_given_records(cd, selected_cards):
             "lot": lot,
             "card": card,
             "reference_value": reference_value,
+            "unit_reference_value": unit_reference_value,
             "historical_cost": historical_cost,
+            "unit_historical_cost": unit_historical_cost,
+            "quantity": quantity,
+            "available_qty": available_qty,
             "contributors": contributors,
             "ui": selected,
         })
@@ -271,9 +309,23 @@ def render_sales_page(context):
         unsafe_allow_html=True,
     )
     
-    tab2, tab3 = st.tabs(["💰 Vente", "🔄 Échange"])
+    try:
+        query_section = str(st.query_params.get("page", "")).lower()
+    except Exception:
+        query_section = ""
+    default_sales_section = "Échange" if query_section in ("echange", "échange") else "Vente"
+    if "sales_active_section" not in st.session_state:
+        st.session_state["sales_active_section"] = default_sales_section
+    active_sales_section = st.segmented_control(
+        "Section",
+        ["Vente", "Échange"],
+        key="sales_active_section",
+        format_func=lambda value: "💰 Vente" if value == "Vente" else "🔄 Échange",
+        label_visibility="collapsed",
+        width="stretch",
+    ) or default_sales_section
 
-    with tab2:
+    if active_sales_section == "Vente":
         st.markdown('<span data-sale-mobile-marker="1"></span>', unsafe_allow_html=True)
         st.subheader("Vente")
         
@@ -691,7 +743,54 @@ def render_sales_page(context):
                     st.markdown('<div id="sale-virtual-bottom-sales-all" style="height:1px;"></div>', unsafe_allow_html=True)
                     render_virtual_spacer(bottom_rows * row_height, "sales_all_bottom")
 
-            render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
+            def render_sales_frontend_grid(search_text, selected_lot, items, cart_card_uids):
+                search_text = str(search_text or "")
+                if search_text:
+                    search_norm = normalize_name(search_text)
+                    filtered_items = [
+                        item for item in items
+                        if search_norm in normalize_name(item[2].get("name", ""))
+                    ]
+                    grid_key = "sales_search"
+                else:
+                    filtered_items = list(items or [])
+                    grid_key = "sales_all"
+
+                frontend_items = _sale_frontend_items(filtered_items, fp)
+                try:
+                    result = render_sale_virtual_grid(
+                        frontend_items,
+                        cart_card_uids,
+                        key=grid_key,
+                        mobile=is_mobile_mode(),
+                    )
+                except Exception as exc:
+                    st.session_state["sale_frontend_grid_error"] = str(exc)
+                    return False
+
+                action = getattr(result, "add", None) if result is not None else None
+                if isinstance(action, dict) and action.get("type") == "add":
+                    action_id = str(action.get("id") or "")
+                    if action_id and st.session_state.get("sale_frontend_last_action") != action_id:
+                        st.session_state["sale_frontend_last_action"] = action_id
+                        bulk_cart_add({
+                            "lot_idx": int(action.get("lot_idx")),
+                            "card_idx": int(action.get("card_idx")),
+                            "lot_uid": action.get("lot_uid"),
+                            "card_uid": action.get("card_uid"),
+                            "quantity": max(safe_int(action.get("quantity"), 1), 1),
+                        })
+                        st.rerun()
+                if "perf_count" in globals():
+                    perf_count("cards_sales_available", len(filtered_items))
+                    perf_count("cards_sales_rendered", 0)
+                return True
+
+            frontend_grid_ok = False
+            if component_v2_available() and not st.session_state.get("sale_frontend_grid_disabled", False):
+                frontend_grid_ok = render_sales_frontend_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
+            if not frontend_grid_ok:
+                render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
 
             # Panier
             st.markdown('<div id="cart-anchor"></div>', unsafe_allow_html=True)
@@ -787,7 +886,7 @@ def render_sales_page(context):
                 
                 st.button("🗑️ Vider le panier", on_click=bulk_cart_clear)
 
-    with tab3:
+    if active_sales_section == "Échange":
         st.subheader("🔄 Échange de cartes")
         st.caption("Échange un ou plusieurs cartes de tes lots contre d'autres cartes.")
         cd_sw = ld()
@@ -860,21 +959,138 @@ def render_sales_page(context):
                     else:
                         if st.button("➕", key=f"sw_add_{li}_{ci}"):
                             unit_cost = card_historical_unit_cost(lot, card)
-                            st.session_state.swap_cart_give.append({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"card_name":card["name"],"set":card.get("set",""),"number":card.get("number",""),"value":float(card.get("suggested_price",0)),"historical_cost":unit_cost,"lot_name":lot["nom"]})
+                            st.session_state.swap_cart_give.append({"lot_idx":li,"card_idx":ci,"lot_uid":lot.get("lot_uid"),"card_uid":card.get("card_uid"),"card_name":card["name"],"set":card.get("set",""),"number":card.get("number",""),"value":float(card.get("suggested_price",0)),"quantity":1,"historical_cost":unit_cost,"lot_name":lot["nom"]})
                             save_activity_state()
                             st.rerun()
 
             if st.session_state.swap_cart_give:
                 st.markdown("---")
                 st.markdown("**Cartes à donner :**")
-                _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
+                st.markdown(
+                    """
+                    <style>
+                    [class*="st-key-swap_give_qty_row_"] {
+                        margin: 0.08rem 0 0.18rem;
+                    }
+                    [class*="st-key-swap_give_qty_row_"] [data-testid="stHorizontalBlock"] {
+                        align-items: center !important;
+                        gap: 0.22rem !important;
+                        flex-wrap: nowrap !important;
+                    }
+                    [class*="st-key-swap_give_qty_text_"] {
+                        flex: 1 1 auto !important;
+                        min-width: 10rem !important;
+                    }
+                    [class*="st-key-swap_give_qty_label_"],
+                    [class*="st-key-swap_give_qty_value_"] {
+                        flex: 0 0 auto !important;
+                    }
+                    [class*="st-key-swap_give_qty_dec_wrap_"],
+                    [class*="st-key-swap_give_qty_inc_wrap_"] {
+                        flex: 0 0 1.75rem !important;
+                        width: 1.75rem !important;
+                        min-width: 1.75rem !important;
+                    }
+                    [class*="st-key-swap_give_qty_dec_wrap_"] button,
+                    [class*="st-key-swap_give_qty_inc_wrap_"] button {
+                        min-height: 1.65rem !important;
+                        height: 1.65rem !important;
+                        width: 1.65rem !important;
+                        min-width: 1.65rem !important;
+                        padding: 0 !important;
+                        border-radius: 999px !important;
+                        line-height: 1 !important;
+                        font-size: 0.86rem !important;
+                        font-weight: 900 !important;
+                    }
+                    @media (max-width: 768px) {
+                        [class*="st-key-swap_give_qty_row_"] [data-testid="stHorizontalBlock"] {
+                            display: flex !important;
+                            flex-direction: row !important;
+                            flex-wrap: wrap !important;
+                            align-items: center !important;
+                        }
+                        [class*="st-key-swap_give_qty_text_"] {
+                            min-width: 13rem !important;
+                        }
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                given_preview_records = _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
                 total_give = 0.
                 total_given_cost_preview = 0.
-                for g in st.session_state.swap_cart_give:
-                    st.markdown(f"• {g['card_name']} ({fp(g['value'])})")
-                    total_give += g["value"]
-                    total_given_cost_preview += safe_float(g.get("historical_cost"))
-                cash_give = st.number_input("Argent ajouté par moi (€)", 0., 99999., float(st.session_state.get("swap_cash_give", 0.0)), 0.5, key="swap_cash_give")
+
+                def update_given_quantity(record, new_quantity):
+                    g = record["ui"]
+                    available_qty = max(int(record.get("available_qty", 1) or 1), 1)
+                    quantity = max(1, min(int(new_quantity or 1), available_qty))
+                    g["quantity"] = quantity
+                    record["quantity"] = quantity
+                    record["reference_value"] = record["unit_reference_value"] * quantity
+                    record["historical_cost"] = record["unit_historical_cost"] * quantity
+                    record["contributors"] = contributors_from_card(
+                        record["lot_idx"], record["lot"], record["card"], record["historical_cost"]
+                    )
+                    return quantity
+
+                def adjust_given_quantity(target_uid, target_lot_idx, target_card_idx, delta, available_qty):
+                    available_qty = max(int(available_qty or 1), 1)
+                    for selected in st.session_state.swap_cart_give:
+                        same_uid = target_uid and selected.get("card_uid") == target_uid
+                        same_position = selected.get("lot_idx") == target_lot_idx and selected.get("card_idx") == target_card_idx
+                        if same_uid or same_position:
+                            current = max(safe_int(selected.get("quantity"), 1), 1)
+                            selected["quantity"] = max(1, min(available_qty, current + int(delta or 0)))
+                            save_activity_state()
+                            break
+
+                for record in given_preview_records:
+                    g = record["ui"]
+                    available_qty = max(int(record.get("available_qty", 0) or 0), 0)
+                    quantity = max(int(record.get("quantity", 1) or 1), 1)
+                    if available_qty > 1:
+                        quantity = update_given_quantity(record, min(quantity, available_qty))
+                        qty_key_raw = f"{g.get('card_uid') or record['lot_idx']}_{record['card_idx']}"
+                        qty_key = "".join(ch if ch.isalnum() else "_" for ch in str(qty_key_raw))
+                        with st.container(key=f"swap_give_qty_row_{qty_key}", horizontal=True, gap="small"):
+                            with st.container(key=f"swap_give_qty_text_{qty_key}"):
+                                st.markdown(
+                                    f"• **{g['card_name']}** · {fp(record['unit_reference_value'])} × {quantity} = **{fp(record['reference_value'])}**"
+                                )
+                            with st.container(key=f"swap_give_qty_label_{qty_key}"):
+                                st.markdown(
+                                    "<span style='color:#64748b;font-size:0.78rem;font-weight:800;white-space:nowrap;'>Qté :</span>",
+                                    unsafe_allow_html=True,
+                                )
+                            with st.container(key=f"swap_give_qty_dec_wrap_{qty_key}"):
+                                st.button(
+                                    "−",
+                                    key=f"swap_give_qty_dec_{qty_key}",
+                                    disabled=quantity <= 1,
+                                    on_click=adjust_given_quantity,
+                                    args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], -1, available_qty),
+                                )
+                            with st.container(key=f"swap_give_qty_value_{qty_key}"):
+                                st.markdown(
+                                    f"<span style='display:inline-block;min-width:1.1rem;text-align:center;font-size:0.86rem;font-weight:900;'>{quantity}</span>",
+                                    unsafe_allow_html=True,
+                                )
+                            with st.container(key=f"swap_give_qty_inc_wrap_{qty_key}"):
+                                st.button(
+                                    "+",
+                                    key=f"swap_give_qty_inc_{qty_key}",
+                                    disabled=quantity >= available_qty,
+                                    on_click=adjust_given_quantity,
+                                    args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], 1, available_qty),
+                                )
+                    else:
+                        g["quantity"] = 1
+                        st.markdown(f"• **{g['card_name']}** · **{fp(record['unit_reference_value'])}**")
+                    total_give += record["reference_value"]
+                    total_given_cost_preview += safe_float(record.get("historical_cost"))
+                cash_give = st.number_input("Argent ajouté par moi (€)", 0., 99999., step=0.5, key="swap_cash_give")
                 st.metric("Total donné", fp(total_give + cash_give))
                 st.caption(f"Coût historique estimé des cartes données : {fp(total_given_cost_preview)}")
 
@@ -902,9 +1118,6 @@ def render_sales_page(context):
                     st.session_state.recv_name_val = pending_recv.get("name", "")
                     st.session_state.recv_num_val = pending_recv.get("number", "")
                     st.session_state["recv_selected_card"] = pending_recv
-
-                def on_recv_change():
-                    st.rerun()
 
                 r1, r2 = st.columns(2)
                 recv_name = r1.text_input("Nom de la carte", key="recv_name",
@@ -1010,7 +1223,7 @@ def render_sales_page(context):
                         save_activity_state()
                         st.rerun()
                     total_receive += r["value"]
-                cash_receive = st.number_input("Argent reçu en plus (€)", 0., 99999., float(st.session_state.get("swap_cash_receive", 0.0)), 0.5, key="swap_cash_receive")
+                cash_receive = st.number_input("Argent reçu en plus (€)", 0., 99999., step=0.5, key="swap_cash_receive")
                 st.metric("Total reçu", fp(total_receive + cash_receive))
 
                 # Afficher la repartition prevue
@@ -1068,7 +1281,8 @@ def render_sales_page(context):
                     st.error("Une carte de l'échange est introuvable dans le stock actuel.")
                     st.stop()
                 for record in given_records:
-                    if card_available_qty(record["card"]) <= 0:
+                    required_qty = max(int(record.get("quantity", 1) or 1), 1)
+                    if card_available_qty(record["card"]) < required_qty:
                         st.error(f"Stock insuffisant pour {record['card'].get('name', 'cette carte')}.")
                         st.stop()
 
@@ -1096,12 +1310,13 @@ def render_sales_page(context):
                 for record in given_records:
                     card_g = record["card"]
                     lot_g = record["lot"]
+                    given_qty = max(int(record.get("quantity", 1) or 1), 1)
                     card_g.setdefault("card_uid", new_uid("card"))
-                    card_g["exchange_out_quantity"] = int(card_g.get("exchange_out_quantity", 0) or 0) + 1
+                    card_g["exchange_out_quantity"] = int(card_g.get("exchange_out_quantity", 0) or 0) + given_qty
                     card_g.setdefault("exchange_out_entries", []).append({
                         "exchange_id": trade_id,
                         "date": trade_date,
-                        "quantity": 1,
+                        "quantity": given_qty,
                         "card_uid": card_g.get("card_uid"),
                         "card_name": card_g.get("name", ""),
                         "card_set": card_g.get("set", ""),
@@ -1178,8 +1393,11 @@ def render_sales_page(context):
                             "lot_idx": item["lot_idx"],
                             "lot_uid": item["lot"].get("lot_uid"),
                             "lot_name": item["lot"].get("nom", ""),
+                            "quantity": item.get("quantity", 1),
                             "reference_value": item["reference_value"],
+                            "unit_reference_value": item.get("unit_reference_value", item["reference_value"]),
                             "historical_cost": round(item["historical_cost"], 2),
+                            "unit_historical_cost": round(item.get("unit_historical_cost", item["historical_cost"]), 2),
                             "contributors": item["contributors"],
                         }
                         for item in given_records
@@ -1198,7 +1416,7 @@ def render_sales_page(context):
                 })
 
                 sd(cdd)
-                nb_give = len(st.session_state.swap_cart_give)
+                nb_give = sum(max(int(item.get("quantity", 1) or 1), 1) for item in st.session_state.swap_cart_give)
                 nb_recv = len(st.session_state.swap_cart_receive)
                 st.session_state.swap_cart_give = []
                 st.session_state.swap_cart_receive = []

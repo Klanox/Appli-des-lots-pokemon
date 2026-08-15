@@ -13,7 +13,7 @@ NAV_SECTIONS = (
         "label": "Principal",
         "items": (
             ("Accueil", "Accueil", "🏠"),
-            ("Vente", "Vente", "💰"),
+            ("Vente", "Vente / Échange", "💰"),
             ("Brocante", "Brocante", "🧺"),
         ),
     },
@@ -21,7 +21,6 @@ NAV_SECTIONS = (
         "label": "Gestion",
         "items": (
             ("Lots", "Lots", "📦"),
-            ("Vente", "Échange", "🔄"),
             ("Collection", "Collection", "🧾"),
             ("Estimations", "Estimations", "📉"),
             ("Fournisseurs", "Fournisseurs", "🤝"),

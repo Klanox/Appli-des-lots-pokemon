@@ -60,6 +60,14 @@ SYNCED_DATASETS = {
         dict,
         True,
     ),
+    "custom_card_images": SyncDataset(
+        "custom_card_images",
+        "custom_card_images.json",
+        "Images personnalisées",
+        {"schema_version": 1, "images": {}},
+        dict,
+        True,
+    ),
 }
 
 

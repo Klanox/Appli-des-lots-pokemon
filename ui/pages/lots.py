@@ -8,6 +8,7 @@ import html
 
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
+from ui.badges import status_badge
 from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 from ui.mobile_scan import render_assisted_scan
 
@@ -115,6 +116,32 @@ def render_lots_page(context):
             st.session_state[edit_key] = False
             st.rerun()
 
+    def card_is_collection_status(card):
+        return bool(
+            card.get("is_collection_keep")
+            or card.get("is_collection")
+            or str(card.get("trade_transfer_destination", "")).strip().lower() == "collection"
+        )
+
+    def card_is_storage_status(card, lot=None):
+        return bool(
+            int(card.get("stored_quantity", 0) or 0) > 0
+            or str(card.get("trade_transfer_destination", "")).strip().lower() in ("stockage", "storage")
+            or (lot is not None and is_storage_lot(lot))
+        )
+
+    def card_is_sold_status(card):
+        return card_available_qty(card) <= 0 and int(card.get("stored_quantity", 0) or 0) <= 0
+
+    def card_lot_display_status(card, lot=None):
+        if card_is_collection_status(card):
+            return "collection"
+        if card_is_storage_status(card, lot):
+            return "stored"
+        if card_is_sold_status(card):
+            return "sold"
+        return "stock"
+
     st.markdown(
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
         unsafe_allow_html=True,
@@ -191,6 +218,19 @@ def render_lots_page(context):
             max-width: 100% !important;
             min-width: 0 !important;
             box-sizing: border-box !important;
+            border-radius: 14px !important;
+            border: 1px solid transparent !important;
+            padding: 0.35rem !important;
+        }
+        [class*="st-key-lot_card_item_"][class*="_stored_"] {
+            background: #f0f9ff !important;
+            border-color: #7dd3fc !important;
+            box-shadow: 0 8px 20px rgba(3,105,161,0.08) !important;
+        }
+        [class*="st-key-lot_card_item_"][class*="_collection_"] {
+            background: #fffbeb !important;
+            border-color: #f59e0b !important;
+            box-shadow: 0 8px 20px rgba(146,64,14,0.08) !important;
         }
         [class*="st-key-lot_card_item_"] img {
             width: 100% !important;
@@ -686,10 +726,26 @@ def render_lots_page(context):
                     key=lot_card_order_key,
                     reverse=True,
                 )
-                cards_collection_lot = [(i, c) for i, c in cards_with_idx if c.get("is_collection_keep") and not lt.get("is_divers")]
-                cards_in_stock_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) > 0]
-                cards_stored_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) <= 0 and int(c.get("stored_quantity", 0)) > 0]
-                cards_sold_lot = [(i, c) for i, c in cards_with_idx if not c.get("is_collection_keep") and card_available_qty(c) <= 0 and int(c.get("stored_quantity", 0)) <= 0]
+                cards_collection_lot = [
+                    (i, c)
+                    for i, c in cards_with_idx
+                    if card_lot_display_status(c, lt) == "collection"
+                ]
+                cards_stored_lot = [
+                    (i, c)
+                    for i, c in cards_with_idx
+                    if card_lot_display_status(c, lt) == "stored"
+                ]
+                cards_in_stock_lot = [
+                    (i, c)
+                    for i, c in cards_with_idx
+                    if card_lot_display_status(c, lt) == "stock"
+                ]
+                cards_sold_lot = [
+                    (i, c)
+                    for i, c in cards_with_idx
+                    if card_lot_display_status(c, lt) == "sold"
+                ]
                 lot_render_items = (
                     [("stock", item) for item in cards_in_stock_lot]
                     + [("stored", item) for item in cards_stored_lot]
@@ -723,7 +779,7 @@ def render_lots_page(context):
                         len(visible_stock_lot) + len(visible_stored_lot) + len(visible_collection_lot) + len(visible_sold_lot),
                     )
                 
-                def render_card_grid(card_list_with_idx, sold=False, collection=False, grid_scope="active"):
+                def render_card_grid(card_list_with_idx, sold=False, collection=False, storage=False, grid_scope="active"):
                     safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
                     safe_scope = str(grid_scope or ("sold" if sold else "collection" if collection else "active")).replace(" ", "_").replace("/", "_")
 
@@ -777,6 +833,10 @@ def render_lots_page(context):
                         ):
                             for col_idx, (real_cix, crd) in enumerate(card_list_with_idx[row_start:row_start + COLS_PER_ROW]):
                                 stock = card_available_qty(crd)
+                                display_status = card_lot_display_status(crd, lt)
+                                is_collection_card = display_status == "collection"
+                                is_storage_card = display_status == "stored"
+                                is_sold_card = display_status == "sold"
                                 card_key_part = str(crd.get("card_uid") or real_cix).replace(" ", "_").replace("/", "_")
                                 widget_key = f"{ix}_{safe_scope}_{real_cix}"
 
@@ -785,10 +845,12 @@ def render_lots_page(context):
                                     img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
                                     img_url_en = crd.get("image_url_en", "")
                                     if img_url or img_url_en:
-                                        if sold:
+                                        if is_sold_card:
                                             st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"), unsafe_allow_html=True)
-                                        elif collection:
+                                        elif is_collection_card:
                                             st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
+                                        elif is_storage_card:
+                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#f0f9ff;border:3px solid #7dd3fc;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
                                         else:
                                             st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"), unsafe_allow_html=True)
                                             past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
@@ -807,13 +869,17 @@ def render_lots_page(context):
 
                                     # Nom + badges + stock sur une ligne
                                     badges = card_status_badges(crd)
-                                    stock_txt = "🧾 Collection" if collection else ("✅" if sold else f"{stock}/{crd['quantity']}")
-                                    if crd.get("stored_quantity", 0):
+                                    if is_collection_card and "COLLECTION" not in badges.upper():
+                                        badges += " " + status_badge("Collection")
+                                    if is_storage_card and "STOCKAGE" not in badges.upper():
+                                        badges += " " + status_badge("Stockage")
+                                    stock_txt = "🧾 Collection" if is_collection_card else ("📈 Stockage" if is_storage_card else ("✅" if is_sold_card else f"{stock}/{crd['quantity']}"))
+                                    if crd.get("stored_quantity", 0) and not is_storage_card:
                                         stock_txt += f" · 📈 {int(crd.get('stored_quantity', 0))}"
                                     st.markdown(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{crd["name"]}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>', unsafe_allow_html=True)
 
                                     # Prix : pour les cartes vendues, afficher le prix de vente réel
-                                    if sold and crd.get("sold_entries"):
+                                    if is_sold_card and crd.get("sold_entries"):
                                         last_sale = crd["sold_entries"][-1]
                                         prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity",1)), 1)
                                         st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:#64748b;">Vendu : <span style="color:#10b981;">{prix_reel:.2f}€</span></div>', unsafe_allow_html=True)
@@ -836,7 +902,7 @@ def render_lots_page(context):
                                                 })
                                             sd(cdd)
 
-                                        st.number_input("Valeur actuelle (€)" if collection else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
+                                        st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
                                         # Historique prix mini
                                         ph = crd.get("price_history", [])
@@ -845,7 +911,7 @@ def render_lots_page(context):
                                             col_h = "#22c55e" if diff > 0 else "#ee1515"
                                             st.markdown(f'<span style="color:{col_h};font-size:0.72rem;font-weight:700;">{"↑" if diff>0 else "↓"} {fp(abs(diff))}</span>', unsafe_allow_html=True)
 
-                                    if not sold and not collection:
+                                    if not is_sold_card and not is_collection_card:
                                         st.number_input(
                                             "Qté totale",
                                             min_value=int(crd.get("sold_quantity", 0)),
@@ -856,7 +922,44 @@ def render_lots_page(context):
                                             on_change=update_card_quantity,
                                             args=(ix, real_cix),
                                         )
-                                        if (not is_storage) and stock > 0:
+                                        if is_trade and stock > 0:
+                                            move_panel_key = f"show_trade_move_{widget_key}"
+                                            if st.button("Déplacer vers", key=f"trade_move_btn_{widget_key}", width="stretch"):
+                                                st.session_state[move_panel_key] = True
+
+                                            if st.session_state.get(move_panel_key, False):
+                                                move_qty = 1
+                                                if int(stock) > 1:
+                                                    move_qty = st.number_input(
+                                                        "Qté à déplacer",
+                                                        min_value=1,
+                                                        max_value=int(stock),
+                                                        value=1,
+                                                        step=1,
+                                                        key=f"trade_move_qty_{widget_key}",
+                                                    )
+                                                col_move_collection, col_move_storage = st.columns(2)
+                                                if col_move_collection.button("Collection", key=f"trade_move_collection_{widget_key}", width="stretch"):
+                                                    ok, msg = transfer_trade_card_to_system_lot(ix, real_cix, "collection", move_qty)
+                                                    if ok:
+                                                        st.session_state[move_panel_key] = False
+                                                        st.success(msg)
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(msg)
+                                                if col_move_storage.button("Stockage", key=f"trade_move_storage_{widget_key}", width="stretch"):
+                                                    ok, msg = transfer_trade_card_to_system_lot(ix, real_cix, "stockage", move_qty)
+                                                    if ok:
+                                                        st.session_state[move_panel_key] = False
+                                                        st.success(msg)
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(msg)
+                                                if st.button("Annuler", key=f"trade_move_cancel_{widget_key}", width="stretch"):
+                                                    st.session_state[move_panel_key] = False
+                                                    st.rerun()
+
+                                        elif (not is_storage) and stock > 0:
                                             store_panel_key = f"show_store_{widget_key}"
                                             if st.button("📈 Stocker", key=f"store_btn_{widget_key}", width="stretch"):
                                                 st.session_state[store_panel_key] = True
@@ -967,11 +1070,11 @@ def render_lots_page(context):
                         render_card_grid(visible_stock_lot, sold=False, grid_scope="stock")
 
                     if visible_stored_lot:
-                        st.markdown(f"**📈 En stockage ({len(cards_stored_lot)})**")
-                        render_card_grid(visible_stored_lot, sold=False, grid_scope="stored")
+                        st.markdown(f"**🔵 En stockage ({len(cards_stored_lot)})**")
+                        render_card_grid(visible_stored_lot, sold=False, storage=True, grid_scope="stored")
 
                     if visible_collection_lot:
-                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🧾 COLLECTION ({len(cards_collection_lot)})</span></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🟡 Collection ({len(cards_collection_lot)})</span></div>', unsafe_allow_html=True)
                         render_card_grid(visible_collection_lot, sold=False, collection=True, grid_scope="collection")
                     
                     # ── Vendues ──

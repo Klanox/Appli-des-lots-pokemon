@@ -198,6 +198,54 @@ def render_collection_page(
         unsafe_allow_html=True,
     )
     st.caption("Cartes marquées comme Collection dans les lots ou créées depuis une estimation.")
+    st.markdown(
+        """
+        <style>
+        [class*="st-key-collection_cards_grid_row_"][data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 0.46rem !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow-x: hidden !important;
+        }
+        [class*="st-key-collection_cards_grid_row_"] > [data-testid="stLayoutWrapper"] {
+            flex: 0 0 calc((100% - 2.3rem) / 6) !important;
+            max-width: calc((100% - 2.3rem) / 6) !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        [class*="st-key-collection_card_item_"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+        }
+        @media (max-width: 768px) {
+            [class*="st-key-collection_cards_grid_row_"][data-testid="stHorizontalBlock"] {
+                gap: 0.3rem !important;
+            }
+            [class*="st-key-collection_cards_grid_row_"] > [data-testid="stLayoutWrapper"] {
+                flex: 0 0 calc((100% - 0.3rem) / 2) !important;
+                max-width: calc((100% - 0.3rem) / 2) !important;
+            }
+        }
+        @media (max-width: 340px) {
+            [class*="st-key-collection_cards_grid_row_"][data-testid="stHorizontalBlock"] {
+                gap: 0.22rem !important;
+            }
+            [class*="st-key-collection_cards_grid_row_"] > [data-testid="stLayoutWrapper"] {
+                flex-basis: calc((100% - 0.22rem) / 2) !important;
+                max-width: calc((100% - 0.22rem) / 2) !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.expander("➕ Ajouter une carte à la Collection", expanded=False):
         if "collection_add_ts" not in st.session_state:
@@ -545,10 +593,12 @@ def render_collection_page(
         perf_count_func("cards_collection_available", total_collection_matches)
         perf_count_func("cards_collection_rendered", len(collection_cards))
 
-    with st.container(key="search_results_grid_collection", horizontal=True, gap="small"):
-        for lot_idx, card_idx, lot, card in collection_cards:
-            card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
-            with st.container(key=f"search_result_card_collection_{lot_idx}_{card_idx}_{card_uid}"):
+    collection_cols_per_row = 6
+    for row_start in range(0, len(collection_cards), collection_cols_per_row):
+        with st.container(key=f"collection_cards_grid_row_{row_start}", horizontal=True, gap="small"):
+            for lot_idx, card_idx, lot, card in collection_cards[row_start:row_start + collection_cols_per_row]:
+                card_uid = str(card.get("card_uid") or card.get("id") or f"{lot_idx}_{card_idx}")
+                with st.container(key=f"collection_card_item_{lot_idx}_{card_idx}_{card_uid}"):
                     st.markdown(collection_image_html_func(card), unsafe_allow_html=True)
                     card_name_html = html.escape(str(card.get("name", "Carte") or "Carte"))
                     st.markdown(

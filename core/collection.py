@@ -12,6 +12,15 @@ import os
 COLLECTION_IMAGE_PLACEHOLDER = "__placeholder__"
 
 
+def _safe_collection_float(value, default=0.0):
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def is_collection_system_lot(lot):
     return lot.get("is_collection_lot") or lot.get("nom") in ("Collection", "🧾 Collection")
 
@@ -46,9 +55,35 @@ def collection_purchase_price(card):
     )
 
 
+def trade_collection_paid_total(card, quantity):
+    unit_fields = (
+        "trade_acquisition_unit_cost",
+        "trade_historical_unit_cost",
+    )
+    for field in unit_fields:
+        value = card.get(field)
+        if value not in (None, ""):
+            return max(_safe_collection_float(value), 0.) * quantity
+
+    total_fields = (
+        "trade_acquisition_cost",
+        "trade_acquisition_total_cost",
+        "trade_historical_total_cost",
+    )
+    for field in total_fields:
+        value = card.get(field)
+        if value not in (None, ""):
+            return max(_safe_collection_float(value), 0.)
+
+    return None
+
+
 def collection_paid_total(card, lot, *, calc_cout_lot_func=None, effective_purchase_price_func=None):
     """Total paid price for a Collection card, direct or estimated from its lot."""
     qty = max(int(card.get("quantity", 1) or 1), 1)
+    trade_paid = trade_collection_paid_total(card, qty)
+    if trade_paid is not None:
+        return trade_paid
     if card.get("collection_purchase_total") not in (None, ""):
         return float(card.get("collection_purchase_total") or 0.)
     explicit = collection_purchase_price(card)

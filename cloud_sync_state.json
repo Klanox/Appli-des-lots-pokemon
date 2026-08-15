@@ -1,18 +1,18 @@
 {
   "files": {
     "data": {
-      "fingerprint": "b8b134762776bc53301fe18dd0300de7ec00a1b09a3818eb3239e2acb9b72397",
+      "fingerprint": "bb6130b9d77b05dc6f0be963b1cfa4ac7ead02557446d7a180c2727ec9102f29",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-14T10:18:22.268387+00:00",
-      "last_save_at": "2026-08-14T10:17:02.459808+00:00",
+      "last_read_at": "2026-08-15T19:18:58.527994+00:00",
+      "last_save_at": "2026-08-15T18:43:53.071727+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "lot_estimations": {
       "fingerprint": "c87b5cb763934457802a5ee1d7aaa065a0dccbb81452240be951c57bf28542bc",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-14T10:18:22.436407+00:00",
+      "last_read_at": "2026-08-15T19:18:58.632121+00:00",
       "last_save_at": "2026-07-11T13:04:56.149798+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
@@ -20,7 +20,7 @@
       "fingerprint": "da8db8c21a19cfbed7e0b38034acbb03f1511d236c3f711a131c4654413375cb",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-14T10:18:22.870700+00:00",
+      "last_read_at": "2026-08-15T19:18:59.062466+00:00",
       "last_save_at": "2026-07-04T19:10:17.519766+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
@@ -29,22 +29,24 @@
       "source": "cloud",
       "local_dirty": false,
       "last_save_at": "2026-08-09T09:04:46.741045+00:00",
-      "last_read_at": "2026-08-14T10:18:22.607315+00:00",
+      "last_read_at": "2026-08-15T19:18:58.802430+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "activity_state": {
-      "fingerprint": "e43ac73ddf01a232def4f9f1f979349c1e2eae578cca3a770d5b55bcd0e81069",
+      "fingerprint": "e41241c6a50d1549c03e9bf2aadd22f2ba9b98f2110098e8a7c9f3c72f87217a",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-14T10:18:22.548944+00:00",
-      "last_save_at": "2026-08-13T18:29:31.961475+00:00",
+      "last_read_at": "2026-08-15T19:18:58.745509+00:00",
+      "last_save_at": "2026-08-15T18:38:04.370460+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "lots_archives": {
       "fingerprint": "9c15e36ba71b5d1c49392d1f27424551e1a940d17f6c43c342c172d6bafd7d52",
-      "source": "local_restored_safe_start",
-      "local_dirty": true,
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "source": "cloud",
+      "local_dirty": false,
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "last_save_at": "2026-08-15T18:23:22.434066+00:00",
+      "last_read_at": "2026-08-15T19:18:58.690612+00:00"
     },
     "counters": {
       "fingerprint": "c5454fdcb086a679ffa0d96076d994b88f6b45f743e0db3ec403c8144d7355f0",
@@ -57,6 +59,13 @@
       "source": "local_restored_safe_start",
       "local_dirty": true,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+    },
+    "custom_card_images": {
+      "fingerprint": "967b1b9d1b91d7da7c4494a31bda19f6205a305fbb992fea496df2c84e060fe6",
+      "source": "cloud",
+      "local_dirty": false,
+      "last_save_at": "2026-08-15T19:00:03.901755+00:00",
+      "last_read_at": "2026-08-15T19:18:59.130780+00:00"
     }
   }
 }

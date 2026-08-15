@@ -1,5 +1,32 @@
 {
   "bulk_cart": [],
-  "swap_cart_give": [],
+  "swap_cart_give": [
+    {
+      "lot_idx": 1,
+      "card_idx": 0,
+      "lot_uid": "lot_325cf22b94c3401f9e7d2c4a85e6d3f4",
+      "card_uid": "card_33bb9cccc60b435b92fda14ec7d3d4cc",
+      "card_name": "Métamorph",
+      "set": "Promo XY",
+      "number": "XY40",
+      "value": 19.0,
+      "quantity": 1,
+      "historical_cost": 5.297485685835201,
+      "lot_name": "Gros lot de promos xy et autres Lanceau Meucon"
+    },
+    {
+      "lot_idx": 3,
+      "card_idx": 13,
+      "lot_uid": "lot_efce8c98cdc1444eac8e6daa67e7a626",
+      "card_uid": "card_d184c09f6b194a40825f76ebeff63c40",
+      "card_name": "Énergie Enrichissante",
+      "set": "Étincelles Déferlantes",
+      "number": "191",
+      "value": 2.5,
+      "quantity": 1,
+      "historical_cost": 0.7000831989729565,
+      "lot_name": "Lot ex, v, tg, 3 cartes cel"
+    }
+  ],
   "swap_cart_receive": []
 }

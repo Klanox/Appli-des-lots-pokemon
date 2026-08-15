@@ -20,8 +20,10 @@ STATUS_BADGE_STYLES = {
 
 
 def status_badge(label):
-    bg, color, border = STATUS_BADGE_STYLES.get(label, STATUS_BADGE_STYLES["Spécial"])
-    safe_label = html.escape(str(label))
+    style_label = {"COLLECTION": "Collection", "STOCKAGE": "Stockage"}.get(str(label), str(label))
+    display_label = {"Collection": "COLLECTION", "Stockage": "STOCKAGE"}.get(str(label), str(label))
+    bg, color, border = STATUS_BADGE_STYLES.get(style_label, STATUS_BADGE_STYLES["Spécial"])
+    safe_label = html.escape(display_label)
     return (
         f'<span class="badge" style="background:{bg};color:{color};border:1px solid {border};'
         f'font-size:0.6rem;padding:0.2rem 0.45rem;border-radius:999px;font-weight:800;">'
@@ -31,6 +33,7 @@ def status_badge(label):
 
 def card_status_badges(card, include_storage=True):
     badges = []
+    transfer_destination = str(card.get("trade_transfer_destination", "") or "").strip().lower()
     if card.get("is_reverse"):
         badges.append(status_badge("Reverse"))
     if card.get("is_ed1"):
@@ -40,10 +43,15 @@ def card_status_badges(card, include_storage=True):
     special_tag = card.get("special_tag", "")
     if special_tag:
         for tag in [t.strip() for t in str(special_tag).split(",") if t.strip()]:
-            badges.append(status_badge(tag))
-    if card.get("is_collection_keep"):
+            if tag not in ("Collection", "Stockage") or (
+                tag == "Collection" and not (card.get("is_collection_keep") or card.get("is_collection") or transfer_destination == "collection")
+            ) or (
+                tag == "Stockage" and not (include_storage and (int(card.get("stored_quantity", 0) or 0) > 0 or transfer_destination in ("stockage", "storage")))
+            ):
+                badges.append(status_badge(tag))
+    if card.get("is_collection_keep") or card.get("is_collection") or transfer_destination == "collection":
         badges.append(status_badge("Collection"))
-    if include_storage and int(card.get("stored_quantity", 0) or 0) > 0:
+    if include_storage and (int(card.get("stored_quantity", 0) or 0) > 0 or transfer_destination in ("stockage", "storage")):
         badges.append(status_badge("Stockage"))
     if card.get("is_trade_card"):
         badges.append(status_badge("Trade"))

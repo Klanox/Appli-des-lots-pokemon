@@ -478,6 +478,36 @@
       "captured_at": "2026-08-13T22:53:16",
       "value": 5895.5,
       "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-14T23:37:46",
+      "value": 6914.0,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-14T23:38:35",
+      "value": 6914.5,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-15T15:19:48",
+      "value": 6905.5,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-15T19:59:06",
+      "value": 6901.0,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-15T20:24:59",
+      "value": 6915.5,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-15T20:44:06",
+      "value": 6865.5,
+      "provenance": "live"
     }
   ],
   "annotations": []

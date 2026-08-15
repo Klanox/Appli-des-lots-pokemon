@@ -85,8 +85,18 @@ def _trade_card_value(card):
         return 0.0
 
 
+def _trade_card_line_total(card):
+    qty = int(card.get("quantity") or 1)
+    if "unit_reference_value" in card:
+        try:
+            return float(card.get("unit_reference_value") or 0) * qty
+        except (TypeError, ValueError):
+            return 0.0
+    return _trade_card_value(card)
+
+
 def _trade_cards_total(cards):
-    return sum(_trade_card_value(card) * int(card.get("quantity") or 1) for card in cards or [])
+    return sum(_trade_card_line_total(card) for card in cards or [])
 
 
 def _collect_exchange_out_entries(cd_hist):
@@ -178,12 +188,12 @@ def _render_trade_side(cards, *, proxy_img_func, image_lookup, tone, total_label
                 <div style="font-size:0.78rem;color:#64748b;margin-top:2px;">{detail or "—"} · Quantité : x{qty}</div>
                 {lot_html}
               </div>
-              <div style="font-weight:900;color:{color};white-space:nowrap;">{_money(_trade_card_value(card))}</div>
+              <div style="font-weight:900;color:{color};white-space:nowrap;">{_money(_trade_card_line_total(card))}</div>
             </div>
             """
         )
 
-    st.markdown(
+    st.html(
         f"""
         <div style="border:1px solid {border};border-radius:10px;background:#fff;overflow:hidden;">
           <div style="padding:0.75rem 0.85rem;">
@@ -194,8 +204,7 @@ def _render_trade_side(cards, *, proxy_img_func, image_lookup, tone, total_label
             {escape(total_label)} : {_money(_trade_cards_total(cards))}
           </div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
@@ -203,7 +212,7 @@ def _render_trade_cash_panel(cash_paid, cash_received, diff):
     diff_value = float(diff or 0)
     diff_color = "#15803d" if diff_value >= 0 else "#dc2626"
     diff_bg = "#f0fdf4" if diff_value >= 0 else "#fff7f7"
-    st.markdown(
+    st.html(
         f"""
         <div style="display:flex;flex-direction:column;gap:0.7rem;align-items:stretch;">
           <div style="border:1px solid #fee2e2;background:#fff7f7;border-radius:10px;padding:0.8rem;text-align:center;">
@@ -225,8 +234,7 @@ def _render_trade_cash_panel(cash_paid, cash_received, diff):
             <div style="font-size:1.1rem;color:{diff_color};font-weight:950;margin-top:0.2rem;">{_money(diff_value)}</div>
           </div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
