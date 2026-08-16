@@ -77,6 +77,7 @@ from core.collection import (
     COLLECTION_IMAGE_PLACEHOLDER,
     collection_card_exact_match,
     collection_current_value,
+    collection_display_paid_total,
     collection_has_manual_image,
     collection_image_needs_manual,
     collection_paid_total,
@@ -502,7 +503,7 @@ def collection_image_candidate_is_valid(url):
     return True
 
 def collection_paid_total_for_app(card, lot):
-    return collection_paid_total(
+    return collection_display_paid_total(
         card,
         lot,
         calc_cout_lot_func=calc_cout_lot,
@@ -1207,6 +1208,7 @@ def set_current_page(page):
     st.session_state["scroll_top_once"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
+        st.session_state["sale_scroll_top_pending"] = True
 
 def render_with_perf(label, render_func, *args, **kwargs):
     with perf_timer(label):
@@ -1301,6 +1303,59 @@ configure_sales_actions(globals())
 # ============================================================
 
 st.set_page_config(layout="wide",page_title="Pokestock",page_icon="🎴")
+
+def _hot_reload_python_signature():
+    watched_paths = [
+        "app.py",
+        "cloud.py",
+        "data.py",
+        "logic.py",
+        "utils.py",
+        "core",
+        "services",
+        "ui",
+        "components",
+        "tools",
+    ]
+    parts = []
+    for relative in watched_paths:
+        path = os.path.join(APP_DIR, relative)
+        if os.path.isfile(path) and path.endswith(".py"):
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            parts.append((relative.replace("\\", "/"), stat.st_mtime_ns, stat.st_size))
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                dirs[:] = [
+                    name for name in dirs
+                    if name not in {"__pycache__", ".git", ".venv", "venv", "node_modules"}
+                ]
+                for filename in files:
+                    if not filename.endswith(".py"):
+                        continue
+                    file_path = os.path.join(root, filename)
+                    try:
+                        stat = os.stat(file_path)
+                    except OSError:
+                        continue
+                    rel = os.path.relpath(file_path, APP_DIR).replace("\\", "/")
+                    parts.append((rel, stat.st_mtime_ns, stat.st_size))
+    raw = json.dumps(sorted(parts), separators=(",", ":"))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _show_hot_reload_toast_once():
+    signature_key = "_hot_reload_python_signature"
+    current_signature = _hot_reload_python_signature()
+    previous_signature = st.session_state.get(signature_key)
+    st.session_state[signature_key] = current_signature
+    if previous_signature and previous_signature != current_signature:
+        st.toast("✅ Modifications effectuées")
+
+
+_show_hot_reload_toast_once()
 
 try:
     query_mobile = str(st.query_params.get("mobile", "")).lower() in ("1", "true", "yes", "oui")
@@ -2223,3 +2278,5 @@ elif st.session_state.current_page == "Compteurs":
     )
 
 perf_summary()
+
+

@@ -616,6 +616,62 @@
       "storage_path": "custom/uid_card_5b8f78af50074baf8b46fa4407689ef2.jpg",
       "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/uid_card_5b8f78af50074baf8b46fa4407689ef2.jpg",
       "storage_uploaded_at": "2026-08-15T21:00:03"
+    },
+    "id:2024sv-3": {
+      "image_ref": "card_images/2024sv-3.jpg",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T22:26:27",
+      "card_name": "Miraidon",
+      "number": "3",
+      "set": "Collection McDonald's 2024",
+      "local_image_ref": "card_images/2024sv-3.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2024sv-3.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2024sv-3.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2024sv-3.jpg",
+      "storage_uploaded_at": "2026-08-15T22:26:27"
+    },
+    "id:2024sv-11": {
+      "image_ref": "card_images/2024sv-11.jpg",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T22:26:46",
+      "card_name": "Rugit-Lune",
+      "number": "11",
+      "set": "",
+      "local_image_ref": "card_images/2024sv-11.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2024sv-11.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2024sv-11.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2024sv-11.jpg",
+      "storage_uploaded_at": "2026-08-15T22:26:46"
+    },
+    "id:2015xy-2": {
+      "image_ref": "card_images/2015xy-2.jpg",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T22:27:07",
+      "card_name": "Nénupiot",
+      "number": "2",
+      "set": "Collection McDonald's 2015",
+      "local_image_ref": "card_images/2015xy-2.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2015xy-2.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2015xy-2.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2015xy-2.jpg",
+      "storage_uploaded_at": "2026-08-15T22:27:07"
+    },
+    "id:2016xy-6": {
+      "image_ref": "card_images/2016xy-6.jpg",
+      "source": "lots_upload",
+      "updated_at": "2026-08-15T23:49:57",
+      "card_name": "Pikachu",
+      "number": "6",
+      "set": "Collection McDonald's 2016",
+      "local_image_ref": "card_images/2016xy-6.jpg",
+      "storage_ref": "supabase://card-images/custom/id_2016xy-6.jpg",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/id_2016xy-6.jpg",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2016xy-6.jpg",
+      "storage_uploaded_at": "2026-08-15T23:49:57"
     }
   }
 }

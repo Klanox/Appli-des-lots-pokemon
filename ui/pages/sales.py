@@ -5,7 +5,6 @@ globals as context to preserve behavior while moving the large page out of app.p
 """
 
 import html
-import math
 import os
 
 from core.brocante import BRO_CATEGORIES, PAYMENT_METHODS, append_off_stock_sale
@@ -26,9 +25,8 @@ from services.custom_card_image_service import resolve_custom_card_image
 from ui.infinite_scroll import (
     render_virtual_scroll_sensor,
     stable_list_signature,
-    virtual_window_slice,
 )
-from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_grid
+from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_lot_grid
 
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
@@ -103,16 +101,23 @@ def _sale_image_preload_urls(card, *, limit=1):
     return urls
 
 
-def _sale_frontend_items(source_items, fp_func):
-    lightweight = []
+def _sale_frontend_lot_groups(source_items, fp_func, lot_profitable_func):
+    groups_by_lot = {}
+    lot_order = []
     for li, ci, card, lot, stock in source_items:
+        lot_key = lot.get("lot_uid") or li
+        if lot_key not in groups_by_lot:
+            groups_by_lot[lot_key] = {
+                "lot_idx": li,
+                "lot_uid": lot.get("lot_uid"),
+                "lot_name": str(lot.get("nom", "")),
+                "cards": [],
+            }
+            lot_order.append(lot_key)
         card_uid = card.get("card_uid") or f"{lot.get('lot_uid') or li}_{ci}"
         price = safe_float(card.get("suggested_price"), 0.0)
-        image_url = ""
         image_urls = _sale_image_preload_urls(card, limit=1)
-        if image_urls:
-            image_url = image_urls[0]
-        lightweight.append({
+        groups_by_lot[lot_key]["cards"].append({
             "card_key": str(card_uid),
             "card_uid": card.get("card_uid"),
             "lot_uid": lot.get("lot_uid"),
@@ -121,13 +126,13 @@ def _sale_frontend_items(source_items, fp_func):
             "name": str(card.get("name", "")),
             "set": str(card.get("set", "")),
             "number": str(card.get("number", "")),
-            "lot_name": str(lot.get("nom", "")),
             "price": price,
             "price_label": fp_func(price),
             "stock": int(stock or 0),
-            "image_url": image_url,
+            "image_url": image_urls[0] if image_urls else "",
+            "lot_profitable": bool(lot_profitable_func(li, lot)),
         })
-    return lightweight
+    return [groups_by_lot[lot_key] for lot_key in lot_order]
 
 
 def _received_trade_image_html(card, *, width="45px"):
@@ -276,34 +281,14 @@ def _selected_trade_given_records(cd, selected_cards):
     return records
 
 
+def _request_sale_scroll_top():
+    st.session_state["sale_scroll_top_token"] = int(st.session_state.get("sale_scroll_top_token", 0) or 0) + 1
+
+
 def render_sales_page(context):
     globals().update(context)
     if st.session_state.pop("sale_scroll_top_pending", False):
-        run_html("""
-        <script>
-        (function(){
-            const win = parent.window;
-            const doc = parent.document;
-            if ('scrollRestoration' in win.history) win.history.scrollRestoration = 'manual';
-            const scrollTop = () => win.scrollTo({top:0,left:0,behavior:'instant'});
-            [0, 80, 220, 520, 1100, 1800].forEach(delay => setTimeout(scrollTop, delay));
-            const waitForImagesThenScroll = () => {
-                const imgs = Array.from(doc.querySelectorAll('img'));
-                if (!imgs.length) { scrollTop(); return; }
-                let pending = imgs.filter(img => !img.complete).length;
-                if (pending === 0) { scrollTop(); return; }
-                const done = () => { pending -= 1; if (pending <= 0) scrollTop(); };
-                imgs.forEach(img => {
-                    if (img.complete) return;
-                    img.addEventListener('load', done, {once:true});
-                    img.addEventListener('error', done, {once:true});
-                });
-                setTimeout(scrollTop, 3500);
-            };
-            setTimeout(waitForImagesThenScroll, 250);
-        })();
-        </script>
-        """, height=0)
+        _request_sale_scroll_top()
     st.markdown(
         render_page_header("Vente / Échange", "Vendre, négocier et gérer les échanges", "💰"),
         unsafe_allow_html=True,
@@ -324,6 +309,10 @@ def render_sales_page(context):
         label_visibility="collapsed",
         width="stretch",
     ) or default_sales_section
+    previous_sales_section = st.session_state.get("_previous_sales_active_section")
+    if active_sales_section == "Vente" and previous_sales_section == "Échange":
+        _request_sale_scroll_top()
+    st.session_state["_previous_sales_active_section"] = active_sales_section
 
     if active_sales_section == "Vente":
         st.markdown('<span data-sale-mobile-marker="1"></span>', unsafe_allow_html=True)
@@ -497,15 +486,15 @@ def render_sales_page(context):
                     if stock > 0:
                         sale_items.append((li, ci, card, lot, stock))
 
+            lot_profitable_cache = {}
+
+            def sale_lot_profitable(li, lot):
+                if li not in lot_profitable_cache:
+                    lot_profitable_cache[li] = cp(lot) >= 0
+                return lot_profitable_cache[li]
+
             @st.fragment
             def render_sales_progressive_grid(search_text, selected_lot, items, cart_card_uids):
-                lot_profitable_cache = {}
-
-                def sale_lot_profitable(li, lot):
-                    if li not in lot_profitable_cache:
-                        lot_profitable_cache[li] = cp(lot) >= 0
-                    return lot_profitable_cache[li]
-
                 def render_sale_card(li, ci, card, lot, stock, *, include_lot_caption=False):
                     in_cart = card.get("card_uid") in cart_card_uids
                     with st.container(key=f"search_result_card_sales_{'search' if include_lot_caption else 'lot'}_{li}_{ci}"):
@@ -574,15 +563,25 @@ def render_sales_page(context):
                                 ):
                                     st.empty()
 
-                def render_virtual_spacer(height_px, key):
-                    height_px = max(0, int(height_px or 0))
-                    if height_px <= 0:
-                        return
-                    st.markdown(
-                        f'<div data-sale-virtual-spacer="{html.escape(str(key), quote=True)}" '
-                        f'style="height:{height_px}px;min-height:{height_px}px;"></div>',
-                        unsafe_allow_html=True,
-                    )
+                def render_grouped_sale_items(scope_prefix, source_items, *, row_index_offset=0):
+                    by_lot = {}
+                    lot_order = []
+                    for li, ci, card, lot, stock in source_items:
+                        if li not in by_lot:
+                            by_lot[li] = (lot, [])
+                            lot_order.append(li)
+                        by_lot[li][1].append((ci, card, stock))
+
+                    for li in lot_order:
+                        lot, cards_to_render = by_lot[li]
+                        if cards_to_render:
+                            st.markdown(f"### Lot {lot['nom']}")
+                            render_sale_grid_rows(
+                                f"{scope_prefix}_lot_{li}",
+                                [(li, ci, card, lot, stock) for ci, card, stock in cards_to_render],
+                                row_index_offset=row_index_offset,
+                            )
+                            st.markdown("---")
 
                 def preload_urls_for(source_items, start, end):
                     urls = []
@@ -592,27 +591,89 @@ def render_sales_page(context):
                             break
                     return urls[:32]
 
-                def current_window_bounds(key_prefix, fallback_initial, total):
-                    start = int(st.session_state.get(f"{key_prefix}_window_start", 0) or 0)
-                    end = int(st.session_state.get(f"{key_prefix}_window_end", fallback_initial) or fallback_initial)
-                    return max(0, min(start, total)), max(0, min(end, total))
+                def current_progressive_count(key_prefix, fallback_initial, total):
+                    count = int(st.session_state.get(f"{key_prefix}_visible_count", fallback_initial) or fallback_initial)
+                    return max(0, min(count, total))
+
+                def progressive_sale_slice(key_prefix, source_items, signature, *, initial_count, step_count, event=None):
+                    source_items = list(source_items or [])
+                    total = len(source_items)
+                    signature_key = f"{key_prefix}_progressive_signature"
+                    count_key = f"{key_prefix}_visible_count"
+                    event_key = f"{key_prefix}_progressive_last_event"
+                    if st.session_state.get(signature_key) != signature:
+                        st.session_state[signature_key] = signature
+                        st.session_state[count_key] = min(int(initial_count), total)
+                        st.session_state.pop(event_key, None)
+
+                    visible_count = current_progressive_count(key_prefix, initial_count, total)
+                    if isinstance(event, dict):
+                        event_id = str(event.get("id") or "")
+                        direction = str(event.get("direction") or "")
+                        if event_id and direction == "down" and st.session_state.get(event_key) != event_id:
+                            st.session_state[event_key] = event_id
+                            visible_count = min(total, visible_count + max(1, int(step_count)))
+                            st.session_state[count_key] = visible_count
+
+                    return source_items[:visible_count], visible_count, total
+
+                def render_progressive_group(key_prefix, scope_prefix, source_items, signature):
+                    source_items = list(source_items or [])
+                    signature_changed = st.session_state.get(f"{key_prefix}_progressive_signature") != signature
+                    previous_count = (
+                        min(sale_initial, len(source_items))
+                        if signature_changed
+                        else current_progressive_count(key_prefix, sale_initial, len(source_items))
+                    )
+                    bottom_anchor_id = f"sale-progressive-bottom-{key_prefix}"
+                    event = None
+                    if previous_count < len(source_items):
+                        event = render_virtual_scroll_sensor(
+                            key_prefix,
+                            top_anchor_id=f"sale-progressive-top-{key_prefix}",
+                            bottom_anchor_id=bottom_anchor_id,
+                            row_selector=(
+                                f'[class*="st-key-search_results_grid_sales_{scope_prefix}_lot_"]'
+                                '[data-testid="stHorizontalBlock"]'
+                            ),
+                            root_margin_px=1800,
+                            top_margin_px=900,
+                            preload_urls=preload_urls_for(
+                                source_items,
+                                previous_count,
+                                previous_count + sale_step * 2,
+                            ),
+                            default_row_height=sale_row_height_default,
+                        )
+                    if signature_changed:
+                        event = None
+                    visible_items, visible_count, total_count = progressive_sale_slice(
+                        key_prefix,
+                        source_items,
+                        signature,
+                        initial_count=sale_initial,
+                        step_count=sale_step,
+                        event=event,
+                    )
+                    if "perf_count" in globals():
+                        perf_count("cards_sales_available", total_count)
+                        perf_count("cards_sales_rendered", len(visible_items))
+                    render_grouped_sale_items(scope_prefix, visible_items)
+                    if visible_count < total_count:
+                        st.markdown(
+                            f'<div id="{bottom_anchor_id}" style="height:1px;"></div>',
+                            unsafe_allow_html=True,
+                        )
 
                 search_text = str(search_text or "")
                 sale_initial = 24 if is_mobile_mode() else 48
                 sale_step = 12 if is_mobile_mode() else 24
-                sale_window = 96 if is_mobile_mode() else 72
-                sale_slots_per_row = 2 if is_mobile_mode() else 6
                 sale_row_height_default = 520 if is_mobile_mode() else 560
                 st.markdown(
                     """
                     <style>
                     [class*="st-key-search_results_grid_sales_"],
-                    [class*="st-key-search_result_card_sales_"],
-                    [data-sale-virtual-spacer],
-                    #sale-virtual-top-sales-search,
-                    #sale-virtual-bottom-sales-search,
-                    #sale-virtual-top-sales-all,
-                    #sale-virtual-bottom-sales-all {
+                    [class*="st-key-search_result_card_sales_"] {
                         overflow-anchor: none !important;
                     }
                     </style>
@@ -633,117 +694,16 @@ def render_sales_page(context):
                         selected_lot,
                         [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in filtered_items],
                     )
-                    previous_start, previous_end = current_window_bounds(
-                        "sales_search",
-                        sale_initial,
-                        len(filtered_items),
-                    )
-                    event = render_virtual_scroll_sensor(
-                        "sales_search",
-                        top_anchor_id="sale-virtual-top-sales-search",
-                        bottom_anchor_id="sale-virtual-bottom-sales-search",
-                        row_selector='[class*="st-key-search_results_grid_sales_search_row_"][data-testid="stHorizontalBlock"]',
-                        root_margin_px=1800,
-                        top_margin_px=900,
-                        preload_urls=preload_urls_for(
-                            filtered_items,
-                            previous_end,
-                            previous_end + sale_step * 2,
-                        ),
-                        default_row_height=sale_row_height_default,
-                    )
-                    visible_items, window_start, window_end, total_count, row_height = virtual_window_slice(
-                        "sales_search",
-                        filtered_items,
-                        sale_signature,
-                        initial_count=sale_initial,
-                        window_count=sale_window,
-                        step_count=sale_step,
-                        event=event,
-                        row_height_default=sale_row_height_default,
-                        slots_per_row=sale_slots_per_row,
-                    )
-                    if "perf_count" in globals():
-                        perf_count("cards_sales_rendered", len(visible_items))
-                        perf_count("cards_sales_available", total_count)
-                    top_rows = window_start // sale_slots_per_row
-                    bottom_rows = max(0, math.ceil(max(0, total_count - window_end) / sale_slots_per_row))
-                    render_virtual_spacer(top_rows * row_height, "sales_search_top")
-                    st.markdown('<div id="sale-virtual-top-sales-search" style="height:1px;"></div>', unsafe_allow_html=True)
-                    render_sale_grid_rows(
-                        "search",
-                        visible_items,
-                        include_lot_caption=True,
-                        row_index_offset=window_start,
-                    )
-                    st.markdown('<div id="sale-virtual-bottom-sales-search" style="height:1px;"></div>', unsafe_allow_html=True)
-                    render_virtual_spacer(bottom_rows * row_height, "sales_search_bottom")
+                    render_progressive_group("sales_search", "search", filtered_items, sale_signature)
                 else:
                     sale_signature = stable_list_signature(
                         "sales_all",
                         selected_lot,
                         [(li, ci, card.get("card_uid") or card.get("name")) for li, ci, card, _, _ in items],
                     )
-                    previous_start, previous_end = current_window_bounds(
-                        "sales_all",
-                        sale_initial,
-                        len(items),
-                    )
-                    event = render_virtual_scroll_sensor(
-                        "sales_all",
-                        top_anchor_id="sale-virtual-top-sales-all",
-                        bottom_anchor_id="sale-virtual-bottom-sales-all",
-                        row_selector='[class*="st-key-search_results_grid_sales_lot_"][data-testid="stHorizontalBlock"]',
-                        root_margin_px=1800,
-                        top_margin_px=900,
-                        preload_urls=preload_urls_for(
-                            items,
-                            previous_end,
-                            previous_end + sale_step * 2,
-                        ),
-                        default_row_height=sale_row_height_default,
-                    )
-                    visible_items, window_start, window_end, total_count, row_height = virtual_window_slice(
-                        "sales_all",
-                        items,
-                        sale_signature,
-                        initial_count=sale_initial,
-                        window_count=sale_window,
-                        step_count=sale_step,
-                        event=event,
-                        row_height_default=sale_row_height_default,
-                        slots_per_row=sale_slots_per_row,
-                    )
-                    by_lot = {}
-                    lot_order = []
-                    for li, ci, card, lot, stock in visible_items:
-                        if li not in by_lot:
-                            by_lot[li] = (lot, [])
-                            lot_order.append(li)
-                        by_lot[li][1].append((ci, card, stock))
+                    render_progressive_group("sales_all", "lot", items, sale_signature)
 
-                    if "perf_count" in globals():
-                        perf_count("cards_sales_available", total_count)
-                        perf_count("cards_sales_rendered", len(visible_items))
-                    top_rows = window_start // sale_slots_per_row
-                    bottom_rows = max(0, math.ceil(max(0, total_count - window_end) / sale_slots_per_row))
-                    render_virtual_spacer(top_rows * row_height, "sales_all_top")
-                    st.markdown('<div id="sale-virtual-top-sales-all" style="height:1px;"></div>', unsafe_allow_html=True)
-                    if by_lot:
-                        for li in lot_order:
-                            lot, cards_to_render = by_lot[li]
-                            if cards_to_render:
-                                st.markdown(f"### Lot {lot['nom']}")
-                                render_sale_grid_rows(
-                                    f"lot_{li}",
-                                    [(li, ci, card, lot, stock) for ci, card, stock in cards_to_render],
-                                    row_index_offset=window_start,
-                                )
-                                st.markdown("---")
-                    st.markdown('<div id="sale-virtual-bottom-sales-all" style="height:1px;"></div>', unsafe_allow_html=True)
-                    render_virtual_spacer(bottom_rows * row_height, "sales_all_bottom")
-
-            def render_sales_frontend_grid(search_text, selected_lot, items, cart_card_uids):
+            def render_sales_frontend_lot_grid(search_text, selected_lot, items, cart_card_uids):
                 search_text = str(search_text or "")
                 if search_text:
                     search_norm = normalize_name(search_text)
@@ -756,40 +716,49 @@ def render_sales_page(context):
                     filtered_items = list(items or [])
                     grid_key = "sales_all"
 
-                frontend_items = _sale_frontend_items(filtered_items, fp)
+                groups = _sale_frontend_lot_groups(filtered_items, fp, sale_lot_profitable)
                 try:
-                    result = render_sale_virtual_grid(
-                        frontend_items,
+                    result = render_sale_virtual_lot_grid(
+                        groups,
                         cart_card_uids,
                         key=grid_key,
                         mobile=is_mobile_mode(),
+                        scroll_top_token=st.session_state.get("sale_scroll_top_token", 0),
                     )
                 except Exception as exc:
-                    st.session_state["sale_frontend_grid_error"] = str(exc)
+                    st.session_state["sale_frontend_lot_grid_error"] = str(exc)
                     return False
 
-                action = getattr(result, "add", None) if result is not None else None
-                if isinstance(action, dict) and action.get("type") == "add":
+                action = getattr(result, "action", None) if result is not None else None
+                if isinstance(action, dict) and action.get("type") in ("add", "remove"):
                     action_id = str(action.get("id") or "")
-                    if action_id and st.session_state.get("sale_frontend_last_action") != action_id:
-                        st.session_state["sale_frontend_last_action"] = action_id
-                        bulk_cart_add({
-                            "lot_idx": int(action.get("lot_idx")),
-                            "card_idx": int(action.get("card_idx")),
-                            "lot_uid": action.get("lot_uid"),
-                            "card_uid": action.get("card_uid"),
-                            "quantity": max(safe_int(action.get("quantity"), 1), 1),
-                        })
+                    if action_id and st.session_state.get("sale_frontend_lot_last_action") != action_id:
+                        st.session_state["sale_frontend_lot_last_action"] = action_id
+                        if action.get("type") == "remove":
+                            bulk_cart_remove(
+                                lot_idx=safe_int(action.get("lot_idx"), None),
+                                card_idx=safe_int(action.get("card_idx"), None),
+                                card_uid=action.get("card_uid"),
+                            )
+                        else:
+                            bulk_cart_add({
+                                "lot_idx": safe_int(action.get("lot_idx"), 0),
+                                "card_idx": safe_int(action.get("card_idx"), 0),
+                                "lot_uid": action.get("lot_uid"),
+                                "card_uid": action.get("card_uid"),
+                                "quantity": max(safe_int(action.get("quantity"), 1), 1),
+                                "lot_profitable": bool(action.get("lot_profitable")),
+                            })
                         st.rerun()
                 if "perf_count" in globals():
-                    perf_count("cards_sales_available", len(filtered_items))
+                    perf_count("cards_sales_available", sum(len(group.get("cards", [])) for group in groups))
                     perf_count("cards_sales_rendered", 0)
                 return True
 
-            frontend_grid_ok = False
-            if component_v2_available() and not st.session_state.get("sale_frontend_grid_disabled", False):
-                frontend_grid_ok = render_sales_frontend_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
-            if not frontend_grid_ok:
+            frontend_lot_grid_ok = False
+            if component_v2_available() and not st.session_state.get("sale_frontend_lot_grid_disabled", False):
+                frontend_lot_grid_ok = render_sales_frontend_lot_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
+            if not frontend_lot_grid_ok:
                 render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
 
             # Panier

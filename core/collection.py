@@ -78,6 +78,31 @@ def trade_collection_paid_total(card, quantity):
     return None
 
 
+def trade_collection_display_paid_total(card, quantity):
+    received_total = _safe_collection_float(card.get("trade_received_cards_value"), 0.0)
+    if received_total <= 0:
+        return None
+
+    reference_value = _safe_collection_float(card.get("trade_reference_value"), 0.0)
+    if reference_value <= 0:
+        reference_value = collection_current_value(card) * quantity
+    if reference_value <= 0:
+        return None
+
+    sacrificed_total = (
+        _safe_collection_float(card.get("trade_given_cards_value"), 0.0)
+        + _safe_collection_float(card.get("trade_cash_paid"), 0.0)
+        - _safe_collection_float(card.get("trade_cash_received"), 0.0)
+    )
+    if sacrificed_total <= 0 and card.get("trade_economic_given_total") not in (None, ""):
+        sacrificed_total = (
+            _safe_collection_float(card.get("trade_economic_given_total"), 0.0)
+            - _safe_collection_float(card.get("trade_cash_received"), 0.0)
+        )
+    sacrificed_total = max(sacrificed_total, 0.0)
+    return round(sacrificed_total * (reference_value / received_total), 2)
+
+
 def collection_paid_total(card, lot, *, calc_cout_lot_func=None, effective_purchase_price_func=None):
     """Total paid price for a Collection card, direct or estimated from its lot."""
     qty = max(int(card.get("quantity", 1) or 1), 1)
@@ -113,6 +138,20 @@ def collection_paid_total(card, lot, *, calc_cout_lot_func=None, effective_purch
         pass
 
     return explicit * qty if explicit > 0 else 0.
+
+
+def collection_display_paid_total(card, lot, *, calc_cout_lot_func=None, effective_purchase_price_func=None):
+    """Displayed paid value for Collection, distinct from trade historical cost."""
+    qty = max(int(card.get("quantity", 1) or 1), 1)
+    trade_paid = trade_collection_display_paid_total(card, qty)
+    if trade_paid is not None:
+        return trade_paid
+    return collection_paid_total(
+        card,
+        lot,
+        calc_cout_lot_func=calc_cout_lot_func,
+        effective_purchase_price_func=effective_purchase_price_func,
+    )
 
 
 def same_collection_card(a, b):
