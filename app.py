@@ -176,14 +176,39 @@ from core.trade_economics import card_trade_sale_cost
 from services.estimations_cache_enrichment import enrich_estimations_card_cache
 from services.cloud_sync_service import (
     SYNCED_DATASETS,
-    apply_finished_auto_pull_cloud_datasets,
     cloud_sync_status_summary,
-    maybe_pull_all_cloud_datasets,
     pull_all_cloud_datasets,
     pull_dataset_from_cloud,
     safe_write_json_synced,
-    schedule_auto_pull_cloud_datasets,
 )
+
+try:
+    from services.cloud_sync_service import (
+        apply_finished_auto_pull_cloud_datasets,
+        schedule_auto_pull_cloud_datasets,
+    )
+    CLOUD_BACKGROUND_PULL_AVAILABLE = True
+except ImportError as e:
+    CLOUD_BACKGROUND_PULL_AVAILABLE = False
+    CLOUD_BACKGROUND_PULL_IMPORT_ERROR = str(e)
+
+    def apply_finished_auto_pull_cloud_datasets(*, force=False):
+        return {
+            "enabled": False,
+            "skipped": True,
+            "reason": "background_helpers_unavailable",
+            "error": CLOUD_BACKGROUND_PULL_IMPORT_ERROR,
+            "changed": [],
+        }
+
+    def schedule_auto_pull_cloud_datasets(*, interval_seconds=60, debounce_seconds=5):
+        return {
+            "enabled": False,
+            "skipped": True,
+            "reason": "background_helpers_unavailable",
+            "error": CLOUD_BACKGROUND_PULL_IMPORT_ERROR,
+            "changed": [],
+        }
 
 RERUN_PROFILE_ENV_VAR = "POKESTOCK_RERUN_PROFILE"
 

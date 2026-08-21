@@ -17,13 +17,24 @@ from cloud import (
     get_supabase_client,
     json_fingerprint,
     load_cloud_json,
-    load_cloud_json_with_client,
     remember_cloud_status,
     save_cloud_json,
     update_cloud_sync_state,
     utc_now_iso,
 )
 from utils import APP_DIR, safe_write_json
+
+try:
+    from cloud import load_cloud_json_with_client
+except ImportError:
+    def load_cloud_json_with_client(client, key):
+        if client is None:
+            return None
+        res = client.table("app_state").select("data").eq("key", key).limit(1).execute()
+        rows = getattr(res, "data", None) or []
+        if rows:
+            return rows[0].get("data")
+        return None
 
 
 @dataclass(frozen=True)
