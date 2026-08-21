@@ -285,6 +285,39 @@ def _request_sale_scroll_top():
     st.session_state["sale_scroll_top_token"] = int(st.session_state.get("sale_scroll_top_token", 0) or 0) + 1
 
 
+def _allocate_final_sale_price(cart_items, final_price):
+    """Return cart items with unit prices that sum exactly to the buyer-paid total."""
+    rows = list(cart_items or [])
+    final_price = round(max(float(final_price or 0.0), 0.0), 2)
+    base_totals = [
+        max(float(item.get("quantity", 1) or 1), 0.0) * max(float(item.get("price_base", 0.0) or 0.0), 0.0)
+        for item in rows
+    ]
+    total_base = sum(base_totals)
+    if not rows:
+        return []
+    if total_base <= 0:
+        equal = round(final_price / len(rows), 2)
+        line_totals = [equal for _ in rows]
+        line_totals[-1] = round(final_price - sum(line_totals[:-1]), 2)
+    else:
+        line_totals = []
+        allocated = 0.0
+        for index, base_total in enumerate(base_totals):
+            if index == len(rows) - 1:
+                line_total = round(final_price - allocated, 2)
+            else:
+                line_total = round(final_price * (base_total / total_base), 2)
+                allocated = round(allocated + line_total, 2)
+            line_totals.append(max(line_total, 0.0))
+
+    sale_items = []
+    for item, line_total in zip(rows, line_totals):
+        qty = max(int(item.get("quantity", 1) or 1), 1)
+        sale_items.append({**item, "unit_price": line_total / qty})
+    return sale_items
+
+
 def render_sales_page(context):
     globals().update(context)
     if st.session_state.pop("sale_scroll_top_pending", False):
@@ -822,23 +855,10 @@ def render_sales_page(context):
                                     for item in st.session_state.bulk_cart
                                 ]
                             else:
-                                cd_bulk = ld()
-                                def get_lot_score(lot_idx):
-                                    lot_data = cd_bulk["lots"][lot_idx]
-                                    pa = lot_data.get("prix_achat", 0.)
-                                    ca = cr(lot_data)
-                                    stock_val = sum(card_available_qty(c)*c.get("suggested_price",0.) for c in lot_data.get("cards",[]))
-                                    taux_remb = (ca / pa) if pa > 0 else 1.0
-                                    return max(taux_remb * (ca + stock_val), 0.01)
-                                reduction = total_base - pending["price"]
-                                MAX_REDUCTION_RATE = 0.30
-                                scores = [get_lot_score(item["lot_idx"]) * item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart]
-                                total_score = sum(scores) or 1.
-                                reductions = [min(reduction * (s/total_score), item["quantity"]*item["price_base"]*MAX_REDUCTION_RATE) for s, item in zip(scores, st.session_state.bulk_cart)]
-                                sale_items = []
-                                for i, item in enumerate(st.session_state.bulk_cart):
-                                    item_price = max(0, (item["quantity"]*item["price_base"] - reductions[i]) / item["quantity"])
-                                    sale_items.append({**item, "unit_price": item_price})
+                                sale_items = _allocate_final_sale_price(
+                                    st.session_state.bulk_cart,
+                                    pending["price"],
+                                )
                             ok, msg = scu_many(sale_items, canal_b)
                             if ok:
                                 st.session_state.bulk_cart = []
