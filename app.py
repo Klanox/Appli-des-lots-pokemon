@@ -1324,9 +1324,11 @@ def ecd(c, s, lang="fr"):
     st.session_state[cache_key] = json.loads(json.dumps(enriched, ensure_ascii=False))
     return json.loads(json.dumps(enriched, ensure_ascii=False))
 
-def set_current_page(page):
+def set_current_page(page, source=""):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
+    if source == "sidebar" and is_mobile_mode():
+        st.session_state["mobile_sidebar_close_after_nav"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
         st.session_state["sale_scroll_top_pending"] = True
@@ -2035,7 +2037,7 @@ if not wrapped_story_active:
                         key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
                         type=btn_type,
                         on_click=set_current_page,
-                        args=(page,),
+                        args=(page, "sidebar"),
                     )
             st.markdown("---")
             with st.expander("⚙️ Paramètres", expanded=False):
@@ -2152,6 +2154,37 @@ if not wrapped_story_active:
                         st.success(f"Sauvegarde créée : {os.path.basename(path)}")
                     except Exception as e:
                         st.error(f"Sauvegarde impossible : {e}")
+
+if is_mobile_mode() and st.session_state.pop("mobile_sidebar_close_after_nav", False):
+    run_html("""
+    <script>
+    (function() {
+        const win = window.parent && window.parent !== window ? window.parent : window;
+        if (!win.matchMedia("(max-width: 768px)").matches) return;
+        const doc = win.document;
+        const selectors = [
+            '[data-testid="stSidebarCollapseButton"] button',
+            'button[data-testid="stSidebarCollapseButton"]',
+            'button[aria-label="Close sidebar"]',
+            'button[aria-label="Fermer la barre latérale"]',
+            'button[title="Close sidebar"]'
+        ];
+        let attempts = 0;
+        function closeSidebar() {
+            attempts += 1;
+            for (const selector of selectors) {
+                const btn = doc.querySelector(selector);
+                if (btn && !btn.disabled && btn.offsetParent !== null) {
+                    btn.click();
+                    return;
+                }
+            }
+            if (attempts < 20) win.requestAnimationFrame(closeSidebar);
+        }
+        win.requestAnimationFrame(closeSidebar);
+    })();
+    </script>
+    """, height=0)
 
 if st.session_state.get("current_page") != "Vente":
     run_html("""
