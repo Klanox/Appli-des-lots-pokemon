@@ -5,6 +5,7 @@ import streamlit as st
 import json,os,requests,time,glob,uuid,shutil,re
 import html
 import inspect
+from contextlib import contextmanager
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import unicodedata
@@ -175,12 +176,107 @@ from core.trade_economics import card_trade_sale_cost
 from services.estimations_cache_enrichment import enrich_estimations_card_cache
 from services.cloud_sync_service import (
     SYNCED_DATASETS,
+    apply_finished_auto_pull_cloud_datasets,
     cloud_sync_status_summary,
     maybe_pull_all_cloud_datasets,
     pull_all_cloud_datasets,
     pull_dataset_from_cloud,
     safe_write_json_synced,
+    schedule_auto_pull_cloud_datasets,
 )
+
+RERUN_PROFILE_ENV_VAR = "POKESTOCK_RERUN_PROFILE"
+
+
+def rerun_profile_enabled():
+    return perf_enabled() or os.getenv(RERUN_PROFILE_ENV_VAR, "").lower() in {"1", "true", "yes", "on"}
+
+
+def rerun_profile_start():
+    if not rerun_profile_enabled():
+        return
+    st.session_state["_rerun_profile"] = {
+        "started_at": time.perf_counter(),
+        "phases": [],
+        "cloud_result": None,
+        "cloud_results": [],
+    }
+
+
+@contextmanager
+def rerun_phase(label, detail=None):
+    if not rerun_profile_enabled():
+        yield
+        return
+    started_at = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - started_at
+        state = st.session_state.setdefault(
+            "_rerun_profile",
+            {"started_at": started_at, "phases": [], "cloud_result": None},
+        )
+        detail_text = detail() if callable(detail) else (detail or "")
+        state.setdefault("phases", []).append((label, elapsed, str(detail_text or "")))
+
+
+def rerun_profile_set_cloud_result(result):
+    if rerun_profile_enabled():
+        state = st.session_state.setdefault("_rerun_profile", {})
+        state.setdefault("phases", [])
+        state.setdefault("cloud_results", []).append(result)
+        state["cloud_result"] = result
+
+
+def rerun_profile_summary():
+    if not rerun_profile_enabled():
+        return
+    state = st.session_state.get("_rerun_profile") or {}
+    started_at = float(state.get("started_at", time.perf_counter()) or time.perf_counter())
+    total = time.perf_counter() - started_at
+    phases = state.get("phases") or []
+    counters = (st.session_state.get("_perf_rerun") or {}).get("counters", {})
+    cloud_results = state.get("cloud_results") or ([state.get("cloud_result")] if state.get("cloud_result") else [])
+    cloud_bits = []
+    for cloud_result in cloud_results:
+        if not cloud_result:
+            continue
+        if cloud_result.get("skipped"):
+            reason = cloud_result.get("reason")
+            cloud_bits.append(f"cloud_skip={reason}")
+        elif cloud_result.get("enabled") is False:
+            cloud_bits.append("cloud=disabled")
+        elif cloud_result.get("background"):
+            cloud_bits.append(
+                "cloud_pull_bg="
+                f"loaded:{len(cloud_result.get('loaded', []) or [])}/"
+                f"changed:{len(cloud_result.get('changed', []) or [])}/"
+                f"conflicts:{len(cloud_result.get('conflicts', []) or [])}/"
+                f"reads:{cloud_result.get('cloud_read', 0)}"
+            )
+        else:
+            cloud_bits.append(
+                "cloud_pull="
+                f"loaded:{len(cloud_result.get('loaded', []) or [])}/"
+                f"changed:{len(cloud_result.get('changed', []) or [])}/"
+                f"conflicts:{len(cloud_result.get('conflicts', []) or [])}"
+            )
+    phase_text = " ".join(
+        f"{label}={elapsed * 1000:.0f}ms" + (f"({detail})" if detail else "")
+        for label, elapsed, detail in phases
+        if elapsed >= 0.003
+    )
+    counter_text = " ".join(
+        f"{key}={value}"
+        for key, value in sorted(counters.items())
+        if key in {"ld", "gst", "gst_call", "cloud_read", "cloud_write", "cloud_meta_read"}
+    )
+    print(
+        f"[RERUN PERF] page={st.session_state.get('current_page', '?')} "
+        f"total={total * 1000:.0f}ms {phase_text} {' '.join(cloud_bits)} {counter_text}".strip(),
+        flush=True,
+    )
 
 APP_BUILD = "Codex 2026-06-12 drops search"
 
@@ -1211,8 +1307,9 @@ def set_current_page(page):
         st.session_state["sale_scroll_top_pending"] = True
 
 def render_with_perf(label, render_func, *args, **kwargs):
-    with perf_timer(label):
-        return render_func(*args, **kwargs)
+    with rerun_phase(label):
+        with perf_timer(label):
+            return render_func(*args, **kwargs)
     if page == "Vente":
         st.session_state["sale_scroll_top_pending"] = True
     if page != "Lots":
@@ -1440,33 +1537,45 @@ def require_app_password():
 
 require_app_password()
 
-if "cards_index" not in st.session_state:
-    with st.spinner("Chargement des données..."):
-        load_cards_cache(allow_network=False)
+perf_reset_rerun()
+rerun_profile_start()
 
-if "full_cloud_pull_checked" not in st.session_state:
-    st.session_state["full_cloud_pull_checked"] = True
-    try:
-        pull_result = pull_all_cloud_datasets(force=False)
-        st.session_state["full_cloud_pull_result"] = pull_result
-    except Exception as e:
-        st.session_state["full_cloud_pull_error"] = str(e)
-else:
-    try:
-        maybe_pull_all_cloud_datasets(interval_seconds=60, debounce_seconds=5)
-    except Exception as e:
-        st.session_state["full_cloud_pull_error"] = str(e)
+with rerun_phase("cards_cache"):
+    if "cards_index" not in st.session_state:
+        with st.spinner("Chargement des données..."):
+            load_cards_cache(allow_network=False)
 
-load_activity_state()
+with rerun_phase("cloud_initial_or_apply"):
+    if "full_cloud_pull_checked" not in st.session_state:
+        st.session_state["full_cloud_pull_checked"] = True
+        try:
+            pull_result = pull_all_cloud_datasets(force=False)
+            st.session_state["full_cloud_pull_result"] = pull_result
+            st.session_state["cloud_sync_last_auto_pull_ts"] = time.time()
+            rerun_profile_set_cloud_result(pull_result)
+        except Exception as e:
+            st.session_state["full_cloud_pull_error"] = str(e)
+            rerun_profile_set_cloud_result({"enabled": False, "error": str(e)})
+    else:
+        try:
+            cloud_result = apply_finished_auto_pull_cloud_datasets(force=False)
+            rerun_profile_set_cloud_result(cloud_result)
+        except Exception as e:
+            st.session_state["full_cloud_pull_error"] = str(e)
+            rerun_profile_set_cloud_result({"enabled": False, "error": str(e)})
 
-if "weekly_backup_checked" not in st.session_state:
-    st.session_state["weekly_backup_checked"] = True
-    try:
-        weekly_backup_path = maybe_create_weekly_backup()
-        if weekly_backup_path:
-            st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo créée : {os.path.basename(weekly_backup_path)}"
-    except Exception as e:
-        st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo impossible : {e}"
+with rerun_phase("activity_state"):
+    load_activity_state()
+
+with rerun_phase("weekly_backup"):
+    if "weekly_backup_checked" not in st.session_state:
+        st.session_state["weekly_backup_checked"] = True
+        try:
+            weekly_backup_path = maybe_create_weekly_backup()
+            if weekly_backup_path:
+                st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo créée : {os.path.basename(weekly_backup_path)}"
+        except Exception as e:
+            st.session_state["last_auto_backup_message"] = f"Sauvegarde hebdo impossible : {e}"
 
 if st.session_state.get("current_page") != "Lots":
     st.session_state.pop("active_lot_ix", None)
@@ -1494,11 +1603,12 @@ if st.session_state.get("current_page") != "Lots":
     </script>
         """, height=0)
 
-if "system_lots_ready" not in st.session_state:
-    cd_boot = ld()
-    if ensure_system_lots(cd_boot):
-        st.session_state["system_lots_autofix_pending"] = True
-    st.session_state["system_lots_ready"] = True
+with rerun_phase("ensure_system_lots"):
+    if "system_lots_ready" not in st.session_state:
+        cd_boot = ld()
+        if ensure_system_lots(cd_boot):
+            st.session_state["system_lots_autofix_pending"] = True
+        st.session_state["system_lots_ready"] = True
 
 if st.session_state.pop("scroll_top_once", False):
     run_html("<script>requestAnimationFrame(()=>parent.window.scrollTo({top:0,left:0,behavior:'instant'}));</script>", height=0)
@@ -1573,25 +1683,26 @@ try:
     _early_query_page = str(st.query_params.get("page", "")).lower()
 except Exception:
     _early_query_page = ""
-wrapped_story_active = (
-    st.session_state.get("wrapped_open", False)
-    and (st.session_state.get("current_page") == "Wrapped" or _early_query_page in {"wrapped", "pokestock-wrapped"})
-)
-market_dashboard_active = (
-    str(st.session_state.get("current_page", "")).lower() in {"marché", "marchã©"}
-    or _early_query_page in {"market", "marche", "marché"}
-)
-if not wrapped_story_active and not market_dashboard_active:
-    st.markdown(
-        render_app_header(logo_src, mobile=is_mobile_mode()),
-        unsafe_allow_html=True,
+with rerun_phase("header_theme_css"):
+    wrapped_story_active = (
+        st.session_state.get("wrapped_open", False)
+        and (st.session_state.get("current_page") == "Wrapped" or _early_query_page in {"wrapped", "pokestock-wrapped"})
     )
+    market_dashboard_active = (
+        str(st.session_state.get("current_page", "")).lower() in {"marché", "marchã©"}
+        or _early_query_page in {"market", "marche", "marché"}
+    )
+    if not wrapped_story_active and not market_dashboard_active:
+        st.markdown(
+            render_app_header(logo_src, mobile=is_mobile_mode()),
+            unsafe_allow_html=True,
+        )
 
-st.markdown(inject_theme(mobile=is_mobile_mode()), unsafe_allow_html=True)
-if is_mobile_mode():
-    st.markdown(inject_mobile_overrides(), unsafe_allow_html=True)
+    st.markdown(inject_theme(mobile=is_mobile_mode()), unsafe_allow_html=True)
+    if is_mobile_mode():
+        st.markdown(inject_mobile_overrides(), unsafe_allow_html=True)
 
-st.markdown(inject_functional_css(), unsafe_allow_html=True)
+    st.markdown(inject_functional_css(), unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -1834,188 +1945,188 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-if "current_page" not in st.session_state:
-    try:
-        query_page = str(st.query_params.get("page", "")).lower()
-    except Exception:
-        query_page = ""
-    page_map = {
-        "vente": "Vente",
-        "echange": "Vente",
-        "brocante": "Brocante",
-        "échange": "Vente",
-        "lots": "Lots",
-        "collection": "Collection",
-        "estimations": "Estimations",
-        "estimation": "Estimations",
-        "fournisseurs": "Fournisseurs",
-        "fournisseur": "Fournisseurs",
-        "suppliers": "Fournisseurs",
-        "annonces": "Annonces Vinted",
-        "annonces-vinted": "Annonces Vinted",
-        "vinted": "Annonces Vinted",
-        "historique": "Historique",
-        "marche": "Marché",
-        "marché": "Marché",
-        "market": "Marché",
-        "stats": "Statistiques",
-        "statistiques": "Statistiques",
-        "wrapped": "Wrapped",
-        "pokestock-wrapped": "Wrapped",
-        "compteurs": "Compteurs",
-        "archives": "Archivés",
-    }
-    st.session_state.current_page = page_map.get(query_page, "Vente" if is_mobile_mode() else "Accueil")
-    if st.session_state.current_page == "Vente" and query_page in ("echange", "échange"):
-        st.session_state["sales_active_section"] = "Échange"
-
-perf_reset_rerun()
+with rerun_phase("navigation_resolution"):
+    if "current_page" not in st.session_state:
+        try:
+            query_page = str(st.query_params.get("page", "")).lower()
+        except Exception:
+            query_page = ""
+        page_map = {
+            "vente": "Vente",
+            "echange": "Vente",
+            "brocante": "Brocante",
+            "échange": "Vente",
+            "lots": "Lots",
+            "collection": "Collection",
+            "estimations": "Estimations",
+            "estimation": "Estimations",
+            "fournisseurs": "Fournisseurs",
+            "fournisseur": "Fournisseurs",
+            "suppliers": "Fournisseurs",
+            "annonces": "Annonces Vinted",
+            "annonces-vinted": "Annonces Vinted",
+            "vinted": "Annonces Vinted",
+            "historique": "Historique",
+            "marche": "Marché",
+            "marché": "Marché",
+            "market": "Marché",
+            "stats": "Statistiques",
+            "statistiques": "Statistiques",
+            "wrapped": "Wrapped",
+            "pokestock-wrapped": "Wrapped",
+            "compteurs": "Compteurs",
+            "archives": "Archivés",
+        }
+        st.session_state.current_page = page_map.get(query_page, "Vente" if is_mobile_mode() else "Accueil")
+        if st.session_state.current_page == "Vente" and query_page in ("echange", "échange"):
+            st.session_state["sales_active_section"] = "Échange"
 
 if not wrapped_story_active:
-    with st.sidebar:
-        st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
-        with perf_timer("gst() call", counter="gst_call"):
-            sts = gst()
-        sidebar_stats = [
-            ("Vendues", str(sts["sold_cards"])),
-            ("En stock", str(sts["remaining_cards"])),
-            ("Valeur stock", fp(sts["stock_value"])),
-            ("CA", fp(sts["total_revenue"])),
-            ("Bénéfice", fp(sts["total_profit"])),
-        ]
-        with st.container():
-            for label, value in sidebar_stats:
-                st.metric(label, value)
-        for section in NAV_SECTIONS:
-            st.markdown(
-                f'<div class="ps-nav-section-label">{section["label"]}</div>',
-                unsafe_allow_html=True,
-            )
-            for page, label, icon in section["items"]:
-                btn_type = "primary" if st.session_state.current_page == page else "secondary"
-                st.button(
-                    f"{icon}  {label}",
-                    width="stretch",
-                    key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
-                    type=btn_type,
-                    on_click=set_current_page,
-                    args=(page,),
+    with rerun_phase("sidebar_total"):
+        with st.sidebar:
+            st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
+            with perf_timer("gst() call", counter="gst_call"):
+                sts = gst()
+            sidebar_stats = [
+                ("Vendues", str(sts["sold_cards"])),
+                ("En stock", str(sts["remaining_cards"])),
+                ("Valeur stock", fp(sts["stock_value"])),
+                ("CA", fp(sts["total_revenue"])),
+                ("Bénéfice", fp(sts["total_profit"])),
+            ]
+            with st.container():
+                for label, value in sidebar_stats:
+                    st.metric(label, value)
+            for section in NAV_SECTIONS:
+                st.markdown(
+                    f'<div class="ps-nav-section-label">{section["label"]}</div>',
+                    unsafe_allow_html=True,
                 )
-        st.markdown("---")
-        with st.expander("⚙️ Paramètres", expanded=False):
-            st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
-            st.toggle(
-                "Logs performance console",
-                key="perf_debug_enabled",
-                help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
-            )
-            cloud_notice = st.session_state.get("cloud_sync_notice")
-            if cloud_notice and not st.session_state.get("cloud_sync_notice_seen", False):
-                st.caption(f"Cloud protégé : {cloud_notice}")
-                st.session_state["cloud_sync_notice_seen"] = True
-            cloud_ready, cloud_message = cloud_sync_status()
-            if cloud_ready:
-                status_summary = cloud_sync_status_summary()
-                last_read = status_summary.get("last_read") or "jamais"
-                last_save = status_summary.get("last_save") or "jamais"
-                unsynced = status_summary.get("unsynced") or []
-                st.caption(
-                    f"☁️ {cloud_message} · jeux synchronisés "
-                    f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
+                for page, label, icon in section["items"]:
+                    btn_type = "primary" if st.session_state.current_page == page else "secondary"
+                    st.button(
+                        f"{icon}  {label}",
+                        width="stretch",
+                        key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
+                        type=btn_type,
+                        on_click=set_current_page,
+                        args=(page,),
+                    )
+            st.markdown("---")
+            with st.expander("⚙️ Paramètres", expanded=False):
+                st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
+                st.toggle(
+                    "Logs performance console",
+                    key="perf_debug_enabled",
+                    help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
                 )
-                st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
-                if unsynced:
-                    st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
-                    st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
-                sync_status = st.session_state.get("cloud_sync_status") or {}
-                if sync_status.get("message"):
-                    st.caption(f"Statut : {sync_status.get('message')}")
-                conflicts = st.session_state.get("cloud_sync_conflicts") or {}
-                legacy_conflict = st.session_state.get("cloud_sync_conflict")
-                if legacy_conflict:
-                    conflicts.setdefault("data", {
-                        "dataset": "data",
-                        "filename": "data.json",
-                        "label": "Stock/lots/ventes",
-                        "message": legacy_conflict.get("message", ""),
-                    })
-                if conflicts:
-                    st.warning(f"Conflit local/cloud détecté sur {len(conflicts)} jeu(x) de données.")
-                    for dataset_key, conflict in list(conflicts.items()):
-                        dataset = SYNCED_DATASETS.get(dataset_key)
-                        if not dataset:
-                            continue
-                        label = conflict.get("label") or dataset.label
-                        st.caption(f"{label} · {dataset.filename}")
-                        c1, c2 = st.columns(2)
-                        if c1.button("Récupérer la version cloud", width="stretch", key=f"resolve_cloud_conflict_pull_{dataset_key}"):
-                            result = pull_dataset_from_cloud(dataset, force=True)
-                            if result.get("status") == "loaded":
-                                st.success(f"{label} récupéré depuis le cloud.")
+                cloud_notice = st.session_state.get("cloud_sync_notice")
+                if cloud_notice and not st.session_state.get("cloud_sync_notice_seen", False):
+                    st.caption(f"Cloud protégé : {cloud_notice}")
+                    st.session_state["cloud_sync_notice_seen"] = True
+                cloud_ready, cloud_message = cloud_sync_status()
+                if cloud_ready:
+                    status_summary = cloud_sync_status_summary()
+                    last_read = status_summary.get("last_read") or "jamais"
+                    last_save = status_summary.get("last_save") or "jamais"
+                    unsynced = status_summary.get("unsynced") or []
+                    st.caption(
+                        f"☁️ {cloud_message} · jeux synchronisés "
+                        f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
+                    )
+                    st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
+                    if unsynced:
+                        st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
+                        st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
+                    sync_status = st.session_state.get("cloud_sync_status") or {}
+                    if sync_status.get("message"):
+                        st.caption(f"Statut : {sync_status.get('message')}")
+                    conflicts = st.session_state.get("cloud_sync_conflicts") or {}
+                    legacy_conflict = st.session_state.get("cloud_sync_conflict")
+                    if legacy_conflict:
+                        conflicts.setdefault("data", {
+                            "dataset": "data",
+                            "filename": "data.json",
+                            "label": "Stock/lots/ventes",
+                            "message": legacy_conflict.get("message", ""),
+                        })
+                    if conflicts:
+                        st.warning(f"Conflit local/cloud détecté sur {len(conflicts)} jeu(x) de données.")
+                        for dataset_key, conflict in list(conflicts.items()):
+                            dataset = SYNCED_DATASETS.get(dataset_key)
+                            if not dataset:
+                                continue
+                            label = conflict.get("label") or dataset.label
+                            st.caption(f"{label} · {dataset.filename}")
+                            c1, c2 = st.columns(2)
+                            if c1.button("Récupérer la version cloud", width="stretch", key=f"resolve_cloud_conflict_pull_{dataset_key}"):
+                                result = pull_dataset_from_cloud(dataset, force=True)
+                                if result.get("status") == "loaded":
+                                    st.success(f"{label} récupéré depuis le cloud.")
+                                    st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
+                                    if dataset_key == "data":
+                                        st.session_state.pop("cloud_sync_conflict", None)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Récupération cloud impossible pour {label}.")
+                            if c2.button("Conserver la version locale", width="stretch", key=f"resolve_cloud_conflict_keep_{dataset_key}"):
+                                update_cloud_sync_state(dataset.key, source="local", dirty=True)
                                 st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
                                 if dataset_key == "data":
                                     st.session_state.pop("cloud_sync_conflict", None)
+                                st.info(f"{label} local conservé. Aucun envoi cloud automatique n'a été fait.")
                                 st.rerun()
-                            else:
-                                st.error(f"Récupération cloud impossible pour {label}.")
-                        if c2.button("Conserver la version locale", width="stretch", key=f"resolve_cloud_conflict_keep_{dataset_key}"):
-                            update_cloud_sync_state(dataset.key, source="local", dirty=True)
-                            st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
-                            if dataset_key == "data":
-                                st.session_state.pop("cloud_sync_conflict", None)
-                            st.info(f"{label} local conservé. Aucun envoi cloud automatique n'a été fait.")
+                    if st.button("Récupérer les dernières données cloud", width="stretch", key="pull_all_cloud_datasets"):
+                        result = pull_all_cloud_datasets(force=True)
+                        if result.get("enabled"):
+                            loaded = [SYNCED_DATASETS[k].label for k in result.get("loaded", []) if k in SYNCED_DATASETS]
+                            fallback = [SYNCED_DATASETS[k].label for k in result.get("fallback_local", []) if k in SYNCED_DATASETS]
+                            conflicts_after = [SYNCED_DATASETS[k].label for k in result.get("conflicts", []) if k in SYNCED_DATASETS]
+                            if loaded:
+                                st.success("Données cloud récupérées : " + ", ".join(loaded))
+                            if fallback:
+                                st.caption("Local conservé pour : " + ", ".join(fallback))
+                            if conflicts_after:
+                                st.warning("Conflits détectés : " + ", ".join(conflicts_after))
+                            st.caption("Aucune donnée locale n'a été envoyée au cloud.")
+                            st.session_state.pop("cloud_sync_conflict", None)
                             st.rerun()
-                if st.button("Récupérer les dernières données cloud", width="stretch", key="pull_all_cloud_datasets"):
-                    result = pull_all_cloud_datasets(force=True)
-                    if result.get("enabled"):
-                        loaded = [SYNCED_DATASETS[k].label for k in result.get("loaded", []) if k in SYNCED_DATASETS]
-                        fallback = [SYNCED_DATASETS[k].label for k in result.get("fallback_local", []) if k in SYNCED_DATASETS]
-                        conflicts_after = [SYNCED_DATASETS[k].label for k in result.get("conflicts", []) if k in SYNCED_DATASETS]
-                        if loaded:
-                            st.success("Données cloud récupérées : " + ", ".join(loaded))
-                        if fallback:
-                            st.caption("Local conservé pour : " + ", ".join(fallback))
-                        if conflicts_after:
-                            st.warning("Conflits détectés : " + ", ".join(conflicts_after))
-                        st.caption("Aucune donnée locale n'a été envoyée au cloud.")
-                        st.session_state.pop("cloud_sync_conflict", None)
+                        else:
+                            st.error("Récupération cloud impossible : cloud non disponible.")
+                    confirm_cloud_push = st.checkbox(
+                        "Confirmer l'envoi des données locales vers le cloud",
+                        key="confirm_push_data_to_cloud",
+                        help="Utilise ce bouton seulement quand le PC contient la version complète à envoyer au téléphone.",
+                    )
+                    if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
+                        local_data_for_cloud = load_local_data_file_for_cloud_push()
+                        if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
+                            update_cloud_sync_state(SUPABASE_DATA_KEY, data=local_data_for_cloud, source="local", dirty=False, last_save=utc_now_iso())
+                            st.success("Données envoyées dans le cloud.")
+                        else:
+                            st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
+                else:
+                    st.caption(f"☁️ Cloud non prêt : {cloud_message}")
+                    if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
+                        st.session_state.pop("cloud_sync_error", None)
+                        if hasattr(get_supabase_client, "clear"):
+                            get_supabase_client.clear()
                         st.rerun()
-                    else:
-                        st.error("Récupération cloud impossible : cloud non disponible.")
-                confirm_cloud_push = st.checkbox(
-                    "Confirmer l'envoi des données locales vers le cloud",
-                    key="confirm_push_data_to_cloud",
-                    help="Utilise ce bouton seulement quand le PC contient la version complète à envoyer au téléphone.",
-                )
-                if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
-                    local_data_for_cloud = load_local_data_file_for_cloud_push()
-                    if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
-                        update_cloud_sync_state(SUPABASE_DATA_KEY, data=local_data_for_cloud, source="local", dirty=False, last_save=utc_now_iso())
-                        st.success("Données envoyées dans le cloud.")
-                    else:
-                        st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
-            else:
-                st.caption(f"☁️ Cloud non prêt : {cloud_message}")
-                if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
-                    st.session_state.pop("cloud_sync_error", None)
-                    if hasattr(get_supabase_client, "clear"):
-                        get_supabase_client.clear()
-                    st.rerun()
-            backup_state = _load_backup_state()
-            last_weekly_path = backup_state.get("last_weekly_backup_path", "")
-            if st.session_state.get("last_auto_backup_message"):
-                st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
-            elif last_weekly_path:
-                st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
-            else:
-                st.caption("🛡️ Sauvegarde locale prête")
-            if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
-                try:
-                    path, copied = create_local_backup("manual", include_images=True)
-                    cleanup_old_backups()
-                    st.success(f"Sauvegarde créée : {os.path.basename(path)}")
-                except Exception as e:
-                    st.error(f"Sauvegarde impossible : {e}")
+                backup_state = _load_backup_state()
+                last_weekly_path = backup_state.get("last_weekly_backup_path", "")
+                if st.session_state.get("last_auto_backup_message"):
+                    st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
+                elif last_weekly_path:
+                    st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
+                else:
+                    st.caption("🛡️ Sauvegarde locale prête")
+                if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
+                    try:
+                        path, copied = create_local_backup("manual", include_images=True)
+                        cleanup_old_backups()
+                        st.success(f"Sauvegarde créée : {os.path.basename(path)}")
+                    except Exception as e:
+                        st.error(f"Sauvegarde impossible : {e}")
 
 if st.session_state.get("current_page") != "Vente":
     run_html("""
@@ -2277,6 +2388,16 @@ elif st.session_state.current_page == "Compteurs":
         canal_key_func=canal_key,
     )
 
+with rerun_phase("cloud_auto_pull_schedule"):
+    if st.session_state.get("full_cloud_pull_checked"):
+        try:
+            cloud_schedule_result = schedule_auto_pull_cloud_datasets(interval_seconds=60, debounce_seconds=5)
+            rerun_profile_set_cloud_result(cloud_schedule_result)
+        except Exception as e:
+            st.session_state["full_cloud_pull_error"] = str(e)
+            rerun_profile_set_cloud_result({"enabled": False, "error": str(e)})
+
+rerun_profile_summary()
 perf_summary()
 
 

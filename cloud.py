@@ -9,6 +9,7 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from utils import safe_write_json
+from services.perf_service import perf_count, perf_log
 
 try:
     import tomllib
@@ -217,25 +218,48 @@ def test_cloud_connection():
 
 def load_cloud_json(key):
     """Load JSON data from cloud."""
+    perf_count("cloud_read")
+    started_at = time.perf_counter()
     client = get_supabase_client()
     if client is None:
+        perf_log("cloud load_json", time.perf_counter() - started_at, f"{key} client_none")
         return None
     try:
         res = client.table(SUPABASE_STATE_TABLE).select("data").eq("key", key).limit(1).execute()
         rows = getattr(res, "data", None) or []
         remember_cloud_status(True, "Synchronisation cloud prête")
+        perf_log("cloud load_json", time.perf_counter() - started_at, key)
         if rows:
             return rows[0].get("data")
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Lecture cloud impossible: {e}"
         remember_cloud_status(False, st.session_state["cloud_sync_error"])
+        perf_log("cloud load_json", time.perf_counter() - started_at, f"{key} error")
+    return None
+
+
+def load_cloud_json_with_client(client, key):
+    """Load JSON data with an existing client, without touching Streamlit state.
+
+    This is used by background sync workers. The caller is responsible for
+    remembering any resulting cloud status on the main Streamlit thread.
+    """
+    if client is None:
+        return None
+    res = client.table(SUPABASE_STATE_TABLE).select("data").eq("key", key).limit(1).execute()
+    rows = getattr(res, "data", None) or []
+    if rows:
+        return rows[0].get("data")
     return None
 
 
 def load_cloud_json_meta(key):
     """Load lightweight cloud metadata for status display without saving anything."""
+    perf_count("cloud_meta_read")
+    started_at = time.perf_counter()
     client = get_supabase_client()
     if client is None:
+        perf_log("cloud load_meta", time.perf_counter() - started_at, f"{key} client_none")
         return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state.get("cloud_sync_error", "")}
     try:
         res = client.table(SUPABASE_STATE_TABLE).select("data, updated_at").eq("key", key).limit(1).execute()
@@ -254,13 +278,19 @@ def load_cloud_json_meta(key):
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Lecture statut cloud impossible: {e}"
         remember_cloud_status(False, st.session_state["cloud_sync_error"])
+        perf_log("cloud load_meta", time.perf_counter() - started_at, f"{key} error")
         return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state["cloud_sync_error"]}
+    finally:
+        perf_log("cloud load_meta", time.perf_counter() - started_at, key)
 
 
 def save_cloud_json(key, data):
     """Save JSON data to cloud."""
+    perf_count("cloud_write")
+    started_at = time.perf_counter()
     client = get_supabase_client()
     if client is None:
+        perf_log("cloud save_json", time.perf_counter() - started_at, f"{key} client_none")
         return False
     try:
         client.table(SUPABASE_STATE_TABLE).upsert({
@@ -270,8 +300,10 @@ def save_cloud_json(key, data):
         }).execute()
         st.session_state["cloud_sync_error"] = ""
         remember_cloud_status(True, "Synchronisation cloud prête")
+        perf_log("cloud save_json", time.perf_counter() - started_at, key)
         return True
     except Exception as e:
         st.session_state["cloud_sync_error"] = f"Écriture cloud impossible: {e}"
         remember_cloud_status(False, st.session_state["cloud_sync_error"])
+        perf_log("cloud save_json", time.perf_counter() - started_at, f"{key} error")
         return False

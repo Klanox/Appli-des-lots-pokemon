@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import time
@@ -13,8 +14,11 @@ import streamlit as st
 from cloud import (
     cloud_sync_enabled,
     cloud_sync_entry,
+    get_supabase_client,
     json_fingerprint,
     load_cloud_json,
+    load_cloud_json_with_client,
+    remember_cloud_status,
     save_cloud_json,
     update_cloud_sync_state,
     utc_now_iso,
@@ -69,6 +73,10 @@ SYNCED_DATASETS = {
         True,
     ),
 }
+
+_AUTO_PULL_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pokestock-cloud-sync")
+_AUTO_PULL_FUTURE = None
+_AUTO_PULL_STARTED_AT = 0.0
 
 
 def _short_hash(value: str | None) -> str:
@@ -170,8 +178,7 @@ def safe_write_json_synced(path, data, indent=None):
     return {"local": True, "cloud": None}
 
 
-def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
-    cloud_payload = load_cloud_json(dataset.key) if cloud_sync_enabled() else None
+def apply_cloud_dataset_payload(dataset: SyncDataset, cloud_payload, *, force=False):
     local_payload = read_local_dataset(dataset)
     if not valid_dataset_payload(dataset, cloud_payload):
         _log_sync(dataset, action="pull", source="local", result="fallback_local")
@@ -203,6 +210,11 @@ def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
     return {"dataset": dataset.key, "filename": dataset.filename, "status": "loaded", "changed": changed}
 
 
+def pull_dataset_from_cloud(dataset: SyncDataset, *, force=False):
+    cloud_payload = load_cloud_json(dataset.key) if cloud_sync_enabled() else None
+    return apply_cloud_dataset_payload(dataset, cloud_payload, force=force)
+
+
 def pull_all_cloud_datasets(*, force=False):
     if not cloud_sync_enabled():
         return {"enabled": False, "loaded": [], "fallback_local": list(SYNCED_DATASETS), "conflicts": []}
@@ -227,6 +239,123 @@ def pull_all_cloud_datasets(*, force=False):
         flush=True,
     )
     return {"enabled": True, "loaded": loaded, "changed": changed, "fallback_local": fallback, "conflicts": conflicts}
+
+
+def _fetch_all_cloud_payloads(client):
+    payloads = {}
+    errors = {}
+    read_count = 0
+    started_at = time.time()
+    for dataset in SYNCED_DATASETS.values():
+        try:
+            payloads[dataset.key] = load_cloud_json_with_client(client, dataset.key)
+            read_count += 1
+        except Exception as exc:
+            payloads[dataset.key] = None
+            errors[dataset.key] = str(exc)
+    return {
+        "enabled": True,
+        "payloads": payloads,
+        "errors": errors,
+        "read_count": read_count,
+        "started_at": started_at,
+        "finished_at": time.time(),
+    }
+
+
+def schedule_auto_pull_cloud_datasets(*, interval_seconds=60, debounce_seconds=5):
+    """Schedule the periodic cloud pull without blocking the current rerun."""
+    global _AUTO_PULL_FUTURE, _AUTO_PULL_STARTED_AT
+    now = time.time()
+    if not cloud_sync_enabled():
+        return {"enabled": False, "skipped": True, "reason": "disabled", "changed": []}
+
+    if _AUTO_PULL_FUTURE is not None and not _AUTO_PULL_FUTURE.done():
+        return {"enabled": True, "skipped": True, "reason": "worker_running", "changed": []}
+
+    previous_check = float(st.session_state.get("cloud_sync_last_maybe_pull_check_ts", 0) or 0)
+    st.session_state["cloud_sync_last_maybe_pull_check_ts"] = now
+    if previous_check and now - previous_check < debounce_seconds:
+        return {"enabled": True, "skipped": True, "reason": "debounce", "changed": []}
+
+    last = float(st.session_state.get("cloud_sync_last_auto_pull_ts", 0) or 0)
+    if now - last < interval_seconds:
+        return {"enabled": True, "skipped": True, "reason": "ttl", "changed": []}
+
+    pending_since = float(st.session_state.get("cloud_sync_auto_pull_pending_since", 0) or 0)
+    if not pending_since:
+        st.session_state["cloud_sync_auto_pull_pending_since"] = now
+        return {"enabled": True, "skipped": True, "reason": "pending", "changed": []}
+    if now - pending_since < debounce_seconds:
+        return {"enabled": True, "skipped": True, "reason": "pending_debounce", "changed": []}
+
+    client = get_supabase_client()
+    if client is None:
+        return {"enabled": False, "skipped": True, "reason": "client_unavailable", "changed": []}
+
+    st.session_state.pop("cloud_sync_auto_pull_pending_since", None)
+    st.session_state["cloud_sync_last_auto_pull_ts"] = now
+    _AUTO_PULL_STARTED_AT = now
+    _AUTO_PULL_FUTURE = _AUTO_PULL_EXECUTOR.submit(_fetch_all_cloud_payloads, client)
+    return {"enabled": True, "skipped": True, "reason": "scheduled_background", "changed": []}
+
+
+def apply_finished_auto_pull_cloud_datasets(*, force=False):
+    """Apply a completed background pull on the main Streamlit thread."""
+    global _AUTO_PULL_FUTURE, _AUTO_PULL_STARTED_AT
+    if _AUTO_PULL_FUTURE is None:
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "no_background_result", "changed": []}
+    if not _AUTO_PULL_FUTURE.done():
+        return {"enabled": cloud_sync_enabled(), "skipped": True, "reason": "worker_running", "changed": []}
+
+    future = _AUTO_PULL_FUTURE
+    started_at = _AUTO_PULL_STARTED_AT
+    _AUTO_PULL_FUTURE = None
+    _AUTO_PULL_STARTED_AT = 0.0
+    try:
+        fetched = future.result()
+    except Exception as exc:
+        st.session_state["full_cloud_pull_error"] = str(exc)
+        remember_cloud_status(False, f"Lecture cloud impossible: {exc}")
+        return {"enabled": True, "skipped": True, "reason": "worker_error", "error": str(exc), "changed": []}
+
+    loaded = []
+    changed = []
+    fallback = []
+    conflicts = []
+    for dataset in SYNCED_DATASETS.values():
+        result = apply_cloud_dataset_payload(dataset, fetched.get("payloads", {}).get(dataset.key), force=force)
+        if result["status"] == "loaded":
+            loaded.append(dataset.key)
+            if result.get("changed"):
+                changed.append(dataset.key)
+        elif result["status"] == "conflict":
+            conflicts.append(dataset.key)
+        else:
+            fallback.append(dataset.key)
+    st.session_state["cloud_sync_last_pull"] = {"loaded": loaded, "changed": changed, "fallback_local": fallback, "conflicts": conflicts, "at": utc_now_iso()}
+    if fetched.get("errors"):
+        st.session_state["full_cloud_pull_error"] = "; ".join(f"{key}: {err}" for key, err in fetched["errors"].items())
+        remember_cloud_status(False, st.session_state["full_cloud_pull_error"])
+    else:
+        st.session_state["full_cloud_pull_error"] = ""
+        remember_cloud_status(True, "Synchronisation cloud prête")
+    print(
+        f"[Cloud Sync] background_pull_apply datasets={len(SYNCED_DATASETS)} loaded={len(loaded)} changed={len(changed)} "
+        f"fallback_local={len(fallback)} conflicts={len(conflicts)} "
+        f"worker_seconds={float(fetched.get('finished_at', 0) or 0) - float(fetched.get('started_at', started_at) or started_at):.3f}",
+        flush=True,
+    )
+    return {
+        "enabled": True,
+        "background": True,
+        "loaded": loaded,
+        "changed": changed,
+        "fallback_local": fallback,
+        "conflicts": conflicts,
+        "cloud_read": fetched.get("read_count", 0),
+        "worker_seconds": float(fetched.get("finished_at", 0) or 0) - float(fetched.get("started_at", started_at) or started_at),
+    }
 
 
 def maybe_pull_all_cloud_datasets(*, interval_seconds=60, debounce_seconds=5):
