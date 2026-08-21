@@ -1327,7 +1327,7 @@ def ecd(c, s, lang="fr"):
 def set_current_page(page, source=""):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
-    if source == "sidebar" and is_mobile_mode():
+    if source == "sidebar":
         st.session_state["mobile_sidebar_close_after_nav"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
@@ -2155,7 +2155,7 @@ if not wrapped_story_active:
                     except Exception as e:
                         st.error(f"Sauvegarde impossible : {e}")
 
-if is_mobile_mode() and st.session_state.pop("mobile_sidebar_close_after_nav", False):
+if st.session_state.pop("mobile_sidebar_close_after_nav", False):
     run_html("""
     <script>
     (function() {
@@ -2165,23 +2165,85 @@ if is_mobile_mode() and st.session_state.pop("mobile_sidebar_close_after_nav", F
         const selectors = [
             '[data-testid="stSidebarCollapseButton"] button',
             'button[data-testid="stSidebarCollapseButton"]',
+            '[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]',
             'button[aria-label="Close sidebar"]',
+            'button[aria-label="Collapse sidebar"]',
             'button[aria-label="Fermer la barre latérale"]',
-            'button[title="Close sidebar"]'
+            'button[aria-label="Replier la barre latérale"]',
+            'button[title="Close sidebar"]',
+            'button[title="Collapse sidebar"]'
         ];
-        let attempts = 0;
-        function closeSidebar() {
-            attempts += 1;
+        const startedAt = win.performance.now();
+        let done = false;
+
+        function sidebarIsOpen() {
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return false;
+            const rect = sidebar.getBoundingClientRect();
+            return rect.width > 0 && rect.right > 8 && rect.left > -rect.width + 8;
+        }
+
+        function visibleButton(btn) {
+            if (!btn || btn.disabled) return false;
+            const rect = btn.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        }
+
+        function findCloseButton() {
             for (const selector of selectors) {
                 const btn = doc.querySelector(selector);
-                if (btn && !btn.disabled && btn.offsetParent !== null) {
-                    btn.click();
-                    return;
-                }
+                if (visibleButton(btn)) return btn;
             }
-            if (attempts < 20) win.requestAnimationFrame(closeSidebar);
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            const buttons = Array.from((sidebar || doc).querySelectorAll('button'));
+            return buttons.find(function(btn) {
+                const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                const title = (btn.getAttribute('title') || '').toLowerCase();
+                const label = text + ' ' + aria + ' ' + title;
+                return visibleButton(btn) && (
+                    label.includes('keyboard_double_arrow_left') ||
+                    label.includes('close sidebar') ||
+                    label.includes('collapse sidebar') ||
+                    label.includes('fermer la barre') ||
+                    label.includes('replier la barre')
+                );
+            });
         }
-        win.requestAnimationFrame(closeSidebar);
+
+        function tryClose() {
+            if (done) return true;
+            if (!sidebarIsOpen()) {
+                done = true;
+                return true;
+            }
+            const btn = findCloseButton();
+            if (btn) {
+                done = true;
+                btn.click();
+                return true;
+            }
+            return false;
+        }
+
+        if (tryClose()) return;
+        const observer = new MutationObserver(function() {
+            if (tryClose()) observer.disconnect();
+        });
+        observer.observe(doc.body, {childList: true, subtree: true, attributes: true});
+
+        function waitFrame() {
+            if (tryClose()) {
+                observer.disconnect();
+                return;
+            }
+            if (win.performance.now() - startedAt > 2500) {
+                observer.disconnect();
+                return;
+            }
+            win.requestAnimationFrame(waitFrame);
+        }
+        win.requestAnimationFrame(waitFrame);
     })();
     </script>
     """, height=0)
