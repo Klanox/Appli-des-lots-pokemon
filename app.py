@@ -1327,8 +1327,6 @@ def ecd(c, s, lang="fr"):
 def set_current_page(page, source=""):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
-    if source == "sidebar_main":
-        st.session_state["mobile_sidebar_click_outside_after_nav"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
         st.session_state["sale_scroll_top_pending"] = True
@@ -2008,6 +2006,68 @@ with rerun_phase("navigation_resolution"):
         if st.session_state.current_page == "Vente" and query_page in ("echange", "échange"):
             st.session_state["sales_active_section"] = "Échange"
 
+NATIVE_NAV_URL_PATHS = {
+    "Accueil": "accueil",
+    "Vente": "vente",
+    "Brocante": "brocante",
+    "Lots": "lots",
+    "Collection": "collection",
+    "Estimations": "estimations",
+    "Fournisseurs": "fournisseurs",
+    "Annonces Vinted": "annonces-vinted",
+    "Archivés": "archives",
+    "Historique": "historique",
+    "Statistiques": "statistiques",
+    "Marché": "marche",
+    "Wrapped": "wrapped",
+    "Compteurs": "compteurs",
+}
+
+def make_native_nav_page_runner(page_name):
+    def run_native_nav_page():
+        previous_page = st.session_state.get("_native_nav_selected_page")
+        first_native_run = previous_page is None
+        keep_exchange_section = (
+            first_native_run
+            and page_name == "Vente"
+            and st.session_state.get("sales_active_section") == "Échange"
+        )
+        st.session_state["_native_nav_selected_page"] = page_name
+        if previous_page != page_name:
+            if keep_exchange_section:
+                st.session_state.current_page = page_name
+                st.session_state["scroll_top_once"] = True
+                st.session_state["sale_scroll_top_pending"] = True
+            else:
+                set_current_page(page_name)
+        else:
+            st.session_state.current_page = page_name
+
+    run_native_nav_page.__name__ = f"native_nav_{NATIVE_NAV_URL_PATHS.get(page_name, page_name).replace('-', '_')}"
+    return run_native_nav_page
+
+def build_native_navigation_pages():
+    sections = {}
+    if "_native_nav_default_page" not in st.session_state:
+        st.session_state["_native_nav_default_page"] = st.session_state.get("current_page", "Accueil")
+    default_page_name = st.session_state.get("_native_nav_default_page", "Accueil")
+    for section in NAV_SECTIONS:
+        pages = []
+        for page_name, label, icon in section["items"]:
+            pages.append(
+                st.Page(
+                    make_native_nav_page_runner(page_name),
+                    title=label,
+                    icon=icon,
+                    url_path=NATIVE_NAV_URL_PATHS.get(page_name, str(page_name).lower().replace(" ", "-")),
+                    default=page_name == default_page_name,
+                )
+            )
+        if pages:
+            sections[section["label"]] = pages
+    return sections
+
+selected_native_nav_page = None
 if not wrapped_story_active:
     with rerun_phase("sidebar_total"):
         with st.sidebar:
@@ -2024,21 +2084,10 @@ if not wrapped_story_active:
             with st.container():
                 for label, value in sidebar_stats:
                     st.metric(label, value)
-            for section in NAV_SECTIONS:
-                st.markdown(
-                    f'<div class="ps-nav-section-label">{section["label"]}</div>',
-                    unsafe_allow_html=True,
-                )
-                for page, label, icon in section["items"]:
-                    btn_type = "primary" if st.session_state.current_page == page else "secondary"
-                    st.button(
-                        f"{icon}  {label}",
-                        width="stretch",
-                        key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
-                        type=btn_type,
-                        on_click=set_current_page,
-                        args=(page, "sidebar_main"),
-                    )
+            selected_native_nav_page = st.navigation(
+                build_native_navigation_pages(),
+                position="sidebar",
+            )
             st.markdown("---")
             with st.expander("⚙️ Paramètres", expanded=False):
                 st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
@@ -2155,55 +2204,9 @@ if not wrapped_story_active:
                     except Exception as e:
                         st.error(f"Sauvegarde impossible : {e}")
 
-if st.session_state.pop("mobile_sidebar_click_outside_after_nav", False):
-    run_html("""
-    <script>
-    (function() {
-        const win = window.parent && window.parent !== window ? window.parent : window;
-        if (!win.matchMedia || !win.matchMedia("(max-width: 768px)").matches) return;
-        const doc = win.document;
-        let frames = 0;
-        const maxFrames = 45;
-
-        function sidebarIsOpen(sidebar) {
-            if (!sidebar) return false;
-            const expanded = sidebar.getAttribute("aria-expanded");
-            if (expanded === "true") return true;
-            if (expanded === "false") return false;
-            const rect = sidebar.getBoundingClientRect();
-            const style = win.getComputedStyle(sidebar);
-            return rect.width > 0 && rect.right > 8 && style.display !== "none" && style.visibility !== "hidden";
-        }
-
-        function mainTarget() {
-            return doc.querySelector('section[data-testid="stMain"]') ||
-                doc.querySelector('[data-testid="stAppViewContainer"] main') ||
-                doc.querySelector('[data-testid="stAppViewContainer"]') ||
-                doc.body;
-        }
-
-        function dispatchOutsideMousedown() {
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            if (sidebar && sidebarIsOpen(sidebar)) {
-                const target = mainTarget();
-                if (target && !sidebar.contains(target)) {
-                    target.dispatchEvent(new win.MouseEvent("mousedown", {
-                        bubbles: true,
-                        cancelable: true,
-                        view: win
-                    }));
-                    return;
-                }
-            }
-            if (sidebar && !sidebarIsOpen(sidebar)) return;
-            frames += 1;
-            if (frames < maxFrames) win.requestAnimationFrame(dispatchOutsideMousedown);
-        }
-
-        win.requestAnimationFrame(dispatchOutsideMousedown);
-    })();
-    </script>
-    """, height=0)
+if selected_native_nav_page is not None:
+    with rerun_phase("native_navigation_run"):
+        selected_native_nav_page.run()
 
 if st.session_state.get("current_page") != "Vente":
     run_html("""
