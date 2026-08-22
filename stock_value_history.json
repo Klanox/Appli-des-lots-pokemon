@@ -523,6 +523,11 @@
       "captured_at": "2026-08-21T20:18:24",
       "value": 6875.0,
       "provenance": "live"
+    },
+    {
+      "captured_at": "2026-08-22T12:54:52",
+      "value": 6855.0,
+      "provenance": "live"
     }
   ],
   "annotations": []

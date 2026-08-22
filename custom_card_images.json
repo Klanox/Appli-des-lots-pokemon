@@ -672,6 +672,20 @@
       "storage_path": "custom/id_2016xy-6.jpg",
       "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/id_2016xy-6.jpg",
       "storage_uploaded_at": "2026-08-15T23:49:57"
+    },
+    "uid:card_1bf3915e1e654c629aee02d206eff142": {
+      "image_ref": "card_images/12_12.png",
+      "source": "lots_upload",
+      "updated_at": "2026-08-22T12:43:17",
+      "card_name": "Zekrom de N",
+      "number": "031",
+      "set": "MEP Black Star Promos",
+      "local_image_ref": "card_images/12_12.png",
+      "storage_ref": "supabase://card-images/custom/uid_card_1bf3915e1e654c629aee02d206eff142.png",
+      "storage_bucket": "card-images",
+      "storage_path": "custom/uid_card_1bf3915e1e654c629aee02d206eff142.png",
+      "storage_public_url": "https://vwlzcujtiepxovmakqsy.supabase.co/storage/v1/object/public/card-images/custom/uid_card_1bf3915e1e654c629aee02d206eff142.png",
+      "storage_uploaded_at": "2026-08-22T12:43:17"
     }
   }
 }
