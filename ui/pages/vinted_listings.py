@@ -889,6 +889,96 @@ def _add_card_to_drop_action(drops_data, drop_id, card, quantity=1):
         st.warning("Cette carte est déjà dans ce drop.")
 
 
+def _drop_grid_processed_actions_key(drop_id):
+    return f"vinted_drop_processed_actions_{drop_id}"
+
+
+def _drop_grid_processed_actions(drop_id):
+    values = st.session_state.get(_drop_grid_processed_actions_key(drop_id), [])
+    return [str(value) for value in values if value]
+
+
+def _remember_drop_grid_processed_actions(drop_id, action_ids):
+    if not action_ids:
+        return
+    key = _drop_grid_processed_actions_key(drop_id)
+    current = _drop_grid_processed_actions(drop_id)
+    seen = set(current)
+    for action_id in action_ids:
+        action_id = str(action_id or "")
+        if action_id and action_id not in seen:
+            current.append(action_id)
+            seen.add(action_id)
+    st.session_state[key] = current[-500:]
+
+
+def _component_actions(result):
+    if result is None:
+        return []
+    actions = None
+    legacy = None
+    if isinstance(result, dict):
+        actions = result.get("actions")
+        legacy = result.get("action")
+    else:
+        actions = getattr(result, "actions", None)
+        legacy = getattr(result, "action", None)
+    if isinstance(actions, list):
+        return [action for action in actions if isinstance(action, dict)]
+    if isinstance(legacy, dict):
+        return [legacy]
+    return []
+
+
+def _process_drop_grid_actions(drops_data, active_drop, available_cards, actions):
+    drop_id = active_drop.get("id") if active_drop else ""
+    if not drop_id or not actions:
+        return 0, 0, 0
+    processed = set(_drop_grid_processed_actions(drop_id))
+    card_by_key = {
+        card.get("_drop_card_key") or drop_card_key(card): card
+        for card in available_cards or []
+    }
+    new_processed = []
+    added_count = 0
+    removed_count = 0
+    changed = False
+
+    for action in actions:
+        action_id = str(action.get("id") or "")
+        if not action_id or action_id in processed:
+            continue
+        processed.add(action_id)
+        new_processed.append(action_id)
+        action_type = str(action.get("type") or "").strip()
+        card_key = str(action.get("card_key") or "")
+        if action_type == "remove":
+            if remove_card_from_drop(drops_data, drop_id, card_key):
+                changed = True
+                removed_count += 1
+            continue
+        if action_type != "add":
+            continue
+        card = card_by_key.get(card_key)
+        if not card:
+            continue
+        try:
+            quantity = int(action.get("quantity", 1) or 1)
+        except Exception:
+            quantity = 1
+        max_qty = max(1, int(card.get("available_qty", 1) or 1))
+        quantity = min(max(1, quantity), max_qty)
+        added, _duplicate = add_card_to_drop(drops_data, drop_id, _card_with_drop_quantity(card, quantity))
+        if added:
+            changed = True
+            added_count += 1
+
+    _remember_drop_grid_processed_actions(drop_id, new_processed)
+    if changed:
+        save_vinted_drops(drops_data)
+    return len(new_processed), added_count, removed_count
+
+
 def _render_quantity_stepper(scope, card):
     current, max_qty, _ = _selected_quantity(scope, card)
     if max_qty <= 1:
@@ -1334,36 +1424,27 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
     st.caption(f"{len(candidates_all)} carte(s) disponible(s).")
     groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func)
     added_keys = _drop_added_keys(active_drop)
-    card_by_key = {
-        card.get("_drop_card_key") or drop_card_key(card): card
-        for card in candidates_all
-    }
+    processed_action_ids = _drop_grid_processed_actions(active_drop.get("id"))
     result = render_vinted_drop_virtual_grid(
         groups,
         added_keys,
         key=f"drop_add_{active_drop.get('id')}",
         mobile=mobile,
         scroll_top_token=_drop_scroll_top_token(active_drop.get("id"), query),
+        processed_action_ids=processed_action_ids,
     )
-    action = getattr(result, "action", None) if result is not None else None
-    if isinstance(action, dict) and action.get("type") in ("add", "remove"):
-        action_id = str(action.get("id") or "")
-        if action_id and st.session_state.get("vinted_drop_last_action") != action_id:
-            st.session_state["vinted_drop_last_action"] = action_id
-            card_key = str(action.get("card_key") or "")
-            if action.get("type") == "remove":
-                if remove_card_from_drop(drops_data, active_drop.get("id"), card_key):
-                    save_vinted_drops(drops_data)
-                    st.success("Carte retirée du drop.")
-                    st.rerun()
-            else:
-                card = card_by_key.get(card_key)
-                if card:
-                    try:
-                        quantity = int(action.get("quantity", 1) or 1)
-                    except Exception:
-                        quantity = 1
-                    _add_card_to_drop_action(drops_data, active_drop.get("id"), card, quantity)
+    actions = _component_actions(result)
+    if actions:
+        processed_count, added_count, removed_count = _process_drop_grid_actions(
+            drops_data,
+            active_drop,
+            available_cards,
+            actions,
+        )
+        if processed_count:
+            if added_count or removed_count:
+                st.success(f"{added_count} ajout(s), {removed_count} retrait(s) appliqué(s).")
+            st.rerun()
     if result is None:
         st.caption("Affichage simplifié utilisé pour cette session.")
         _render_grouped_available_grid(

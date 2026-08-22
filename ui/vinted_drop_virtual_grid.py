@@ -249,9 +249,10 @@ def _get_vinted_drop_grid_component():
         const key = data.key || "vinted_drop";
         const stateKey = "__pokestockVintedDropGrid_" + key;
         const groups = Array.isArray(data.groups) ? data.groups : [];
-        const added = new Set(Array.isArray(data.addedKeys) ? data.addedKeys : []);
+        const baseAdded = new Set(Array.isArray(data.addedKeys) ? data.addedKeys : []);
+        const processedActionIds = new Set(Array.isArray(data.processedActionIds) ? data.processedActionIds : []);
         const signature = String(data.signature || "");
-        const addedSignature = JSON.stringify(Array.from(added).sort());
+        const addedSignature = JSON.stringify(Array.from(baseAdded).sort());
         const scrollTopToken = String(data.scrollTopToken || "");
         const gap = 10;
         const lotGap = 14;
@@ -263,8 +264,12 @@ def _get_vinted_drop_grid_component():
             mounted: new Map(),
             lastRange: "",
             layout: null,
-            preloaded: new Map()
+            preloaded: new Map(),
+            pendingActions: []
         };
+        state.pendingActions = Array.isArray(state.pendingActions)
+            ? state.pendingActions.filter((action) => action && !processedActionIds.has(String(action.id || "")))
+            : [];
 
         function findScrollTarget(el) {
             let node = el && el.parentElement;
@@ -318,6 +323,67 @@ def _get_vinted_drop_grid_component():
 
         function itemKey(item) {
             return String(item.card_key || item.card_uid || item.lot_uid + "_" + item.card_idx);
+        }
+
+        function effectiveAdded(key) {
+            let current = baseAdded.has(key);
+            state.pendingActions.forEach((action) => {
+                if (!action || String(action.card_key || "") !== key) return;
+                if (action.type === "add") current = true;
+                if (action.type === "remove") current = false;
+            });
+            return current;
+        }
+
+        function queuedActionIds() {
+            const ids = new Set(state.pendingActions.map((action) => String(action.id || "")));
+            return ids;
+        }
+
+        function pendingSignature() {
+            return JSON.stringify(state.pendingActions.map((action) => [
+                String(action.id || ""),
+                String(action.type || ""),
+                String(action.card_key || "")
+            ]));
+        }
+
+        function pushPendingAction(action) {
+            if (!action || !action.id) return;
+            const ids = queuedActionIds();
+            if (!ids.has(String(action.id))) {
+                state.pendingActions.push(action);
+            }
+            setTriggerValue("actions", state.pendingActions.slice());
+        }
+
+        function applyCardVisual(card, key) {
+            const isAdded = effectiveAdded(key);
+            card.className = "ps-sale-lot-card" + (isAdded ? " in-cart" : "");
+            const imageWrap = card.querySelector(".ps-sale-img-wrap");
+            if (imageWrap) {
+                let ok = imageWrap.querySelector(".ps-sale-ok");
+                if (isAdded && !ok) {
+                    ok = doc.createElement("span");
+                    ok.className = "ps-sale-ok";
+                    ok.textContent = "OK";
+                    imageWrap.appendChild(ok);
+                } else if (!isAdded && ok) {
+                    ok.remove();
+                }
+            }
+            const button = card.querySelector(".ps-sale-add");
+            if (button) {
+                button.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
+            }
+        }
+
+        function refreshMountedCardVisuals(key) {
+            stage.querySelectorAll(".ps-sale-lot-card").forEach((card) => {
+                if (String(card.dataset.cardKey || "") === key) {
+                    applyCardVisual(card, key);
+                }
+            });
         }
 
         function clampQty(key, maxQty) {
@@ -398,7 +464,7 @@ def _get_vinted_drop_grid_component():
 
         function makeCard(item, width, height) {
             const key = itemKey(item);
-            const isAdded = added.has(key);
+            const isAdded = effectiveAdded(key);
             const card = doc.createElement("div");
             card.className = "ps-sale-lot-card" + (isAdded ? " in-cart" : "");
             card.dataset.cardKey = key;
@@ -473,16 +539,21 @@ def _get_vinted_drop_grid_component():
             action.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
             action.onclick = (event) => {
                 event.preventDefault();
-                setTriggerValue("action", {
-                    id: "vinted-drop-" + (isAdded ? "remove" : "add") + "-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-                    type: isAdded ? "remove" : "add",
+                const currentlyAdded = effectiveAdded(key);
+                const actionType = currentlyAdded ? "remove" : "add";
+                const pendingAction = {
+                    id: "vinted-drop-" + actionType + "-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+                    type: actionType,
                     card_key: key,
                     card_uid: item.card_uid,
                     lot_uid: item.lot_uid,
                     lot_idx: item.lot_idx,
                     card_idx: item.card_idx,
-                    quantity: clampQty(key, item.stock)
-                });
+                    quantity: clampQty(key, item.stock),
+                    ts: Date.now()
+                };
+                pushPendingAction(pendingAction);
+                refreshMountedCardVisuals(key);
             };
             actions.appendChild(action);
             card.appendChild(actions);
@@ -587,7 +658,7 @@ def _get_vinted_drop_grid_component():
             const overscan = overscanRows();
             const start = Math.max(0, lowerBound(rows, startY - overscan.before * rowHeight));
             const end = Math.min(rows.length, lowerBound(rows, endY + overscan.after * rowHeight) + 1);
-            const rangeKey = start + ":" + end + ":" + colCount + ":" + cardWidth + ":" + totalHeight;
+            const rangeKey = start + ":" + end + ":" + colCount + ":" + cardWidth + ":" + totalHeight + ":" + pendingSignature();
             if (rangeKey === state.lastRange && stage.childElementCount) {
                 preload(rows, end, end + overscan.after);
                 return;
@@ -609,6 +680,7 @@ def _get_vinted_drop_grid_component():
                 if (row.type === "cards") {
                     node.style.height = rowHeight + "px";
                     Array.from(node.children).forEach((card, cardIndex) => {
+                        applyCardVisual(card, String(card.dataset.cardKey || ""));
                         card.style.width = cardWidth + "px";
                         card.style.height = rowHeight + "px";
                         card.style.transform = "translate3d(" + (cardIndex * (cardWidth + gap)) + "px,0,0)";
@@ -710,7 +782,15 @@ def _estimated_grid_height(groups, *, mobile=False):
     return max(1, total)
 
 
-def render_vinted_drop_virtual_grid(groups, added_keys, *, key="vinted_drop", mobile=False, scroll_top_token=0):
+def render_vinted_drop_virtual_grid(
+    groups,
+    added_keys,
+    *,
+    key="vinted_drop",
+    mobile=False,
+    scroll_top_token=0,
+    processed_action_ids=None,
+):
     component = _get_vinted_drop_grid_component()
     if component is None:
         return None
@@ -725,11 +805,12 @@ def render_vinted_drop_virtual_grid(groups, added_keys, *, key="vinted_drop", mo
             "signature": grouped_payload_signature(groups, added_keys),
             "groups": list(groups or []),
             "addedKeys": list(added_keys or []),
+            "processedActionIds": list(processed_action_ids or []),
             "scrollTopToken": str(scroll_top_token or ""),
         },
         default={},
         width="stretch",
         height=_estimated_grid_height(groups, mobile=mobile),
-        on_action_change=_noop,
+        on_actions_change=_noop,
     )
     return result
