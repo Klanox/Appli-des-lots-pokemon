@@ -30,6 +30,7 @@ from services.vinted_listing_service import (
     prepare_listing,
     suggested_price,
 )
+from ui.vinted_drop_virtual_grid import render_vinted_drop_virtual_grid
 
 
 def _ui_text(value, fallback=""):
@@ -410,6 +411,7 @@ def _available_cards(d, card_available_qty_func, is_collection_system_lot_func):
             item["lot_uid"] = lot_uid
             item["card_uid"] = _card_uid(card, lot_idx, card_idx)
             item["_listing_key"] = _card_key(item)
+            item["_drop_card_key"] = drop_card_key(item)
             options.append(item)
     return options
 
@@ -645,6 +647,62 @@ def _drop_total_value(drop):
             quantity = 1
         total += price * max(1, quantity)
     return total
+
+
+def _drop_added_keys(drop):
+    return {
+        drop_card_key(ref)
+        for ref in (drop.get("cards", []) or [])
+    }
+
+
+def _drop_grid_groups(cards, proxy_img_func, fp_func):
+    groups = []
+    for group in _group_cards_by_lot(cards):
+        payload_cards = []
+        for card in group.get("cards", []) or []:
+            img = _card_image(card)
+            if img:
+                try:
+                    img = proxy_img_func(img)
+                except Exception:
+                    pass
+            price = suggested_price(card)
+            payload_cards.append(
+                {
+                    "card_key": card.get("_drop_card_key") or drop_card_key(card),
+                    "card_uid": card.get("card_uid", ""),
+                    "lot_uid": card.get("lot_uid", ""),
+                    "lot_idx": card.get("lot_idx", 0),
+                    "card_idx": card.get("card_idx", 0),
+                    "name": _ui_text(card.get("name"), "Carte"),
+                    "set": _card_set(card),
+                    "number": _card_number(card),
+                    "price": price,
+                    "price_label": fp_func(price) if price else "Prix à définir",
+                    "stock": int(card.get("available_qty", 0) or 0),
+                    "image_url": img,
+                }
+            )
+        if payload_cards:
+            first = payload_cards[0]
+            groups.append(
+                {
+                    "lot_uid": first.get("lot_uid") or group.get("name"),
+                    "lot_idx": first.get("lot_idx", 0),
+                    "lot_name": group.get("name", "Lot"),
+                    "cards": payload_cards,
+                }
+            )
+    return groups
+
+
+def _drop_scroll_top_token(active_drop_id, query):
+    signature = f"{active_drop_id or ''}::{str(query or '')}"
+    if st.session_state.get("vinted_drop_grid_signature") != signature:
+        st.session_state["vinted_drop_grid_signature"] = signature
+        st.session_state["vinted_drop_grid_scroll_token"] = int(st.session_state.get("vinted_drop_grid_scroll_token", 0) or 0) + 1
+    return st.session_state.get("vinted_drop_grid_scroll_token", 0)
 
 
 def _render_search_result(card, listing_type, selected_keys, proxy_img_func, fp_func, drops_data, active_drop_id, mobile=False):
@@ -904,37 +962,52 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
         key="vinted_drop_add_query",
         placeholder="Ex : Dracaufeu, Rayquaza 89/90, Pohmarmotte...",
     )
-    show_all = st.session_state.get("vinted_drop_show_all", True)
-    toggle_label = "Masquer les cartes disponibles" if show_all or query else "Afficher les cartes disponibles"
-    if st.button(toggle_label, key="vinted_toggle_available_cards", width="stretch"):
-        st.session_state["vinted_drop_show_all"] = not show_all
-        st.rerun()
-
-    if not query and not st.session_state.get("vinted_drop_show_all", True):
-        st.caption("La liste des cartes disponibles est masquée.")
-        return
-
     candidates_all = _filter_cards_for_display(available_cards, query)
-    limit = _visible_limit("drop_add", query, mobile, len(candidates_all))
-    candidates = candidates_all[:limit]
-    if not candidates:
+    if not candidates_all:
         st.caption("Aucune carte disponible trouvée.")
         return
 
-    st.caption(f"{len(candidates)} / {len(candidates_all)} carte(s) affichée(s).")
-    _render_grouped_available_grid(
-        candidates,
-        scope="drop_add",
-        listing_type="Carte seule",
-        selected_keys=[],
-        drops_data=drops_data,
-        active_drop_id=active_drop.get("id"),
-        proxy_img_func=proxy_img_func,
-        fp_func=fp_func,
+    st.caption(f"{len(candidates_all)} carte(s) disponible(s).")
+    groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func)
+    added_keys = _drop_added_keys(active_drop)
+    card_by_key = {
+        card.get("_drop_card_key") or drop_card_key(card): card
+        for card in candidates_all
+    }
+    result = render_vinted_drop_virtual_grid(
+        groups,
+        added_keys,
+        key=f"drop_add_{active_drop.get('id')}",
         mobile=mobile,
-        mode="drop",
+        scroll_top_token=_drop_scroll_top_token(active_drop.get("id"), query),
     )
-    _show_more("drop_add", mobile, len(candidates_all))
+    action = getattr(result, "action", None) if result is not None else None
+    if isinstance(action, dict) and action.get("type") == "add":
+        action_id = str(action.get("id") or "")
+        if action_id and st.session_state.get("vinted_drop_last_action") != action_id:
+            st.session_state["vinted_drop_last_action"] = action_id
+            card_key = str(action.get("card_key") or "")
+            card = card_by_key.get(card_key)
+            if card:
+                try:
+                    quantity = int(action.get("quantity", 1) or 1)
+                except Exception:
+                    quantity = 1
+                _add_card_to_drop_action(drops_data, active_drop.get("id"), card, quantity)
+    if result is None:
+        st.caption("Affichage simplifié utilisé pour cette session.")
+        _render_grouped_available_grid(
+            candidates_all[:24 if mobile else 48],
+            scope="drop_add_fallback",
+            listing_type="Carte seule",
+            selected_keys=[],
+            drops_data=drops_data,
+            active_drop_id=active_drop.get("id"),
+            proxy_img_func=proxy_img_func,
+            fp_func=fp_func,
+            mobile=mobile,
+            mode="drop",
+        )
 
 
 def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile):
