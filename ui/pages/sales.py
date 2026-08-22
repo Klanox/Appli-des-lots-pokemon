@@ -829,13 +829,12 @@ def render_sales_page(context):
                         st.session_state["negociated_price"] = total_base_ref
                         st.session_state["negociated_price_base_ref"] = total_base_ref
                     negociated_price = st.number_input(
-                        "💰 Prix négocié",
+                        "💰 Prix final",
                         min_value=0.0,
-                        max_value=float(total_base) * 2,
                         step=0.5,
                         key="negociated_price",
                     )
-                    st.button("🤝 Vendre au prix négocié", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
+                    st.button("🤝 Vendre au prix final", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
 
                 # Dialog canal pour vente en lot
                 if st.session_state.get("show_canal_dialog_bulk"):
