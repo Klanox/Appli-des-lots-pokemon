@@ -9,7 +9,14 @@ import html
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
 from ui.badges import status_badge
-from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
+from ui.infinite_scroll import (
+    progressive_slice,
+    render_infinite_sentinel,
+    render_virtual_scroll_sensor,
+    stable_list_signature,
+    virtual_scroll_available,
+    virtual_window_slice,
+)
 from ui.mobile_scan import render_assisted_scan
 
 
@@ -746,40 +753,16 @@ def render_lots_page(context):
                     for i, c in cards_with_idx
                     if card_lot_display_status(c, lt) == "sold"
                 ]
-                lot_render_items = (
-                    [("stock", item) for item in cards_in_stock_lot]
-                    + [("stored", item) for item in cards_stored_lot]
-                    + [("collection", item) for item in cards_collection_lot]
-                    + [("sold", item) for item in cards_sold_lot]
-                )
-                lot_signature = stable_list_signature(
-                    "lot_cards",
-                    lt.get("lot_uid") or ix,
-                    lot_card_search,
-                    [
-                        (section, real_cix, card.get("card_uid") or card.get("name"))
-                        for section, (real_cix, card) in lot_render_items
-                    ],
-                )
+                lot_cols_per_row = 2 if is_mobile_mode() else 6
                 lot_initial = 24 if is_mobile_mode() else 48
+                lot_window = 36 if is_mobile_mode() else 60
                 lot_step = 12 if is_mobile_mode() else 24
-                visible_lot_items, lot_visible_count, lot_total_count, lot_count_key = progressive_slice(
-                    f"lot_cards_{lt.get('lot_uid') or ix}",
-                    lot_render_items,
-                    lot_signature,
-                    initial_count=lot_initial,
-                )
-                visible_stock_lot = [item for section, item in visible_lot_items if section == "stock"]
-                visible_stored_lot = [item for section, item in visible_lot_items if section == "stored"]
-                visible_collection_lot = [item for section, item in visible_lot_items if section == "collection"]
-                visible_sold_lot = [item for section, item in visible_lot_items if section == "sold"]
-                if "perf_count" in globals():
-                    perf_count(
-                        "cards_lots_rendered",
-                        len(visible_stock_lot) + len(visible_stored_lot) + len(visible_collection_lot) + len(visible_sold_lot),
-                    )
+                lot_row_height_default = 780 if is_mobile_mode() else 620
+                lot_use_virtual_window = virtual_scroll_available()
+                rendered_lot_card_count = 0
+                first_lot_section_window_rendered = False
                 
-                def render_card_grid(card_list_with_idx, sold=False, collection=False, storage=False, grid_scope="active"):
+                def render_card_grid(card_list_with_idx, sold=False, collection=False, storage=False, grid_scope="active", row_index_offset=0):
                     safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
                     safe_scope = str(grid_scope or ("sold" if sold else "collection" if collection else "active")).replace(" ", "_").replace("/", "_")
 
@@ -824,10 +807,10 @@ def render_lots_page(context):
                             f'</div>'
                         )
 
-                    COLS_PER_ROW = 6
+                    COLS_PER_ROW = lot_cols_per_row
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         with st.container(
-                            key=f"lot_cards_grid_{safe_lot_key}_{safe_scope}_{row_start}",
+                            key=f"lot_cards_grid_{safe_lot_key}_{safe_scope}_{row_index_offset + row_start}",
                             horizontal=True,
                             gap="small",
                         ):
@@ -1060,38 +1043,185 @@ def render_lots_page(context):
                                             st.rerun()
 
                         st.markdown("---")
+
+                def lot_section_signature(grid_scope, card_list_with_idx):
+                    return stable_list_signature(
+                        "lot_cards_section",
+                        lt.get("lot_uid") or ix,
+                        grid_scope,
+                        lot_card_search,
+                        [
+                            (
+                                real_cix,
+                                card.get("card_uid") or card.get("id") or card.get("name"),
+                                card.get("quantity"),
+                                card.get("sold_quantity"),
+                                card.get("exchange_out_quantity"),
+                                card.get("stored_quantity"),
+                                card.get("trade_transfer_destination"),
+                            )
+                            for real_cix, card in card_list_with_idx
+                        ],
+                    )
+
+                def lot_preload_urls(card_list_with_idx, start, end):
+                    urls = []
+                    for _, card in list(card_list_with_idx or [])[max(0, start):max(0, end)]:
+                        img_url = card.get("image_url", "") or resolve_custom_card_image(card)
+                        img_url_en = card.get("image_url_en", "")
+                        for raw_url in (img_url, img_url_en):
+                            raw_url = str(raw_url or "").strip()
+                            if not raw_url or raw_url == "__placeholder__":
+                                continue
+                            if (raw_url.startswith(("card_images/", "card_images\\")) or os.path.exists(raw_url)) and not os.path.exists(raw_url):
+                                continue
+                            urls.append(proxy_img(raw_url))
+                            if len(urls) >= 32:
+                                return urls
+                    return urls
+
+                @st.fragment
+                def render_lot_section(title_html, card_list_with_idx, *, sold=False, collection=False, storage=False, grid_scope="active", html_title=False):
+                    nonlocal rendered_lot_card_count, first_lot_section_window_rendered
+                    card_list_with_idx = list(card_list_with_idx or [])
+                    if not card_list_with_idx:
+                        return
+
+                    if html_title:
+                        st.markdown(title_html, unsafe_allow_html=True)
+                    else:
+                        st.markdown(title_html)
+
+                    safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
+                    safe_scope = str(grid_scope or "active").replace(" ", "_").replace("/", "_")
+                    section_key = f"lot_cards_{safe_lot_key}_{safe_scope}"
+                    section_signature = lot_section_signature(grid_scope, card_list_with_idx)
+                    section_initial = lot_initial
+                    if lot_use_virtual_window:
+                        section_signature_key = f"{section_key}_virtual_signature"
+                        section_has_state = st.session_state.get(section_signature_key) == section_signature
+                        if not section_has_state:
+                            section_initial = lot_initial if not first_lot_section_window_rendered else 0
+                        first_lot_section_window_rendered = True
+
+                    if not lot_use_virtual_window:
+                        visible_cards, visible_count, total_count, count_key = progressive_slice(
+                            section_key,
+                            card_list_with_idx,
+                            section_signature,
+                            initial_count=lot_initial,
+                        )
+                        render_card_grid(
+                            visible_cards,
+                            sold=sold,
+                            collection=collection,
+                            storage=storage,
+                            grid_scope=grid_scope,
+                        )
+                        rendered_lot_card_count += len(visible_cards)
+                        render_infinite_sentinel(
+                            section_key,
+                            count_key=count_key,
+                            visible_count=visible_count,
+                            total_count=total_count,
+                            batch_size=lot_step,
+                            root_margin_px=1800,
+                            run_html_func=run_html,
+                            button_label="\u200b",
+                        )
+                        return
+
+                    top_anchor_id = f"lot-virtual-top-{section_key}"
+                    bottom_anchor_id = f"lot-virtual-bottom-{section_key}"
+                    preload_start = int(st.session_state.get(f"{section_key}_window_end", section_initial) or section_initial)
+                    event = render_virtual_scroll_sensor(
+                        section_key,
+                        top_anchor_id=top_anchor_id,
+                        bottom_anchor_id=bottom_anchor_id,
+                        row_selector=(
+                            f'[class*="st-key-lot_cards_grid_{safe_lot_key}_{safe_scope}_"]'
+                            '[data-testid="stHorizontalBlock"]'
+                        ),
+                        root_margin_px=1800,
+                        top_margin_px=900,
+                        preload_urls=lot_preload_urls(card_list_with_idx, preload_start, preload_start + lot_step * 2),
+                        default_row_height=lot_row_height_default,
+                    )
+                    visible_cards, start, end, total_count, row_height = virtual_window_slice(
+                        section_key,
+                        card_list_with_idx,
+                        section_signature,
+                        initial_count=min(section_initial, lot_window),
+                        window_count=lot_window,
+                        step_count=lot_step,
+                        event=event,
+                        row_height_default=lot_row_height_default,
+                        slots_per_row=lot_cols_per_row,
+                    )
+                    rendered_lot_card_count += len(visible_cards)
+
+                    top_rows = max(0, start // max(1, lot_cols_per_row))
+                    bottom_rows = max(0, (total_count - end + lot_cols_per_row - 1) // max(1, lot_cols_per_row))
+                    st.markdown(f'<div id="{top_anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
+                    if top_rows:
+                        st.markdown(
+                            f'<div style="height:{int(top_rows * row_height)}px;"></div>',
+                            unsafe_allow_html=True,
+                        )
+                    render_card_grid(
+                        visible_cards,
+                        sold=sold,
+                        collection=collection,
+                        storage=storage,
+                        grid_scope=grid_scope,
+                        row_index_offset=start,
+                    )
+                    st.markdown(f'<div id="{bottom_anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
+                    if bottom_rows:
+                        st.markdown(
+                            f'<div style="height:{int(bottom_rows * row_height)}px;"></div>',
+                            unsafe_allow_html=True,
+                        )
                 
                 if not cards_all:
                     st.info("Aucune carte dans ce lot")
                 else:
                     # ── En stock ──
-                    if visible_stock_lot:
-                        st.markdown(f"**🟢 En stock ({len(cards_in_stock_lot)})**")
-                        render_card_grid(visible_stock_lot, sold=False, grid_scope="stock")
+                    render_lot_section(
+                        f"**🟢 En stock ({len(cards_in_stock_lot)})**",
+                        cards_in_stock_lot,
+                        sold=False,
+                        grid_scope="stock",
+                    )
 
-                    if visible_stored_lot:
-                        st.markdown(f"**🔵 En stockage ({len(cards_stored_lot)})**")
-                        render_card_grid(visible_stored_lot, sold=False, storage=True, grid_scope="stored")
+                    render_lot_section(
+                        f"**🔵 En stockage ({len(cards_stored_lot)})**",
+                        cards_stored_lot,
+                        sold=False,
+                        storage=True,
+                        grid_scope="stored",
+                    )
 
-                    if visible_collection_lot:
-                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🟡 Collection ({len(cards_collection_lot)})</span></div>', unsafe_allow_html=True)
-                        render_card_grid(visible_collection_lot, sold=False, collection=True, grid_scope="collection")
+                    render_lot_section(
+                        f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🟡 Collection ({len(cards_collection_lot)})</span></div>',
+                        cards_collection_lot,
+                        sold=False,
+                        collection=True,
+                        grid_scope="collection",
+                        html_title=True,
+                    )
                     
                     # ── Vendues ──
-                    if visible_sold_lot:
-                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>', unsafe_allow_html=True)
-                        render_card_grid(visible_sold_lot, sold=True, grid_scope="sold")
-
-                    render_infinite_sentinel(
-                        f"lot_cards_{lt.get('lot_uid') or ix}",
-                        count_key=lot_count_key,
-                        visible_count=lot_visible_count,
-                        total_count=lot_total_count,
-                        batch_size=lot_step,
-                        root_margin_px=1800,
-                        run_html_func=run_html,
-                        button_label="\u200b",
+                    render_lot_section(
+                        f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>',
+                        cards_sold_lot,
+                        sold=True,
+                        grid_scope="sold",
+                        html_title=True,
                     )
+
+                    if "perf_count" in globals():
+                        perf_count("cards_lots_rendered", rendered_lot_card_count)
                 
                 # Actions lot
                 st.markdown("### Actions")

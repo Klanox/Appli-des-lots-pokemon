@@ -68,6 +68,13 @@ def virtual_window_slice(
         event_id = str(event.get("id") or "")
         if event_id and st.session_state.get(event_key) != event_id:
             st.session_state[event_key] = event_id
+            try:
+                measured_row_height = int(float(event.get("rowHeight") or 0))
+            except Exception:
+                measured_row_height = 0
+            if measured_row_height > 80:
+                row_height = measured_row_height
+                st.session_state[row_height_key] = row_height
             direction = str(event.get("direction") or "")
             start = int(st.session_state.get(start_key, 0) or 0)
             end = int(st.session_state.get(end_key, initial_count) or initial_count)
@@ -78,10 +85,15 @@ def virtual_window_slice(
                 scroll_top = max(0, int(float(event.get("scrollTop") or 0)))
             except Exception:
                 scroll_top = 0
+            try:
+                section_top = max(0, int(float(event.get("sectionTop") or 0)))
+            except Exception:
+                section_top = 0
+            relative_scroll_top = max(0, scroll_top - section_top)
 
             if scroll_top > 0:
                 lead_rows = max(4, int(window_count / slots_per_row / 3))
-                viewport_row = max(0, int(max(0, scroll_top + (row_height * lead_rows)) / max(1, row_height)))
+                viewport_row = max(0, int(max(0, relative_scroll_top + (row_height * lead_rows)) / max(1, row_height)))
                 back_rows = 3
                 desired_start = max(0, (viewport_row - back_rows) * slots_per_row)
                 desired_start = min(max(0, total_count - window_count), desired_start)
@@ -186,8 +198,17 @@ def _get_virtual_scroll_component():
                 id: direction + "-" + now + "-" + Math.random().toString(36).slice(2),
                 direction,
                 rowHeight: rowHeight(),
-                scrollTop: root ? root.scrollTop : win.scrollY
+                scrollTop: root ? root.scrollTop : win.scrollY,
+                sectionTop: sectionTop()
             });
+        }
+
+        function sectionTop() {
+            const top = doc.getElementById(data.topAnchorId);
+            if (!top) return 0;
+            const current = root ? root.scrollTop : win.scrollY;
+            const rr = rootRect();
+            return Math.max(0, Math.round(top.getBoundingClientRect().top - rr.top + current));
         }
 
         function rootRect() {
@@ -443,3 +464,7 @@ def render_infinite_sentinel(
         run_html_func(script, height=0)
     else:
         components.html(script, height=0)
+
+
+def virtual_scroll_available() -> bool:
+    return components_v2 is not None
