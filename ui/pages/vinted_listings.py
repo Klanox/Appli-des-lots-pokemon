@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import OrderedDict
 
 import streamlit as st
 
@@ -88,6 +89,302 @@ def _card_key(card):
 
 def _card_uid(card, lot_idx, card_idx):
     return str(card.get("uid") or card.get("card_uid") or f"{lot_idx}:{card_idx}")
+
+
+def _inject_vinted_styles():
+    st.markdown(
+        """
+<style>
+.ps-vinted-subtitle {
+    color:#64748b;
+    font-size:.86rem;
+    margin:-.2rem 0 .75rem;
+}
+.ps-vinted-pill {
+    display:inline-flex;
+    align-items:center;
+    gap:.35rem;
+    padding:.26rem .58rem;
+    border-radius:999px;
+    background:#eef2ff;
+    color:#3730a3;
+    font-weight:800;
+    font-size:.76rem;
+}
+.ps-vinted-drop-head {
+    padding:.82rem .95rem;
+    border:1px solid rgba(129,140,248,.24);
+    border-radius:12px;
+    background:linear-gradient(135deg, rgba(238,242,255,.95), rgba(255,255,255,.96));
+    margin:.2rem 0 .85rem;
+}
+.ps-vinted-drop-head strong {
+    display:block;
+    color:#0f172a;
+    font-size:1.02rem;
+    line-height:1.2;
+}
+.ps-vinted-drop-head span {
+    display:block;
+    color:#64748b;
+    font-size:.82rem;
+    font-weight:700;
+    margin-top:.22rem;
+}
+.ps-vinted-lot-title {
+    margin:1rem 0 .45rem;
+    color:#0f172a;
+    font-size:.92rem;
+    font-weight:900;
+}
+.ps-vinted-card {
+    min-height:100%;
+    display:flex;
+    flex-direction:column;
+    gap:.42rem;
+    border:1px solid rgba(148,163,184,.26);
+    border-radius:10px;
+    background:#fff;
+    padding:.5rem;
+    box-shadow:0 3px 12px rgba(15,23,42,.06);
+}
+.ps-vinted-img {
+    width:100%;
+    aspect-ratio:.72;
+    border-radius:9px;
+    background:#f8fafc;
+    border:1px solid rgba(203,213,225,.9);
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#64748b;
+    font-size:.72rem;
+    font-weight:800;
+    text-align:center;
+}
+.ps-vinted-img img {
+    width:100%;
+    height:100%;
+    display:block;
+    object-fit:cover;
+}
+.ps-vinted-name {
+    min-height:2.25rem;
+    color:#0f172a;
+    font-size:.82rem;
+    font-weight:900;
+    line-height:1.22;
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+}
+.ps-vinted-meta {
+    color:#64748b;
+    font-size:.7rem;
+    line-height:1.18;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+.ps-vinted-price {
+    color:#334155;
+    font-size:.74rem;
+    font-weight:800;
+}
+.ps-vinted-badge {
+    display:inline-flex;
+    width:max-content;
+    max-width:100%;
+    border-radius:999px;
+    padding:.18rem .45rem;
+    background:#eef2ff;
+    color:#3730a3;
+    font-size:.65rem;
+    font-weight:900;
+}
+.ps-vinted-badge.ok {
+    background:#dcfce7;
+    color:#166534;
+}
+.ps-vinted-badge.warn {
+    background:#fee2e2;
+    color:#991b1b;
+}
+.ps-vinted-actions {
+    margin-top:auto;
+}
+.ps-vinted-qty-line {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:.28rem;
+    color:#475569;
+    font-size:.72rem;
+    font-weight:800;
+}
+[data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] {
+    gap:10px !important;
+    align-items:stretch !important;
+}
+[data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] > [data-testid="stLayoutWrapper"] {
+    flex:0 0 calc((100% - 50px) / 6) !important;
+    max-width:calc((100% - 50px) / 6) !important;
+    min-width:0 !important;
+}
+div[class*="st-key-vinted_grid_"] button {
+    min-height:30px !important;
+    padding:.2rem .4rem !important;
+}
+@media (max-width:768px) {
+    .ps-vinted-drop-head {
+        padding:.7rem .78rem;
+        border-radius:10px;
+    }
+    .ps-vinted-card {
+        padding:.42rem;
+        border-radius:9px;
+    }
+    .ps-vinted-name {
+        font-size:.76rem;
+        min-height:2.05rem;
+    }
+    .ps-vinted-meta,
+    .ps-vinted-price {
+        font-size:.66rem;
+    }
+    [data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] {
+        gap:8px !important;
+    }
+    [data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex:0 0 calc((100% - 8px) / 2) !important;
+        max-width:calc((100% - 8px) / 2) !important;
+    }
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _html_escape(value):
+    import html
+
+    return html.escape(str(value or ""), quote=True)
+
+
+def _grid_columns(mobile):
+    return 2 if mobile else 6
+
+
+def _chunked(items, size):
+    items = list(items or [])
+    for idx in range(0, len(items), max(1, size)):
+        yield idx // max(1, size), items[idx : idx + max(1, size)]
+
+
+def _group_cards_by_lot(cards):
+    grouped = OrderedDict()
+    for card in cards or []:
+        key = str(card.get("lot_uid") or card.get("lot_idx") or card.get("lot_name") or "lot")
+        if key not in grouped:
+            grouped[key] = {"name": card.get("lot_name", "Lot"), "cards": []}
+        grouped[key]["cards"].append(card)
+    return grouped.values()
+
+
+def _limit_key(scope):
+    return f"vinted_{scope}_limit"
+
+
+def _query_sig_key(scope):
+    return f"vinted_{scope}_query_sig"
+
+
+def _visible_limit(scope, query, mobile, total):
+    key = _limit_key(scope)
+    sig_key = _query_sig_key(scope)
+    signature = str(query or "")
+    initial = 12 if mobile else 24
+    if st.session_state.get(sig_key) != signature:
+        st.session_state[sig_key] = signature
+        st.session_state[key] = min(initial, total)
+    current = int(st.session_state.get(key, initial) or initial)
+    current = min(max(initial, current), total)
+    st.session_state[key] = current
+    return current
+
+
+def _show_more(scope, mobile, total, label="Afficher plus"):
+    key = _limit_key(scope)
+    current = int(st.session_state.get(key, 0) or 0)
+    if current >= total:
+        return
+    step = 12 if mobile else 24
+    if st.button(label, key=f"vinted_show_more_{scope}", width="stretch"):
+        st.session_state[key] = min(total, current + step)
+        st.rerun()
+
+
+def _qty_state_key(scope, card):
+    return f"vinted_qty_{scope}_{_safe_js_id(card.get('_listing_key') or drop_card_key(card))}"
+
+
+def _selected_quantity(scope, card):
+    key = _qty_state_key(scope, card)
+    max_qty = max(1, int(card.get("available_qty", 1) or 1))
+    current = int(st.session_state.get(key, 1) or 1)
+    current = min(max(1, current), max_qty)
+    st.session_state[key] = current
+    return current, max_qty, key
+
+
+def _adjust_quantity(scope, card, delta):
+    current, max_qty, key = _selected_quantity(scope, card)
+    st.session_state[key] = min(max(1, current + delta), max_qty)
+
+
+def _card_static_html(card, proxy_img_func, fp_func, *, badge="", unavailable=False, drop_card=False):
+    img = _card_image(card)
+    if img:
+        try:
+            img = proxy_img_func(img)
+        except Exception:
+            pass
+        img_html = f'<img src="{_html_escape(img)}" loading="lazy" decoding="async" alt="">'
+    else:
+        img_html = "Image<br>absente"
+    meta_bits = []
+    if _card_set(card):
+        meta_bits.append(_card_set(card))
+    if _card_number(card):
+        meta_bits.append(f"#{_card_number(card)}")
+    meta = " · ".join(meta_bits)
+    price = suggested_price(card)
+    price_label = fp_func(price) if price else "Prix à définir"
+    stock_label = f"Stock x{int(card.get('available_qty', 0) or 0)}"
+    if drop_card:
+        qty = max(1, int(card.get("drop_quantity", card.get("quantity", 1)) or 1))
+        added_price = float(card.get("price_at_add", 0) or 0)
+        price_label = f"Ajout {fp_func(added_price)} × {qty}"
+        current = suggested_price(card)
+        if current and abs(current - added_price) >= 0.01:
+            price_label += f" · Actuel {fp_func(current)}"
+        stock_label = "Disponible" if not unavailable else "Indisponible"
+    badge_html = ""
+    if badge:
+        cls = "warn" if unavailable else ("ok" if "POST" in badge.upper() else "")
+        badge_html = f'<span class="ps-vinted-badge {cls}">{_html_escape(badge)}</span>'
+    return f"""
+<div class="ps-vinted-card">
+  <div class="ps-vinted-img">{img_html}</div>
+  <div class="ps-vinted-name">{_html_escape(_card_display_title(card))}</div>
+  <div class="ps-vinted-meta">{_html_escape(meta)}</div>
+  <div class="ps-vinted-price">{_html_escape(price_label)} · {_html_escape(stock_label)}</div>
+  {badge_html}
+</div>
+"""
 
 
 def _available_cards(d, card_available_qty_func, is_collection_system_lot_func):
@@ -205,14 +502,149 @@ def _drop_choice_options(drops_data):
     return {drop.get("name", "Drop sans nom"): drop.get("id") for drop in drops_data.get("drops", [])}
 
 
-def _add_card_to_drop_action(drops_data, drop_id, card):
-    added, duplicate = add_card_to_drop(drops_data, drop_id, card)
+def _card_with_drop_quantity(card, quantity):
+    item = dict(card)
+    item["drop_quantity"] = max(1, int(quantity or 1))
+    return item
+
+
+def _add_card_to_drop_action(drops_data, drop_id, card, quantity=1):
+    added, duplicate = add_card_to_drop(drops_data, drop_id, _card_with_drop_quantity(card, quantity))
     if added:
         save_vinted_drops(drops_data)
         st.success("Carte ajoutée au drop.")
         st.rerun()
     if duplicate:
         st.warning("Cette carte est déjà dans ce drop.")
+
+
+def _render_quantity_stepper(scope, card):
+    current, max_qty, _ = _selected_quantity(scope, card)
+    if max_qty <= 1:
+        return current
+    with st.container(horizontal=True, key=f"vinted_qty_line_{scope}_{_safe_js_id(card.get('_listing_key'))}"):
+        st.markdown('<span class="ps-vinted-qty-line">Qté</span>', unsafe_allow_html=True)
+        st.button(
+            "−",
+            key=f"vinted_qty_minus_{scope}_{_safe_js_id(card.get('_listing_key'))}",
+            disabled=current <= 1,
+            on_click=_adjust_quantity,
+            args=(scope, card, -1),
+        )
+        st.markdown(f'<span class="ps-vinted-qty-line">{current}</span>', unsafe_allow_html=True)
+        st.button(
+            "＋",
+            key=f"vinted_qty_plus_{scope}_{_safe_js_id(card.get('_listing_key'))}",
+            disabled=current >= max_qty,
+            on_click=_adjust_quantity,
+            args=(scope, card, 1),
+        )
+    return current
+
+
+def _render_available_card(
+    card,
+    *,
+    scope,
+    listing_type,
+    selected_keys,
+    drops_data,
+    active_drop_id,
+    proxy_img_func,
+    fp_func,
+    mode,
+):
+    key = card["_listing_key"]
+    active_drop = find_drop(drops_data, active_drop_id) if active_drop_id else None
+    already = bool(active_drop and card_is_in_drop(active_drop, card))
+    st.markdown(_card_static_html(card, proxy_img_func, fp_func), unsafe_allow_html=True)
+    quantity = _render_quantity_stepper(scope, card)
+
+    if mode == "classic":
+        if listing_type == "Carte seule":
+            if st.button("Sélectionner", key=f"vinted_pick_single_{scope}_{key}", width="stretch"):
+                _select_cards([card])
+                st.rerun()
+        else:
+            checkbox_key = f"vinted_multi_pick_{scope}_{key}"
+            checked = st.checkbox("Sélectionner", key=checkbox_key, value=key in selected_keys)
+            if checked and key not in selected_keys:
+                selected_keys.append(key)
+                st.session_state["vinted_selected_keys"] = selected_keys
+                st.session_state.pop("vinted_listing_signature", None)
+            elif not checked and key in selected_keys:
+                selected_keys.remove(key)
+                st.session_state["vinted_selected_keys"] = selected_keys
+                st.session_state.pop("vinted_listing_signature", None)
+
+    if active_drop_id:
+        if st.button(
+            "Déjà dans le drop" if already else "Ajouter au drop",
+            key=f"vinted_add_to_drop_{scope}_{active_drop_id}_{key}",
+            width="stretch",
+            disabled=already,
+        ):
+            _add_card_to_drop_action(drops_data, active_drop_id, card, quantity)
+
+
+def _render_grouped_available_grid(
+    cards,
+    *,
+    scope,
+    listing_type,
+    selected_keys,
+    drops_data,
+    active_drop_id,
+    proxy_img_func,
+    fp_func,
+    mobile,
+    mode,
+):
+    cols_count = _grid_columns(mobile)
+    for group_index, group in enumerate(_group_cards_by_lot(cards)):
+        group_cards = group["cards"]
+        if not group_cards:
+            continue
+        st.markdown(
+            f'<div class="ps-vinted-lot-title">{_html_escape(group["name"])} · {len(group_cards)} carte(s)</div>',
+            unsafe_allow_html=True,
+        )
+        for row_index, row in _chunked(group_cards, cols_count):
+            with st.container(horizontal=True, key=f"vinted_grid_{scope}_{group_index}_{row_index}"):
+                for card in row:
+                    with st.container(key=f"vinted_card_{scope}_{_safe_js_id(card.get('_listing_key'))}"):
+                        _render_available_card(
+                            card,
+                            scope=scope,
+                            listing_type=listing_type,
+                            selected_keys=selected_keys,
+                            drops_data=drops_data,
+                            active_drop_id=active_drop_id,
+                            proxy_img_func=proxy_img_func,
+                            fp_func=fp_func,
+                            mode=mode,
+                        )
+
+
+def _filter_cards_for_display(cards, query):
+    if not str(query or "").strip():
+        return list(cards or [])
+    return filter_cards_for_listing(cards, query, limit=len(cards or []))
+
+
+def _drop_total_value(drop):
+    total = 0.0
+    for ref in drop.get("cards", []) or []:
+        try:
+            price = float(ref.get("price_at_add", 0) or 0)
+        except Exception:
+            price = 0.0
+        try:
+            quantity = int(ref.get("quantity", 1) or 1)
+        except Exception:
+            quantity = 1
+        total += price * max(1, quantity)
+    return total
 
 
 def _render_search_result(card, listing_type, selected_keys, proxy_img_func, fp_func, drops_data, active_drop_id, mobile=False):
@@ -329,9 +761,9 @@ background:#ffffff;color:#0f1f36;font-weight:700;cursor:pointer;">
 
 
 def _render_listing_preview(selected_cards, proxy_img_func, run_html_func=None, mobile=False):
-    st.subheader("3. Aperçu de l'annonce")
+    st.subheader("Aperçu de l'annonce")
     if not selected_cards:
-        st.info("Sélectionne une carte ou prépare une carte depuis un drop pour générer l'aperçu.")
+        st.caption("Sélectionne une carte ou prépare une carte depuis un drop pour générer l'aperçu.")
         return
 
     with st.container(border=True):
@@ -418,7 +850,7 @@ def _render_listing_preview(selected_cards, proxy_img_func, run_html_func=None, 
                 st.text_area("Copie manuelle", value=st.session_state["vinted_copy_buffer"], height=160)
 
 
-def _render_selected_add_to_drop(drops_data, selected_cards):
+def _render_selected_add_to_drop(drops_data, selected_cards, scope="classic"):
     if not selected_cards or not drops_data.get("drops"):
         return
     options = _drop_choice_options(drops_data)
@@ -427,7 +859,11 @@ def _render_selected_add_to_drop(drops_data, selected_cards):
     name = st.selectbox("Ajouter la sélection au drop", list(options.keys()), key="vinted_drop_destination")
     drop_id = options.get(name)
     if st.button("Ajouter la sélection au drop", disabled=not selected_cards, width="stretch"):
-        added, duplicates = add_cards_to_drop(drops_data, drop_id, selected_cards)
+        cards_to_add = [
+            _card_with_drop_quantity(card, _selected_quantity(scope, card)[0])
+            for card in selected_cards
+        ]
+        added, duplicates = add_cards_to_drop(drops_data, drop_id, cards_to_add)
         if added:
             save_vinted_drops(drops_data)
             st.success(f"{added} carte(s) ajoutée(s) au drop.")
@@ -468,106 +904,106 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
         key="vinted_drop_add_query",
         placeholder="Ex : Dracaufeu, Rayquaza 89/90, Pohmarmotte...",
     )
-    controls = st.columns([1, 1])
-    with controls[0]:
-        if st.button("Afficher toutes les cartes disponibles", key="vinted_show_all_available", width="stretch"):
-            st.session_state["vinted_drop_show_all"] = True
-            st.session_state["vinted_drop_show_limit"] = 12 if mobile else 30
-            st.rerun()
-    with controls[1]:
-        if st.button("Masquer la liste", key="vinted_hide_all_available", width="stretch"):
-            st.session_state["vinted_drop_show_all"] = False
-            st.session_state["vinted_drop_show_limit"] = 12 if mobile else 30
-            st.rerun()
+    show_all = st.session_state.get("vinted_drop_show_all", True)
+    toggle_label = "Masquer les cartes disponibles" if show_all or query else "Afficher les cartes disponibles"
+    if st.button(toggle_label, key="vinted_toggle_available_cards", width="stretch"):
+        st.session_state["vinted_drop_show_all"] = not show_all
+        st.rerun()
 
-    if query:
-        candidates = filter_cards_for_listing(available_cards, query, limit=24 if mobile else 60)
-    elif st.session_state.get("vinted_drop_show_all"):
-        default_limit = 12 if mobile else 30
-        limit = int(st.session_state.get("vinted_drop_show_limit", default_limit) or default_limit)
-        candidates = list(available_cards[:limit])
-    else:
-        st.info("Recherchez une carte ou affichez toutes les cartes disponibles pour alimenter ce drop.")
+    if not query and not st.session_state.get("vinted_drop_show_all", True):
+        st.caption("La liste des cartes disponibles est masquée.")
         return
 
+    candidates_all = _filter_cards_for_display(available_cards, query)
+    limit = _visible_limit("drop_add", query, mobile, len(candidates_all))
+    candidates = candidates_all[:limit]
     if not candidates:
         st.caption("Aucune carte disponible trouvée.")
         return
 
-    st.caption(f"{len(candidates)} carte(s) affichée(s).")
-    for card in candidates:
-        _render_drop_add_result(card, drops_data, active_drop, proxy_img_func, fp_func, mobile)
-
-    if st.session_state.get("vinted_drop_show_all") and not query:
-        default_limit = 12 if mobile else 30
-        step = 12 if mobile else 30
-        limit = int(st.session_state.get("vinted_drop_show_limit", default_limit) or default_limit)
-        if len(available_cards) > limit:
-            if st.button("Afficher plus", key="vinted_drop_show_more", width="stretch"):
-                st.session_state["vinted_drop_show_limit"] = limit + step
-                st.rerun()
+    st.caption(f"{len(candidates)} / {len(candidates_all)} carte(s) affichée(s).")
+    _render_grouped_available_grid(
+        candidates,
+        scope="drop_add",
+        listing_type="Carte seule",
+        selected_keys=[],
+        drops_data=drops_data,
+        active_drop_id=active_drop.get("id"),
+        proxy_img_func=proxy_img_func,
+        fp_func=fp_func,
+        mobile=mobile,
+        mode="drop",
+    )
+    _show_more("drop_add", mobile, len(candidates_all))
 
 
 def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile):
     resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
-    st.markdown(f"**{active_drop.get('name', 'Drop sans nom')}** · {len(active_drop.get('cards', []))} carte(s)")
-    if missing_cards:
-        st.warning(f"{len(missing_cards)} carte(s) du drop ne sont plus disponibles à la vente.")
-
+    total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
+    st.subheader(f"Cartes du drop ({total_cards})")
     drop_query = st.text_input(
         "Rechercher dans ce drop",
         key="vinted_drop_filter_query",
         placeholder="Nom, numéro complet, extension, lot...",
     )
     filtered_cards = filter_drop_cards(resolved_cards, drop_query)
-    if not filtered_cards:
-        st.caption("Aucune carte dans ce drop." if not resolved_cards else "Aucune carte ne correspond à cette recherche.")
+    filtered_missing = filter_drop_cards(missing_cards, drop_query)
+    if not filtered_cards and not filtered_missing:
+        st.caption("Aucune carte dans ce drop." if not resolved_cards and not missing_cards else "Aucune carte ne correspond à cette recherche.")
         return
 
-    cols_count = 2 if mobile else 5
-    cols = st.columns(cols_count)
-    for idx, card in enumerate(filtered_cards):
-        card_ref_key = card.get("_drop_ref_key") or drop_card_key(
-            {
-                "lot_uid": card.get("lot_uid", ""),
-                "card_uid": card.get("card_uid", ""),
-                "lot_idx": card.get("lot_idx", 0),
-                "card_idx": card.get("card_idx", 0),
-                "name": card.get("name", ""),
-                "number": card.get("number", ""),
-                "set": card.get("set", ""),
-            }
+    if missing_cards:
+        st.warning(f"{len(missing_cards)} carte(s) du drop ne sont plus disponibles à la vente.")
+
+    cols_count = _grid_columns(mobile)
+    all_cards = list(filtered_cards) + list(filtered_missing)
+    for row_index, row in _chunked(all_cards, cols_count):
+        with st.container(horizontal=True, key=f"vinted_grid_drop_cards_{active_drop.get('id')}_{row_index}"):
+            for card in row:
+                _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func)
+
+
+def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
+    unavailable = not bool(card.get("_drop_available", True))
+    card_ref_key = card.get("_drop_ref_key") or drop_card_key(
+        {
+            "lot_uid": card.get("lot_uid", ""),
+            "card_uid": card.get("card_uid", ""),
+            "lot_idx": card.get("lot_idx", 0),
+            "card_idx": card.get("card_idx", 0),
+            "name": card.get("name", ""),
+            "number": card.get("number", ""),
+            "set": card.get("set", ""),
+        }
+    )
+    posted = bool(card.get("listing_posted", False))
+    badge = "INDISPONIBLE" if unavailable else ("POSTÉE" if posted else "À PRÉPARER")
+    with st.container(key=f"vinted_card_drop_{active_drop.get('id')}_{_safe_js_id(card_ref_key)}"):
+        st.markdown(
+            _card_static_html(card, proxy_img_func, fp_func, badge=badge, unavailable=unavailable, drop_card=True),
+            unsafe_allow_html=True,
         )
-        posted = bool(card.get("listing_posted", False))
-        with cols[idx % cols_count]:
-            with st.container(border=True):
-                _render_thumb(card, proxy_img_func, width=105)
-                st.markdown(f"**{_card_display_title(card)}**")
-                if posted:
-                    st.success("Annonce postée")
-                st.caption(fp_func(suggested_price(card)) if suggested_price(card) else "Prix à définir")
-                if _card_set(card):
-                    st.caption(_card_set(card))
-                if st.button("Préparer", key=f"prepare_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                    _select_cards([card])
-                    _open_classic_submenu()
+        if not unavailable:
+            if st.button("Préparer", key=f"prepare_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
+                drop_qty = max(1, int(card.get("drop_quantity", card.get("quantity", 1)) or 1))
+                selected = [_card_with_drop_quantity(card, drop_qty)]
+                _select_cards(selected)
+                _open_classic_submenu()
+                st.rerun()
+            posted_label = "Annuler postée" if posted else "Annonce postée"
+            if st.button(posted_label, key=f"posted_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
+                if toggle_drop_card_posted(drops_data, active_drop.get("id"), card_ref_key, not posted):
+                    save_vinted_drops(drops_data)
                     st.rerun()
-                posted_label = "Annuler postée" if posted else "Annonce postée"
-                if st.button(posted_label, key=f"posted_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                    if toggle_drop_card_posted(drops_data, active_drop.get("id"), card_ref_key, not posted):
-                        save_vinted_drops(drops_data)
-                        st.rerun()
-                if st.button("Retirer", key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                    if remove_card_from_drop(drops_data, active_drop.get("id"), card_ref_key):
-                        save_vinted_drops(drops_data)
-                        st.success("Carte retirée du drop.")
-                        st.rerun()
+        if st.button("Retirer du drop", key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
+            if remove_card_from_drop(drops_data, active_drop.get("id"), card_ref_key):
+                save_vinted_drops(drops_data)
+                st.success("Carte retirée du drop.")
+                st.rerun()
 
 
 def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile):
-    st.subheader("2. Drops Vinted")
-
-    with st.expander("Créer un drop", expanded=not bool(drops_data.get("drops"))):
+    with st.expander("+ Nouveau drop", expanded=not bool(drops_data.get("drops"))):
         new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
         if st.button("Créer le drop", key="create_vinted_drop", width="stretch"):
             create_drop(drops_data, new_name)
@@ -592,15 +1028,26 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
     if not active_drop:
         return
 
-    rename_col, delete_col = st.columns([2, 1])
-    with rename_col:
+    total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
+    total_value = _drop_total_value(active_drop)
+    st.markdown(
+        f"""
+<div class="ps-vinted-drop-head">
+  <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
+  <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'}</span>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("⚙️ Gérer le drop", expanded=False):
         renamed = st.text_input("Renommer le drop", value=active_drop.get("name", ""), key=f"rename_drop_{active_id}")
         if st.button("Enregistrer le nom", key=f"save_drop_name_{active_id}", width="stretch"):
             if rename_drop(drops_data, active_id, renamed):
                 save_vinted_drops(drops_data)
                 st.success("Drop renommé.")
                 st.rerun()
-    with delete_col:
+        st.divider()
         confirm = st.checkbox("Confirmer suppression", key=f"confirm_delete_drop_{active_id}")
         if st.button("Supprimer le drop", key=f"delete_drop_{active_id}", disabled=not confirm, width="stretch"):
             if delete_drop(drops_data, active_id):
@@ -627,6 +1074,7 @@ def render_vinted_listings_page(
     run_html_func=None,
 ):
     render_page_header_func("Annonces Vinted", "Assistant de création d'annonces prêtes à copier-coller")
+    _inject_vinted_styles()
 
     d = ld_func()
     cards = _available_cards(d, card_available_qty_func, is_collection_system_lot_func)
@@ -652,10 +1100,11 @@ def render_vinted_listings_page(
         ["Annonces classiques", "Drops Vinted"],
         horizontal=not mobile,
         key="vinted_submenu",
+        label_visibility="collapsed",
     )
 
     if submenu == "Annonces classiques":
-        st.subheader("1. Recherche carte")
+        st.subheader("Créer une annonce")
         listing_type = st.radio(
             "Mode d'annonce",
             ["Carte seule", "Plusieurs cartes"],
@@ -671,26 +1120,40 @@ def render_vinted_listings_page(
             key="vinted_search_query",
             placeholder="Ex : Meganium, Dracaufeu 199/165, Rayquaza 89/90...",
         )
-        results = filter_cards_for_listing(cards, query, limit=12 if mobile else 24)
-        if not query:
-            st.info("Recherchez une carte pour commencer.")
-        else:
-            st.caption(f"{len(results)} résultat(s) affiché(s).")
-            for card in results:
-                _render_search_result(card, listing_type, selected_keys, proxy_img_func, fp_func, drops_data, active_drop_id, mobile)
+        results_all = _filter_cards_for_display(cards, query)
+        limit = _visible_limit("classic", query, mobile, len(results_all))
+        results = results_all[:limit]
+        st.caption(f"{len(results)} / {len(results_all)} carte(s) affichée(s).")
+        _render_grouped_available_grid(
+            results,
+            scope="classic",
+            listing_type=listing_type,
+            selected_keys=selected_keys,
+            drops_data=drops_data,
+            active_drop_id=active_drop_id,
+            proxy_img_func=proxy_img_func,
+            fp_func=fp_func,
+            mobile=mobile,
+            mode="classic",
+        )
+        _show_more("classic", mobile, len(results_all))
 
         selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
         prepared = _sync_listing_text(selected_cards, listing_type, fp_func)
+        if listing_type == "Plusieurs cartes":
+            st.markdown(f'<span class="ps-vinted-pill">{len(selected_cards)} sélectionnée(s)</span>', unsafe_allow_html=True)
+            _render_selected_add_to_drop(drops_data, selected_cards, scope="classic")
 
-        left, right = st.columns([1, 1])
-        with left:
-            if st.button("Régénérer le titre et la description", width="stretch", disabled=not selected_cards):
-                st.session_state["vinted_listing_title"] = prepared["title"]
-                st.session_state["vinted_listing_description"] = prepared["description"]
-                st.rerun()
-        with right:
-            if st.button("Réinitialiser", width="stretch"):
-                _reset_vinted_form()
+        if selected_cards:
+            left, right = st.columns([1, 1])
+            with left:
+                if st.button("Régénérer le titre et la description", width="stretch"):
+                    st.session_state["vinted_listing_title"] = prepared["title"]
+                    st.session_state["vinted_listing_description"] = prepared["description"]
+                    st.rerun()
+            with right:
+                if st.button("Réinitialiser", width="stretch"):
+                    _reset_vinted_form()
 
         _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
     else:

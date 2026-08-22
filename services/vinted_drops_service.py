@@ -94,6 +94,11 @@ def drop_card_key(card_ref):
 
 
 def make_card_ref(card):
+    try:
+        quantity = int(card.get("drop_quantity", card.get("quantity_to_add", card.get("quantity", 1))) or 1)
+    except Exception:
+        quantity = 1
+    quantity = max(1, quantity)
     return {
         "lot_uid": card.get("lot_uid", ""),
         "card_uid": card.get("card_uid", ""),
@@ -105,6 +110,7 @@ def make_card_ref(card):
         "set": card.get("set", ""),
         "image_url": card.get("image_url", "") or card.get("image_url_en", ""),
         "price_at_add": card.get("price", card.get("suggested_price", 0)),
+        "quantity": quantity,
         "added_at": datetime.now().isoformat(timespec="seconds"),
         "listing_posted": bool(card.get("listing_posted", False)),
         "listing_posted_at": card.get("listing_posted_at", ""),
@@ -166,23 +172,38 @@ def toggle_drop_card_posted(data, drop_id, card_key, posted=None):
 
 def resolve_drop_cards_from_data(drop, available_cards):
     by_key = {}
+    by_uid = {}
     for card in available_cards or []:
         by_key[drop_card_key(make_card_ref(card))] = card
+        uid = str(card.get("card_uid") or "").strip()
+        lot_uid = str(card.get("lot_uid") or "").strip()
+        if uid:
+            by_uid[(lot_uid, uid)] = card
+            by_uid[("", uid)] = card
 
     resolved = []
     missing = []
     for ref in drop.get("cards", []):
         key = drop_card_key(ref)
-        card = by_key.get(key)
+        ref_uid = str(ref.get("card_uid") or "").strip()
+        ref_lot_uid = str(ref.get("lot_uid") or "").strip()
+        card = by_uid.get((ref_lot_uid, ref_uid)) or by_uid.get(("", ref_uid)) or by_key.get(key)
         if card:
             enriched = dict(card)
             enriched["_drop_ref_key"] = key
             enriched["listing_posted"] = bool(ref.get("listing_posted", False))
             enriched["listing_posted_at"] = ref.get("listing_posted_at", "")
+            enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
+            enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
+            enriched["_drop_available"] = True
             if ref.get("display_number"):
                 enriched["display_number"] = ref.get("display_number")
             resolved.append(enriched)
         else:
+            ref = dict(ref)
+            ref.setdefault("quantity", 1)
+            ref["_drop_ref_key"] = key
+            ref["_drop_available"] = False
             missing.append(ref)
     return resolved, missing
 
