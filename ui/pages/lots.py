@@ -922,24 +922,41 @@ def render_lots_page(context):
                                             '<span>Ajoute une photo si tu veux illustrer cette carte.</span>'
                                             '</div>'
                                         )
-                                        if st.button("Ajouter une photo", key=f"add_img_{widget_key}", width="stretch"):
-                                            st.session_state[f"show_upload_{widget_key}"] = True
 
                                     badges = lot_card_status_badges(crd, display_status)
                                     stock_txt = "🧾 Collection" if is_collection_card else ("📈 Stockage" if is_storage_card else ("✅" if is_sold_card else f"{stock}/{crd['quantity']}"))
                                     static_parts.append(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{html.escape(str(crd.get("name", "")))}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>')
-                                    st.markdown("".join(static_parts), unsafe_allow_html=True)
-
-                                    # Prix : pour les cartes vendues, afficher le prix de vente réel
+                                    ph = crd.get("price_history", [])
                                     if is_sold_card and crd.get("sold_entries"):
                                         last_sale = crd["sold_entries"][-1]
-                                        prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity",1)), 1)
-                                        st.markdown(f'<div style="font-size:0.9rem;font-weight:700;color:#64748b;">Vendu : <span style="color:#10b981;">{prix_reel:.2f}€</span></div>', unsafe_allow_html=True)
-                                        # Mettre à jour silencieusement le suggested_price si différent (correction données corrompues)
-                                        if abs(float(crd.get("suggested_price", 0)) - prix_reel) > 0.01:
-                                            pass  # sera corrigé par le bouton global
+                                        prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity", 1)), 1)
+                                        static_parts.append(f'<div style="font-size:0.82rem;font-weight:700;color:#64748b;">Vendu : <span style="color:#10b981;">{prix_reel:.2f}€</span></div>')
                                     else:
-                                        # Prix modifiable - sauvegarde sur perte de focus (Enter)
+                                        price_label = "Valeur" if is_collection_card else "Prix"
+                                        static_parts.append(f'<div style="font-size:0.82rem;font-weight:700;color:#64748b;">{price_label} : <span style="color:#0f172a;">{fp(float(crd.get("suggested_price") or 0))}</span></div>')
+                                        if ph and len(ph) >= 2:
+                                            diff = ph[-1]["price"] - ph[-2]["price"]
+                                            col_h = "#22c55e" if diff > 0 else "#ee1515"
+                                            static_parts.append(f'<span style="color:{col_h};font-size:0.72rem;font-weight:700;">{"↑" if diff>0 else "↓"} {fp(abs(diff))}</span>')
+                                    st.markdown("".join(static_parts), unsafe_allow_html=True)
+
+                                    edit_state_key = "lot_card_editing_key"
+                                    edit_key = f"{safe_lot_key}:{safe_scope}:{real_cix}:{card_key_part}"
+                                    is_editing = st.session_state.get(edit_state_key) == edit_key
+                                    if not is_editing:
+                                        if st.button("Modifier", key=f"edit_card_{widget_key}", width="stretch"):
+                                            st.session_state[edit_state_key] = edit_key
+                                            st.rerun()
+                                        continue
+
+                                    if st.button("Fermer", key=f"close_edit_card_{widget_key}", width="stretch"):
+                                        st.session_state.pop(f"show_store_{widget_key}", None)
+                                        st.session_state.pop(f"show_trade_move_{widget_key}", None)
+                                        st.session_state.pop(f"show_upload_{widget_key}", None)
+                                        st.session_state[edit_state_key] = None
+                                        st.rerun()
+
+                                    if not is_sold_card:
                                         def save_price(ix=ix, real_cix=real_cix, widget_key=widget_key):
                                             cdd = ld()
                                             new_price = st.session_state[f"ep{widget_key}"]
@@ -955,13 +972,6 @@ def render_lots_page(context):
                                             sd(cdd)
 
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
-
-                                        # Historique prix mini
-                                        ph = crd.get("price_history", [])
-                                        if ph and len(ph) >= 2:
-                                            diff = ph[-1]["price"] - ph[-2]["price"]
-                                            col_h = "#22c55e" if diff > 0 else "#ee1515"
-                                            st.markdown(f'<span style="color:{col_h};font-size:0.72rem;font-weight:700;">{"↑" if diff>0 else "↓"} {fp(abs(diff))}</span>', unsafe_allow_html=True)
 
                                     if not is_sold_card and not is_collection_card:
                                         st.number_input(
