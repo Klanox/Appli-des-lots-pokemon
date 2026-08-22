@@ -1327,8 +1327,8 @@ def ecd(c, s, lang="fr"):
 def set_current_page(page, source=""):
     st.session_state.current_page = page
     st.session_state["scroll_top_once"] = True
-    if source == "sidebar":
-        st.session_state["mobile_sidebar_close_after_nav"] = True
+    if source == "sidebar_main":
+        st.session_state["mobile_sidebar_click_outside_after_nav"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
         st.session_state["sale_scroll_top_pending"] = True
@@ -2037,7 +2037,7 @@ if not wrapped_story_active:
                         key=f"nav_{section['label'].lower()}_{label.lower()}_{page.lower()}",
                         type=btn_type,
                         on_click=set_current_page,
-                        args=(page, "sidebar"),
+                        args=(page, "sidebar_main"),
                     )
             st.markdown("---")
             with st.expander("⚙️ Paramètres", expanded=False):
@@ -2155,95 +2155,52 @@ if not wrapped_story_active:
                     except Exception as e:
                         st.error(f"Sauvegarde impossible : {e}")
 
-if st.session_state.pop("mobile_sidebar_close_after_nav", False):
+if st.session_state.pop("mobile_sidebar_click_outside_after_nav", False):
     run_html("""
     <script>
     (function() {
         const win = window.parent && window.parent !== window ? window.parent : window;
-        if (!win.matchMedia("(max-width: 768px)").matches) return;
+        if (!win.matchMedia || !win.matchMedia("(max-width: 768px)").matches) return;
         const doc = win.document;
-        const selectors = [
-            '[data-testid="stSidebarCollapseButton"] button',
-            'button[data-testid="stSidebarCollapseButton"]',
-            '[data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]',
-            'button[aria-label="Close sidebar"]',
-            'button[aria-label="Collapse sidebar"]',
-            'button[aria-label="Fermer la barre latérale"]',
-            'button[aria-label="Replier la barre latérale"]',
-            'button[title="Close sidebar"]',
-            'button[title="Collapse sidebar"]'
-        ];
-        const startedAt = win.performance.now();
-        let done = false;
+        let frames = 0;
+        const maxFrames = 45;
 
-        function sidebarIsOpen() {
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+        function sidebarIsOpen(sidebar) {
             if (!sidebar) return false;
+            const expanded = sidebar.getAttribute("aria-expanded");
+            if (expanded === "true") return true;
+            if (expanded === "false") return false;
             const rect = sidebar.getBoundingClientRect();
-            return rect.width > 0 && rect.right > 8 && rect.left > -rect.width + 8;
+            const style = win.getComputedStyle(sidebar);
+            return rect.width > 0 && rect.right > 8 && style.display !== "none" && style.visibility !== "hidden";
         }
 
-        function visibleButton(btn) {
-            if (!btn || btn.disabled) return false;
-            const rect = btn.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
+        function mainTarget() {
+            return doc.querySelector('section[data-testid="stMain"]') ||
+                doc.querySelector('[data-testid="stAppViewContainer"] main') ||
+                doc.querySelector('[data-testid="stAppViewContainer"]') ||
+                doc.body;
         }
 
-        function findCloseButton() {
-            for (const selector of selectors) {
-                const btn = doc.querySelector(selector);
-                if (visibleButton(btn)) return btn;
-            }
+        function dispatchOutsideMousedown() {
             const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            const buttons = Array.from((sidebar || doc).querySelectorAll('button'));
-            return buttons.find(function(btn) {
-                const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-                const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-                const title = (btn.getAttribute('title') || '').toLowerCase();
-                const label = text + ' ' + aria + ' ' + title;
-                return visibleButton(btn) && (
-                    label.includes('keyboard_double_arrow_left') ||
-                    label.includes('close sidebar') ||
-                    label.includes('collapse sidebar') ||
-                    label.includes('fermer la barre') ||
-                    label.includes('replier la barre')
-                );
-            });
+            if (sidebar && sidebarIsOpen(sidebar)) {
+                const target = mainTarget();
+                if (target && !sidebar.contains(target)) {
+                    target.dispatchEvent(new win.MouseEvent("mousedown", {
+                        bubbles: true,
+                        cancelable: true,
+                        view: win
+                    }));
+                    return;
+                }
+            }
+            if (sidebar && !sidebarIsOpen(sidebar)) return;
+            frames += 1;
+            if (frames < maxFrames) win.requestAnimationFrame(dispatchOutsideMousedown);
         }
 
-        function tryClose() {
-            if (done) return true;
-            if (!sidebarIsOpen()) {
-                done = true;
-                return true;
-            }
-            const btn = findCloseButton();
-            if (btn) {
-                done = true;
-                btn.click();
-                return true;
-            }
-            return false;
-        }
-
-        if (tryClose()) return;
-        const observer = new MutationObserver(function() {
-            if (tryClose()) observer.disconnect();
-        });
-        observer.observe(doc.body, {childList: true, subtree: true, attributes: true});
-
-        function waitFrame() {
-            if (tryClose()) {
-                observer.disconnect();
-                return;
-            }
-            if (win.performance.now() - startedAt > 2500) {
-                observer.disconnect();
-                return;
-            }
-            win.requestAnimationFrame(waitFrame);
-        }
-        win.requestAnimationFrame(waitFrame);
+        win.requestAnimationFrame(dispatchOutsideMousedown);
     })();
     </script>
     """, height=0)
