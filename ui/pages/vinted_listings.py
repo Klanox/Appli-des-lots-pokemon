@@ -982,18 +982,24 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
         scroll_top_token=_drop_scroll_top_token(active_drop.get("id"), query),
     )
     action = getattr(result, "action", None) if result is not None else None
-    if isinstance(action, dict) and action.get("type") == "add":
+    if isinstance(action, dict) and action.get("type") in ("add", "remove"):
         action_id = str(action.get("id") or "")
         if action_id and st.session_state.get("vinted_drop_last_action") != action_id:
             st.session_state["vinted_drop_last_action"] = action_id
             card_key = str(action.get("card_key") or "")
-            card = card_by_key.get(card_key)
-            if card:
-                try:
-                    quantity = int(action.get("quantity", 1) or 1)
-                except Exception:
-                    quantity = 1
-                _add_card_to_drop_action(drops_data, active_drop.get("id"), card, quantity)
+            if action.get("type") == "remove":
+                if remove_card_from_drop(drops_data, active_drop.get("id"), card_key):
+                    save_vinted_drops(drops_data)
+                    st.success("Carte retirée du drop.")
+                    st.rerun()
+            else:
+                card = card_by_key.get(card_key)
+                if card:
+                    try:
+                        quantity = int(action.get("quantity", 1) or 1)
+                    except Exception:
+                        quantity = 1
+                    _add_card_to_drop_action(drops_data, active_drop.get("id"), card, quantity)
     if result is None:
         st.caption("Affichage simplifié utilisé pour cette session.")
         _render_grouped_available_grid(

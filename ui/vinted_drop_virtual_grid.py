@@ -448,14 +448,12 @@ def _get_vinted_drop_grid_component():
             const action = doc.createElement("button");
             action.type = "button";
             action.className = "ps-sale-add";
-            action.textContent = isAdded ? "Déjà ajouté" : "Ajouter au drop";
-            action.disabled = isAdded;
+            action.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
             action.onclick = (event) => {
                 event.preventDefault();
-                if (isAdded) return;
                 setTriggerValue("action", {
-                    id: "vinted-drop-add-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-                    type: "add",
+                    id: "vinted-drop-" + (isAdded ? "remove" : "add") + "-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+                    type: isAdded ? "remove" : "add",
                     card_key: key,
                     card_uid: item.card_uid,
                     lot_uid: item.lot_uid,
