@@ -238,6 +238,22 @@ div[class*="st-key-vinted_grid_"] button {
     min-height:30px !important;
     padding:.2rem .4rem !important;
 }
+div[class*="st-key-vinted_drop_drawer_header_"] button {
+    justify-content:flex-start !important;
+    text-align:left !important;
+    min-height:40px !important;
+    padding:.45rem .72rem !important;
+    border:1px solid rgba(129,140,248,.26) !important;
+    border-radius:10px !important;
+    background:linear-gradient(135deg, rgba(248,250,252,.98), rgba(238,242,255,.8)) !important;
+    color:#0f172a !important;
+    font-weight:900 !important;
+    box-shadow:0 2px 10px rgba(15,23,42,.04) !important;
+}
+div[class*="st-key-vinted_drop_drawer_header_"] button:hover {
+    border-color:rgba(99,102,241,.45) !important;
+    background:linear-gradient(135deg, rgba(238,242,255,.98), rgba(255,255,255,.95)) !important;
+}
 @media (max-width:768px) {
     .ps-vinted-drop-head {
         padding:.7rem .78rem;
@@ -277,6 +293,23 @@ def _html_escape(value):
 
 def _grid_columns(mobile):
     return 2 if mobile else 6
+
+
+def _drawer_open_key(scope):
+    return f"vinted_drop_drawer_open_{scope}"
+
+
+def _render_drop_drawer_header(scope, label, default_open=True):
+    state_key = _drawer_open_key(scope)
+    if state_key not in st.session_state:
+        st.session_state[state_key] = bool(default_open)
+    is_open = bool(st.session_state.get(state_key))
+    icon = "▾" if is_open else "▸"
+    with st.container(key=f"vinted_drop_drawer_header_{scope}"):
+        if st.button(f"{icon} {label}", key=f"vinted_drop_drawer_toggle_{scope}", width="stretch"):
+            is_open = not is_open
+            st.session_state[state_key] = is_open
+    return is_open
 
 
 def _chunked(items, size):
@@ -956,7 +989,6 @@ def _render_drop_add_result(card, drops_data, active_drop, proxy_img_func, fp_fu
 
 
 def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile=False):
-    st.markdown("**Ajouter des cartes au drop**")
     query = st.text_input(
         "Rechercher une carte à ajouter au drop",
         key="vinted_drop_add_query",
@@ -1018,8 +1050,6 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
 
 def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile):
     resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
-    total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
-    st.subheader(f"Cartes du drop ({total_cards})")
     drop_query = st.text_input(
         "Rechercher dans ce drop",
         key="vinted_drop_filter_query",
@@ -1135,9 +1165,11 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
                 st.success("Drop supprimé.")
                 st.rerun()
 
-    _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
-    st.divider()
-    _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+    if _render_drop_drawer_header("add_cards", "Ajouter des cartes au drop", default_open=True):
+        _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+
+    if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
+        _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
 
 def render_vinted_listings_page(
