@@ -1331,6 +1331,13 @@ def set_current_page(page, source=""):
         st.session_state["sales_active_section"] = "Vente"
         st.session_state["sale_scroll_top_pending"] = True
 
+def navigate_to_native_page(page):
+    set_current_page(page, source="shortcut")
+    page_obj = globals().get("NATIVE_NAV_PAGE_OBJECTS", {}).get(page)
+    if page_obj is not None:
+        st.switch_page(page_obj)
+    st.rerun()
+
 def render_with_perf(label, render_func, *args, **kwargs):
     with rerun_phase(label):
         with perf_timer(label):
@@ -1977,6 +1984,8 @@ with rerun_phase("navigation_resolution"):
         except Exception:
             query_page = ""
         page_map = {
+            "accueil": "Accueil",
+            "home": "Accueil",
             "vente": "Vente",
             "echange": "Vente",
             "brocante": "Brocante",
@@ -2022,6 +2031,7 @@ NATIVE_NAV_URL_PATHS = {
     "Wrapped": "wrapped",
     "Compteurs": "compteurs",
 }
+NATIVE_NAV_PAGE_OBJECTS = {}
 
 def make_native_nav_page_runner(page_name):
     def run_native_nav_page():
@@ -2047,6 +2057,8 @@ def make_native_nav_page_runner(page_name):
     return run_native_nav_page
 
 def build_native_navigation_pages():
+    global NATIVE_NAV_PAGE_OBJECTS
+    NATIVE_NAV_PAGE_OBJECTS = {}
     sections = {}
     if "_native_nav_default_page" not in st.session_state:
         st.session_state["_native_nav_default_page"] = st.session_state.get("current_page", "Accueil")
@@ -2054,15 +2066,15 @@ def build_native_navigation_pages():
     for section in NAV_SECTIONS:
         pages = []
         for page_name, label, icon in section["items"]:
-            pages.append(
-                st.Page(
-                    make_native_nav_page_runner(page_name),
-                    title=label,
-                    icon=icon,
-                    url_path=NATIVE_NAV_URL_PATHS.get(page_name, str(page_name).lower().replace(" ", "-")),
-                    default=page_name == default_page_name,
-                )
+            page_obj = st.Page(
+                make_native_nav_page_runner(page_name),
+                title=label,
+                icon=icon,
+                url_path=NATIVE_NAV_URL_PATHS.get(page_name, str(page_name).lower().replace(" ", "-")),
+                default=page_name == default_page_name,
             )
+            NATIVE_NAV_PAGE_OBJECTS[page_name] = page_obj
+            pages.append(page_obj)
         if pages:
             sections[section["label"]] = pages
     return sections
@@ -2260,7 +2272,7 @@ if st.session_state.current_page=="Accueil":
         "render_page_header_func": render_page_header,
         "render_kpi_card_func": render_kpi_card,
         "kpi_accents": KPI_ACCENTS,
-        "set_current_page_func": set_current_page,
+        "set_current_page_func": navigate_to_native_page,
     }
     home_optional_kwargs = {
         "sd_func": sd,

@@ -134,8 +134,10 @@ def render_home_page(
             st.metric(label, value, delta=delta)
 
     c1, c2 = st.columns(2)
-    c1.button("💰 Nouvelle vente", width="stretch", type="primary", on_click=set_current_page_func, args=("Vente",))
-    c2.button("📦 Gérer les lots", width="stretch", on_click=set_current_page_func, args=("Lots",))
+    if c1.button("💰 Nouvelle vente", width="stretch", type="primary"):
+        set_current_page_func("Vente")
+    if c2.button("📦 Gérer les lots", width="stretch"):
+        set_current_page_func("Lots")
 
     st.markdown("---")
     st.markdown(
