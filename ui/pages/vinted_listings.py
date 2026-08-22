@@ -135,6 +135,12 @@ def _inject_vinted_styles():
     font-size:.86rem;
     margin:-.2rem 0 .75rem;
 }
+.ps-vinted-step-nav {
+    display:flex;
+    flex-wrap:wrap;
+    gap:.48rem;
+    margin:.15rem 0 .9rem;
+}
 .ps-vinted-pill {
     display:inline-flex;
     align-items:center;
@@ -149,7 +155,7 @@ def _inject_vinted_styles():
 .ps-vinted-muted-panel {
     border:1px solid rgba(129,140,248,.22);
     border-radius:12px;
-    background:rgba(248,250,252,.92);
+    background:linear-gradient(135deg, rgba(248,250,252,.96), rgba(238,242,255,.62));
     padding:1rem;
     color:#475569;
     font-weight:700;
@@ -179,11 +185,12 @@ def _inject_vinted_styles():
     margin-top:.2rem;
 }
 .ps-vinted-drop-head {
-    padding:.82rem .95rem;
-    border:1px solid rgba(129,140,248,.24);
+    padding:.86rem 1rem;
+    border:1px solid rgba(99,102,241,.32);
     border-radius:12px;
-    background:linear-gradient(135deg, rgba(238,242,255,.95), rgba(255,255,255,.96));
+    background:linear-gradient(135deg, rgba(238,242,255,.98), rgba(255,255,255,.96));
     margin:.2rem 0 .85rem;
+    box-shadow:0 10px 24px rgba(79,70,229,.08);
 }
 .ps-vinted-drop-head strong {
     display:block;
@@ -192,13 +199,65 @@ def _inject_vinted_styles():
     line-height:1.2;
 }
 .ps-vinted-drop-head span {
-    display:block;
     color:#64748b;
     font-size:.82rem;
     font-weight:700;
-    margin-top:.22rem;
+}
+.ps-vinted-drop-meta {
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:.42rem;
+    margin-top:.34rem;
+}
+.ps-vinted-channel {
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:.16rem .52rem;
+    border:1px solid #c7d2fe;
+    background:#eef2ff;
+    color:#3730a3 !important;
+    font-size:.72rem !important;
+    font-weight:900 !important;
+}
+.ps-vinted-channel-dexify {
+    border-color:#bfdbfe;
+    background:#eff6ff;
+    color:#1d4ed8 !important;
+}
+.ps-vinted-channel-pokedeal {
+    border-color:#ddd6fe;
+    background:#f5f3ff;
+    color:#6d28d9 !important;
+}
+.ps-vinted-channel-choppetacarte {
+    border-color:#fed7aa;
+    background:#fff7ed;
+    color:#c2410c !important;
+}
+.ps-vinted-section-title {
+    display:flex;
+    align-items:center;
+    gap:.42rem;
+    margin:.85rem 0 .45rem;
+    color:#0f172a;
+    font-size:.98rem;
+    font-weight:900;
+}
+.ps-vinted-section-title::before,
+.ps-vinted-lot-title::before {
+    content:"";
+    width:.38rem;
+    height:.38rem;
+    border-radius:999px;
+    background:#7c3aed;
+    box-shadow:0 0 0 4px rgba(124,58,237,.12);
 }
 .ps-vinted-lot-title {
+    display:flex;
+    align-items:center;
+    gap:.42rem;
     margin:1rem 0 .45rem;
     color:#0f172a;
     font-size:.92rem;
@@ -284,6 +343,41 @@ def _inject_vinted_styles():
     color:#db2777;
     border:1px solid #fbcfe8;
 }
+.ps-vinted-badge.status-to-photograph {
+    background:#e0f2fe;
+    color:#0369a1;
+    border:1px solid #bae6fd;
+}
+.ps-vinted-badge.status-needs-review {
+    background:#ffedd5;
+    color:#c2410c;
+    border:1px solid #fed7aa;
+}
+.ps-vinted-badge.status-sorted {
+    background:#ede9fe;
+    color:#6d28d9;
+    border:1px solid #ddd6fe;
+}
+.ps-vinted-badge.status-to-prepare {
+    background:#f3e8ff;
+    color:#7e22ce;
+    border:1px solid #e9d5ff;
+}
+.ps-vinted-badge.status-draft-ready {
+    background:#e0e7ff;
+    color:#4338ca;
+    border:1px solid #c7d2fe;
+}
+.ps-vinted-badge.status-online {
+    background:#dcfce7;
+    color:#15803d;
+    border:1px solid #bbf7d0;
+}
+.ps-vinted-badge.status-sold {
+    background:#bbf7d0;
+    color:#166534;
+    border:1px solid #86efac;
+}
 .ps-vinted-actions {
     margin-top:auto;
 }
@@ -308,6 +402,43 @@ def _inject_vinted_styles():
 div[class*="st-key-vinted_grid_"] button {
     min-height:30px !important;
     padding:.2rem .4rem !important;
+}
+div[class*="st-key-vinted_drop_step_"] button {
+    min-height:42px !important;
+    padding:.48rem .7rem !important;
+    border-radius:999px !important;
+    border:1px solid rgba(129,140,248,.34) !important;
+    background:linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,250,255,.92)) !important;
+    color:#1e293b !important;
+    font-weight:850 !important;
+    box-shadow:0 2px 8px rgba(15,23,42,.035) !important;
+}
+div[class*="st-key-vinted_drop_step_"] button:hover {
+    border-color:rgba(124,58,237,.52) !important;
+    background:linear-gradient(135deg, rgba(245,243,255,1), rgba(238,242,255,.95)) !important;
+    color:#4c1d95 !important;
+}
+div[class*="st-key-vinted_drop_step_"] button p {
+    white-space:normal !important;
+    line-height:1.12 !important;
+}
+div[class*="st-key-create_vinted_drop"] button,
+div[class*="st-key-vinted_add"] button,
+div[class*="st-key-prepare_drop_card"] button,
+div[class*="st-key-draft_ready_drop_card"] button,
+div[class*="st-key-launch_drop"] button {
+    background:#6d5dfc !important;
+    border-color:#6d5dfc !important;
+    color:#fff !important;
+}
+div[class*="st-key-create_vinted_drop"] button:hover,
+div[class*="st-key-vinted_add"] button:hover,
+div[class*="st-key-prepare_drop_card"] button:hover,
+div[class*="st-key-draft_ready_drop_card"] button:hover,
+div[class*="st-key-launch_drop"] button:hover {
+    background:#5b4bea !important;
+    border-color:#5b4bea !important;
+    color:#fff !important;
 }
 div[class*="st-key-vinted_drop_drawer_header_"] button {
     display:flex !important;
@@ -419,6 +550,61 @@ def _duration_label(delta):
     if hours:
         return f"{hours}h{minutes:02d}"
     return f"{minutes} min"
+
+
+def _drop_step_label(index, step):
+    return f"Étape {index + 1} · {step}"
+
+
+def _render_drop_step_nav(mobile):
+    if st.session_state.get("vinted_drop_step") not in DROP_WORKFLOW_STEPS:
+        st.session_state["vinted_drop_step"] = DROP_WORKFLOW_STEPS[0]
+    active_step = st.session_state.get("vinted_drop_step", DROP_WORKFLOW_STEPS[0])
+    active_index = DROP_WORKFLOW_STEPS.index(active_step)
+    st.markdown(
+        f"""
+<style>
+div[class*="st-key-vinted_drop_step_{active_index}"] button {{
+    background:linear-gradient(135deg, #6d5dfc, #7c3aed) !important;
+    border-color:#6d5dfc !important;
+    color:#fff !important;
+    box-shadow:0 10px 22px rgba(109,93,252,.26) !important;
+}}
+div[class*="st-key-vinted_drop_step_{active_index}"] button:hover {{
+    background:linear-gradient(135deg, #5b4bea, #6d28d9) !important;
+    border-color:#5b4bea !important;
+    color:#fff !important;
+}}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+    indexed_steps = list(enumerate(DROP_WORKFLOW_STEPS))
+    rows = [indexed_steps[i : i + 2] for i in range(0, len(indexed_steps), 2)] if mobile else [indexed_steps]
+    for row in rows:
+        cols = st.columns(len(row))
+        for col, (idx, step) in zip(cols, row):
+            with col:
+                if st.button(_drop_step_label(idx, step), key=f"vinted_drop_step_{idx}", width="stretch"):
+                    if st.session_state.get("vinted_drop_step") != step:
+                        st.session_state["vinted_drop_step"] = step
+                        st.rerun()
+    return st.session_state.get("vinted_drop_step", DROP_WORKFLOW_STEPS[0])
+
+
+def _drop_channel_class(channel):
+    channel = normalize_vinted_channel(channel)
+    if channel == "Dexify":
+        return "ps-vinted-channel-dexify"
+    if channel == "Pokédeal":
+        return "ps-vinted-channel-pokedeal"
+    if channel == "ChoppeTaCarte":
+        return "ps-vinted-channel-choppetacarte"
+    return ""
+
+
+def _drop_status_badge_class(status):
+    return "status-" + str(status or "").replace("_", "-")
 
 
 def _drawer_open_key(scope):
@@ -538,7 +724,7 @@ def _adjust_quantity(scope, card, delta):
     st.session_state[key] = min(max(1, current + delta), max_qty)
 
 
-def _card_static_html(card, proxy_img_func, fp_func, *, badge="", unavailable=False, drop_card=False):
+def _card_static_html(card, proxy_img_func, fp_func, *, badge="", badge_class="", unavailable=False, drop_card=False):
     img = _card_image(card, proxy_img_func)
     if img:
         img_html = f'<img src="{_html_escape(img)}" loading="lazy" decoding="async" alt="">'
@@ -563,7 +749,7 @@ def _card_static_html(card, proxy_img_func, fp_func, *, badge="", unavailable=Fa
         stock_label = "Disponible" if not unavailable else "Indisponible"
     badge_html = ""
     if badge:
-        cls = "warn" if unavailable else ("ok" if "POST" in badge.upper() else "")
+        cls = badge_class or ("warn" if unavailable else ("ok" if "POST" in badge.upper() else ""))
         badge_html = f'<span class="ps-vinted-badge {cls}">{_html_escape(badge)}</span>'
     stamp_label = card_stamp_label(card)
     stamp_html = f'<span class="ps-vinted-badge stamp">{_html_escape(stamp_label)}</span>' if stamp_label else ""
@@ -1234,9 +1420,18 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
     posted = bool(card.get("listing_posted", False))
     status = str(card.get("status") or ("online" if posted else "to_prepare"))
     badge = "INDISPONIBLE" if unavailable else drop_item_status_label(status)
+    badge_class = "warn" if unavailable else _drop_status_badge_class(status)
     with st.container(key=f"vinted_card_drop_{active_drop.get('id')}_{_safe_js_id(card_ref_key)}"):
         st.markdown(
-            _card_static_html(card, proxy_img_func, fp_func, badge=badge, unavailable=unavailable, drop_card=True),
+            _card_static_html(
+                card,
+                proxy_img_func,
+                fp_func,
+                badge=badge,
+                badge_class=badge_class,
+                unavailable=unavailable,
+                drop_card=True,
+            ),
             unsafe_allow_html=True,
         )
         if not unavailable:
@@ -1275,7 +1470,7 @@ def _render_drop_placeholder(title, body):
     st.markdown(
         f"""
 <div class="ps-vinted-muted-panel">
-  <strong>{_html_escape(title)}</strong><br>
+  <div class="ps-vinted-section-title">{_html_escape(title)}</div>
   {_html_escape(body)}
 </div>
 """,
@@ -1634,11 +1829,15 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
     total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
     total_value = _drop_total_value(active_drop)
     channel_label = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
+    channel_class = _drop_channel_class(channel_label)
     st.markdown(
         f"""
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
-  <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'} · {channel_label}</span>
+  <div class="ps-vinted-drop-meta">
+    <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'}</span>
+    <span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
+  </div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1788,15 +1987,7 @@ def render_vinted_listings_page(
         _render_classic_listing_section(cards, drops_data, proxy_img_func, fp_func, run_html_func, mobile, allow_drop_add=False)
         return
 
-    if st.session_state.get("vinted_drop_step") not in DROP_WORKFLOW_STEPS:
-        st.session_state["vinted_drop_step"] = DROP_WORKFLOW_STEPS[0]
-    step = st.radio(
-        "Workflow Drop Vinted",
-        list(DROP_WORKFLOW_STEPS),
-        horizontal=not mobile,
-        key="vinted_drop_step",
-        label_visibility="collapsed",
-    )
+    step = _render_drop_step_nav(mobile)
     _render_drops_manager(
         drops_data,
         cards,
