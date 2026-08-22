@@ -22,6 +22,7 @@ from core.trade_economics import (
     safe_int,
 )
 from services.custom_card_image_service import resolve_custom_card_image
+from ui.badges import card_stamp_label
 from ui.infinite_scroll import (
     render_virtual_scroll_sensor,
     stable_list_signature,
@@ -41,6 +42,12 @@ def _sale_image_html(card, *, in_cart=False, width="100%"):
             continue
         if url not in candidates:
             candidates.append(url)
+    try:
+        custom_url = resolve_custom_card_image(card)
+    except Exception:
+        custom_url = ""
+    if custom_url and custom_url not in candidates:
+        candidates.append(custom_url)
     placeholder = (
         '<div class="sale-img-placeholder" '
         'style="display:flex;align-items:center;justify-content:center;aspect-ratio:0.72;'
@@ -98,6 +105,16 @@ def _sale_image_preload_urls(card, *, limit=1):
             urls.append(url)
         if len(urls) >= limit:
             break
+    if len(urls) < limit:
+        try:
+            custom_url = resolve_custom_card_image(card)
+        except Exception:
+            custom_url = ""
+        if custom_url and custom_url not in urls:
+            try:
+                urls.append(str(proxy(custom_url)))
+            except Exception:
+                urls.append(custom_url)
     return urls
 
 
@@ -130,6 +147,7 @@ def _sale_frontend_lot_groups(source_items, fp_func, lot_profitable_func):
             "price_label": fp_func(price),
             "stock": int(stock or 0),
             "image_url": image_urls[0] if image_urls else "",
+            "stamp_label": card_stamp_label(card),
             "lot_profitable": bool(lot_profitable_func(li, lot)),
         })
     return [groups_by_lot[lot_key] for lot_key in lot_order]

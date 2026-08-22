@@ -113,6 +113,22 @@ def _get_vinted_drop_grid_component():
         font-size: 0.68rem;
         font-weight: 900;
     }
+    .ps-sale-stamp {
+        position: absolute;
+        left: 5px;
+        top: 5px;
+        border-radius: 999px;
+        background: #fdf2f8;
+        color: #db2777;
+        border: 1px solid #fbcfe8;
+        font-size: 0.62rem;
+        font-weight: 900;
+        padding: 3px 7px;
+        max-width: calc(100% - 10px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     .ps-sale-name {
         min-height: 38px;
         margin-top: 8px;
@@ -410,6 +426,12 @@ def _get_vinted_drop_grid_component():
                 ok.className = "ps-sale-ok";
                 ok.textContent = "OK";
                 imageWrap.appendChild(ok);
+            }
+            if (item.stamp_label) {
+                const stamp = doc.createElement("span");
+                stamp.className = "ps-sale-stamp";
+                stamp.textContent = String(item.stamp_label);
+                imageWrap.appendChild(stamp);
             }
             card.appendChild(imageWrap);
             text(card, "ps-sale-name", item.name || "Carte");

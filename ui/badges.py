@@ -31,6 +31,37 @@ def status_badge(label):
     )
 
 
+def card_stamp_label(card):
+    if not isinstance(card, dict):
+        return ""
+    raw_stamp = card.get("stamp")
+    if raw_stamp:
+        if isinstance(raw_stamp, bool):
+            return "Stamp"
+        stamp_text = str(raw_stamp or "").strip()
+        return stamp_text or "Stamp"
+    if card.get("is_stamp"):
+        return "Stamp"
+
+    values = []
+    for key in ("special_tag", "special", "variant", "rarity", "category"):
+        value = card.get(key)
+        if value:
+            values.extend(str(part).strip() for part in str(value).split(",") if str(part).strip())
+    for key in ("tags", "metadata_tags", "card_tags", "subtypes", "types"):
+        value = card.get(key) or []
+        if isinstance(value, (list, tuple, set)):
+            values.extend(str(part).strip() for part in value if str(part).strip())
+        elif value:
+            values.extend(str(part).strip() for part in str(value).split(",") if str(part).strip())
+
+    for value in values:
+        folded = value.casefold()
+        if folded in {"stamp", "stamped"} or " stamp" in f" {folded} " or "stamped" in folded:
+            return "Stamp"
+    return ""
+
+
 def card_status_badges(card, include_storage=True):
     badges = []
     transfer_destination = str(card.get("trade_transfer_destination", "") or "").strip().lower()

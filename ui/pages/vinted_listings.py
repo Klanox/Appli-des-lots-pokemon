@@ -30,6 +30,8 @@ from services.vinted_listing_service import (
     prepare_listing,
     suggested_price,
 )
+from services.custom_card_image_service import resolve_custom_card_image
+from ui.badges import card_stamp_label
 from ui.vinted_drop_virtual_grid import render_vinted_drop_virtual_grid
 
 
@@ -41,16 +43,40 @@ def _ui_text(value, fallback=""):
     return " ".join(text.split())
 
 
-def _card_image(card):
-    for key in ("image_url", "image_url_en", "resolved_collection_image_url", "manual_image_url"):
-        value = str(card.get(key, "") or "").strip()
-        if value:
-            return value
-    for key in ("manual_image_path", "image_path", "local_image_path"):
-        value = str(card.get(key, "") or "").strip()
-        if value and os.path.exists(value):
-            return value
-    return ""
+def _card_image(card, proxy_img_func=None):
+    candidates = []
+
+    def add_candidate(value):
+        value = str(value or "").strip()
+        if not value or value == "__placeholder__":
+            return
+        if value.startswith(("card_images/", "card_images\\")) or os.path.exists(value):
+            if not os.path.exists(value):
+                return
+        if value not in candidates:
+            candidates.append(value)
+
+    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url"):
+        add_candidate(card.get(key))
+    for key in ("image_path", "local_image_path"):
+        add_candidate(card.get(key))
+    for key in ("image_url", "image_url_en"):
+        add_candidate(card.get(key))
+
+    try:
+        add_candidate(resolve_custom_card_image(card))
+    except Exception:
+        pass
+
+    if not candidates:
+        return ""
+    image = candidates[0]
+    if proxy_img_func:
+        try:
+            return proxy_img_func(image)
+        except Exception:
+            return image
+    return image
 
 
 def _lot_name(lot):
@@ -213,6 +239,11 @@ def _inject_vinted_styles():
     background:#fee2e2;
     color:#991b1b;
 }
+.ps-vinted-badge.stamp {
+    background:#fdf2f8;
+    color:#db2777;
+    border:1px solid #fbcfe8;
+}
 .ps-vinted-actions {
     margin-top:auto;
 }
@@ -239,20 +270,25 @@ div[class*="st-key-vinted_grid_"] button {
     padding:.2rem .4rem !important;
 }
 div[class*="st-key-vinted_drop_drawer_header_"] button {
+    display:flex !important;
+    align-items:center !important;
     justify-content:flex-start !important;
     text-align:left !important;
-    min-height:40px !important;
-    padding:.45rem .72rem !important;
-    border:1px solid rgba(129,140,248,.26) !important;
-    border-radius:10px !important;
-    background:linear-gradient(135deg, rgba(248,250,252,.98), rgba(238,242,255,.8)) !important;
+    min-height:48px !important;
+    padding:.55rem .82rem !important;
+    border:1px solid rgba(129,140,248,.28) !important;
+    border-radius:12px !important;
+    background:linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,250,255,.96)) !important;
     color:#0f172a !important;
-    font-weight:900 !important;
-    box-shadow:0 2px 10px rgba(15,23,42,.04) !important;
+    font-weight:800 !important;
+    box-shadow:0 2px 8px rgba(15,23,42,.035) !important;
 }
 div[class*="st-key-vinted_drop_drawer_header_"] button:hover {
-    border-color:rgba(99,102,241,.45) !important;
-    background:linear-gradient(135deg, rgba(238,242,255,.98), rgba(255,255,255,.95)) !important;
+    border-color:rgba(99,102,241,.42) !important;
+    background:linear-gradient(135deg, rgba(255,255,255,1), rgba(238,242,255,.72)) !important;
+}
+div[class*="st-key-vinted_drop_drawer_header_"] {
+    margin:.35rem 0 .28rem !important;
 }
 @media (max-width:768px) {
     .ps-vinted-drop-head {
@@ -304,9 +340,42 @@ def _render_drop_drawer_header(scope, label, default_open=True):
     if state_key not in st.session_state:
         st.session_state[state_key] = bool(default_open)
     is_open = bool(st.session_state.get(state_key))
-    icon = "▾" if is_open else "▸"
+    chevron = "▾" if is_open else "▸"
+    badge_css = ""
+    badge_match = re.search(r"\(([^()]*)\)\s*$", str(label or ""))
+    if badge_match:
+        badge = _html_escape(badge_match.group(1))
+        label = str(label or "")[: badge_match.start()].strip()
+        badge_css = (
+            f'div[class*="st-key-vinted_drop_drawer_toggle_{scope}"] button p::after {{'
+            f'content:"{badge}";display:inline-flex;align-items:center;margin-left:.55rem;'
+            f'padding:.12rem .48rem;border-radius:999px;background:#eef2ff;color:#3730a3;'
+            f'border:1px solid #c7d2fe;font-size:.72rem;font-weight:900;'
+            f'}}'
+        )
+    st.markdown(
+        f"""
+<style>
+div[class*="st-key-vinted_drop_drawer_toggle_{scope}"] button::after {{
+    content:"{chevron}";
+    margin-left:auto;
+    color:#4f46e5;
+    font-size:1rem;
+    font-weight:900;
+}}
+div[class*="st-key-vinted_drop_drawer_toggle_{scope}"] button p {{
+    display:flex;
+    align-items:center;
+    flex:1;
+    margin:0;
+}}
+{badge_css}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
     with st.container(key=f"vinted_drop_drawer_header_{scope}"):
-        if st.button(f"{icon} {label}", key=f"vinted_drop_drawer_toggle_{scope}", width="stretch"):
+        if st.button(str(label or ""), key=f"vinted_drop_drawer_toggle_{scope}", width="stretch"):
             is_open = not is_open
             st.session_state[state_key] = is_open
     return is_open
@@ -380,12 +449,8 @@ def _adjust_quantity(scope, card, delta):
 
 
 def _card_static_html(card, proxy_img_func, fp_func, *, badge="", unavailable=False, drop_card=False):
-    img = _card_image(card)
+    img = _card_image(card, proxy_img_func)
     if img:
-        try:
-            img = proxy_img_func(img)
-        except Exception:
-            pass
         img_html = f'<img src="{_html_escape(img)}" loading="lazy" decoding="async" alt="">'
     else:
         img_html = "Image<br>absente"
@@ -410,12 +475,15 @@ def _card_static_html(card, proxy_img_func, fp_func, *, badge="", unavailable=Fa
     if badge:
         cls = "warn" if unavailable else ("ok" if "POST" in badge.upper() else "")
         badge_html = f'<span class="ps-vinted-badge {cls}">{_html_escape(badge)}</span>'
+    stamp_label = card_stamp_label(card)
+    stamp_html = f'<span class="ps-vinted-badge stamp">{_html_escape(stamp_label)}</span>' if stamp_label else ""
     return f"""
 <div class="ps-vinted-card">
   <div class="ps-vinted-img">{img_html}</div>
   <div class="ps-vinted-name">{_html_escape(_card_display_title(card))}</div>
   <div class="ps-vinted-meta">{_html_escape(meta)}</div>
   <div class="ps-vinted-price">{_html_escape(price_label)} · {_html_escape(stock_label)}</div>
+  {stamp_html}
   {badge_html}
 </div>
 """
@@ -500,12 +568,8 @@ def _active_drop_id(drops_data):
 
 
 def _render_thumb(card, proxy_img_func, width=92):
-    img = _card_image(card)
+    img = _card_image(card, proxy_img_func)
     if img:
-        try:
-            img = proxy_img_func(img)
-        except Exception:
-            pass
         st.image(img, width=width)
     else:
         st.markdown(
@@ -694,12 +758,7 @@ def _drop_grid_groups(cards, proxy_img_func, fp_func):
     for group in _group_cards_by_lot(cards):
         payload_cards = []
         for card in group.get("cards", []) or []:
-            img = _card_image(card)
-            if img:
-                try:
-                    img = proxy_img_func(img)
-                except Exception:
-                    pass
+            img = _card_image(card, proxy_img_func)
             price = suggested_price(card)
             payload_cards.append(
                 {
@@ -715,6 +774,7 @@ def _drop_grid_groups(cards, proxy_img_func, fp_func):
                     "price_label": fp_func(price) if price else "Prix à définir",
                     "stock": int(card.get("available_qty", 0) or 0),
                     "image_url": img,
+                    "stamp_label": card_stamp_label(card),
                 }
             )
         if payload_cards:
