@@ -1168,8 +1168,6 @@ def render_lots_page(context):
                         "sold_quantity": int(card.get("sold_quantity", 0) or 0),
                         "stored_quantity": int(card.get("stored_quantity", 0) or 0),
                         "available": int(stock),
-                        "is_reverse": bool(card.get("is_reverse", False)),
-                        "is_ed1": bool(card.get("is_ed1", False)),
                         "trade_move": bool(is_trade and stock > 0 and not is_sold_card and not is_collection_card),
                         "can_store": bool((not is_storage) and stock > 0 and not is_sold_card and not is_collection_card and not is_trade),
                     }
@@ -1304,15 +1302,6 @@ def render_lots_page(context):
                             new_q = int(action.get("value") or card_data.get("quantity", 1))
                             sold_q = int(card_data.get("sold_quantity", 0))
                             card_data["quantity"] = max(new_q, sold_q)
-                            sd(cdd)
-                            st.rerun()
-                    elif action_type == "set_badges":
-                        field = str(action.get("field") or "")
-                        if field not in ("is_reverse", "is_ed1"):
-                            return
-                        cdd = ld()
-                        if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
-                            cdd["lots"][ix]["cards"][real_cix][field] = bool(action.get("value"))
                             sd(cdd)
                             st.rerun()
                     elif action_type == "delete":

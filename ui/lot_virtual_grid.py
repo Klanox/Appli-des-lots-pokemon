@@ -161,7 +161,6 @@ def _get_lot_grid_component():
         font-weight: 900;
     }
     .ps-lot-v-input-row,
-    .ps-lot-v-check-row,
     .ps-lot-v-button-row {
         display: flex;
         align-items: center;
@@ -220,20 +219,6 @@ def _get_lot_grid_component():
         border-color: #bbf7d0;
         background: #f0fdf4;
         color: #15803d;
-    }
-    .ps-lot-v-check {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        color: #475569;
-        font-size: 0.65rem;
-        font-weight: 800;
-        min-width: 0;
-    }
-    .ps-lot-v-check input {
-        width: 14px;
-        height: 14px;
-        margin: 0;
     }
     @media (max-width: 768px) {
         .ps-lot-v-card {
@@ -378,20 +363,6 @@ def _get_lot_grid_component():
                 onClick();
             };
             return btn;
-        }
-
-        function makeCheck(label, checked, onChange) {
-            const wrap = doc.createElement("label");
-            wrap.className = "ps-lot-v-check";
-            const input = doc.createElement("input");
-            input.type = "checkbox";
-            input.checked = Boolean(checked);
-            input.addEventListener("change", () => onChange(input.checked));
-            const span = doc.createElement("span");
-            span.textContent = label;
-            wrap.appendChild(input);
-            wrap.appendChild(span);
-            return wrap;
         }
 
         function buildRows(colCount, rowHeight) {
@@ -601,13 +572,11 @@ def _get_lot_grid_component():
                 card.appendChild(row);
             }
 
-            const checks = doc.createElement("div");
-            checks.className = "ps-lot-v-check-row";
-            checks.appendChild(makeCheck("Reverse", item.is_reverse, (checked) => emit("set_badges", item, { field: "is_reverse", value: checked })));
-            checks.appendChild(makeCheck("1ère Éd", item.is_ed1, (checked) => emit("set_badges", item, { field: "is_ed1", value: checked })));
-            checks.appendChild(makeButton("Image", "", () => emit("upload_image", item)));
-            checks.appendChild(makeButton("Suppr.", "danger", () => emit("delete", item)));
-            card.appendChild(checks);
+            const actions = doc.createElement("div");
+            actions.className = "ps-lot-v-button-row";
+            actions.appendChild(makeButton("Image", "", () => emit("upload_image", item)));
+            actions.appendChild(makeButton("Suppr.", "danger", () => emit("delete", item)));
+            card.appendChild(actions);
             return card;
         }
 
