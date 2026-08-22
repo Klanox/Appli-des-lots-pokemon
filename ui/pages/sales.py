@@ -22,6 +22,7 @@ from core.trade_economics import (
     safe_int,
 )
 from services.custom_card_image_service import resolve_custom_card_image
+from services.vinted_channels import SALE_CHANNELS
 from ui.badges import card_stamp_label
 from ui.infinite_scroll import (
     render_virtual_scroll_sensor,
@@ -862,7 +863,7 @@ def render_sales_page(context):
                     @st.dialog("📡 Canal de vente")
                     def ask_canal_bulk():
                         st.markdown(f"**Vente — {fp(pending.get('price', 0))}**")
-                        CANAUX = ["Main propre", "Brocante", "Dexify_TCG", "Pokédeal"]
+                        CANAUX = list(SALE_CHANNELS)
                         canal_b = st.selectbox("Via quel canal ?", CANAUX, key="canal_bulk_sel")
                         c1, c2 = st.columns(2)
                         if c1.button("✅ Confirmer", type="primary", width="stretch"):

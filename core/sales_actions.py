@@ -5,6 +5,7 @@ to preserve formulas and sold_entries behavior.
 """
 
 from core.trade_economics import sale_allocation_for_trade_card
+from services.vinted_drops_service import link_sale_to_vinted_drop_if_applicable
 
 
 def configure_sales_actions(context):
@@ -20,7 +21,7 @@ def _scu_in_data(cd, li, ci, q, p, canal="Main propre"):
     crd["sold_quantity"]=crd.get("sold_quantity",0)+q
     prix_total = p*q
     sale_id = f"{crd.get('card_uid')}_{int(time.time()*1000)}"
-    crd.setdefault("sold_entries",[]).append({
+    sale_entry = {
         "sale_id": sale_id,
         "date":datetime.now().isoformat(),
         "quantity":q,
@@ -32,7 +33,9 @@ def _scu_in_data(cd, li, ci, q, p, canal="Main propre"):
         "lot_uid": cd["lots"][li].get("lot_uid"),
         "suggested_price_at_sale": float(crd.get("suggested_price", p)),
         "canal": canal,
-    })
+    }
+    link_sale_to_vinted_drop_if_applicable(sale_entry, canal)
+    crd.setdefault("sold_entries",[]).append(sale_entry)
 
     # ── Redistribution du bénéfice aux lots contributeurs ──
     # Si cette carte a été reçue par échange avec contribution de plusieurs lots,

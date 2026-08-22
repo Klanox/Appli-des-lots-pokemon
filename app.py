@@ -115,6 +115,7 @@ from core.sales_actions import (
     scroll_to_cart_prepare,
 )
 from services.custom_card_image_service import apply_custom_image_fallback
+from services.vinted_channels import SALE_CHANNELS
 
 from ui.components import (
     KPI_ACCENTS,
@@ -827,7 +828,7 @@ def migrate_open_trade_cards(d):
 @st.dialog("📡 Canal de vente")
 def ask_canal(lot_idx, card_idx, qty, price):
     st.markdown(f"**Vente de {qty} carte(s) — {fp(price * qty)}**")
-    CANAUX = ["Main propre", "Brocante", "Dexify_TCG", "Pokédeal"]
+    CANAUX = list(SALE_CHANNELS)
     canal = st.selectbox("Via quel canal ?", CANAUX)
     c1, c2 = st.columns(2)
     if c1.button("✅ Confirmer", type="primary", width="stretch"):
@@ -1997,8 +1998,12 @@ with rerun_phase("navigation_resolution"):
             "fournisseurs": "Fournisseurs",
             "fournisseur": "Fournisseurs",
             "suppliers": "Fournisseurs",
+            "annonces-individuelles": "Annonces individuelles",
+            "annonces-individuelle": "Annonces individuelles",
+            "individual-listings": "Annonces individuelles",
             "annonces": "Annonces Vinted",
             "annonces-vinted": "Annonces Vinted",
+            "drop-vinted": "Annonces Vinted",
             "vinted": "Annonces Vinted",
             "historique": "Historique",
             "marche": "Marché",
@@ -2023,6 +2028,7 @@ NATIVE_NAV_URL_PATHS = {
     "Collection": "collection",
     "Estimations": "estimations",
     "Fournisseurs": "fournisseurs",
+    "Annonces individuelles": "annonces-individuelles",
     "Annonces Vinted": "annonces-vinted",
     "Archivés": "archives",
     "Historique": "historique",
@@ -2395,9 +2401,9 @@ elif st.session_state.current_page=="Estimations":
     )
 elif st.session_state.current_page=="Fournisseurs":
     render_with_perf("page Fournisseurs", render_fournisseurs_page, globals())
-elif st.session_state.current_page=="Annonces Vinted":
+elif st.session_state.current_page=="Annonces individuelles":
     render_with_perf(
-        "page Annonces Vinted",
+        "page Annonces individuelles",
         render_vinted_listings_page,
         ld_func=ld,
         card_available_qty_func=card_available_qty,
@@ -2408,6 +2414,23 @@ elif st.session_state.current_page=="Annonces Vinted":
         is_mobile_mode_func=is_mobile_mode,
         perf_count_func=perf_count,
         run_html_func=run_html,
+        page_mode="individual",
+    )
+elif st.session_state.current_page=="Annonces Vinted":
+    render_with_perf(
+        "page Drop Vinted",
+        render_vinted_listings_page,
+        ld_func=ld,
+        card_available_qty_func=card_available_qty,
+        is_collection_system_lot_func=is_collection_system_lot,
+        proxy_img_func=proxy_img,
+        render_page_header_func=render_page_header,
+        fp_func=fp,
+        is_mobile_mode_func=is_mobile_mode,
+        perf_count_func=perf_count,
+        run_html_func=run_html,
+        page_mode="drop",
+        calc_cout_lot_func=calc_cout_lot,
     )
 elif st.session_state.current_page=="Historique":
     render_with_perf(

@@ -4,25 +4,33 @@ import json
 import os
 import re
 from collections import OrderedDict
+from datetime import datetime, timedelta
 
 import streamlit as st
 
 from services.vinted_drops_service import (
+    DROP_ITEM_STATUSES,
     add_card_to_drop,
     add_cards_to_drop,
     card_is_in_drop,
     create_drop,
     delete_drop,
+    drop_item_status,
+    drop_item_status_label,
     drop_card_key,
     filter_drop_cards,
     find_drop,
+    launch_drop,
     load_vinted_drops,
     remove_card_from_drop,
     rename_drop,
     resolve_drop_cards_from_data,
     save_vinted_drops,
+    set_drop_card_status,
     toggle_drop_card_posted,
+    update_drop_channel,
 )
+from services.vinted_channels import VINTED_CHANNELS, normalize_vinted_channel
 from services.vinted_listing_service import (
     filter_cards_for_listing,
     full_card_number,
@@ -137,6 +145,38 @@ def _inject_vinted_styles():
     color:#3730a3;
     font-weight:800;
     font-size:.76rem;
+}
+.ps-vinted-muted-panel {
+    border:1px solid rgba(129,140,248,.22);
+    border-radius:12px;
+    background:rgba(248,250,252,.92);
+    padding:1rem;
+    color:#475569;
+    font-weight:700;
+}
+.ps-vinted-kpi-grid {
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:.65rem;
+    margin:.65rem 0 .9rem;
+}
+.ps-vinted-kpi {
+    border:1px solid rgba(129,140,248,.22);
+    border-radius:12px;
+    background:#fff;
+    padding:.75rem;
+}
+.ps-vinted-kpi span {
+    display:block;
+    color:#64748b;
+    font-size:.72rem;
+    font-weight:800;
+}
+.ps-vinted-kpi strong {
+    display:block;
+    color:#0f172a;
+    font-size:1.05rem;
+    margin-top:.2rem;
 }
 .ps-vinted-drop-head {
     padding:.82rem .95rem;
@@ -307,6 +347,9 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-vinted-price {
         font-size:.66rem;
     }
+    .ps-vinted-kpi-grid {
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
     [data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] {
         gap:8px !important;
     }
@@ -329,6 +372,53 @@ def _html_escape(value):
 
 def _grid_columns(mobile):
     return 2 if mobile else 6
+
+
+DROP_WORKFLOW_STEPS = (
+    "Choix des cartes",
+    "Tri des photos",
+    "Vérification",
+    "Création des annonces",
+    "Analyse des drops",
+)
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value or default)
+    except Exception:
+        return float(default)
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value or default)
+    except Exception:
+        return int(default)
+
+
+def _parse_dt(value):
+    value = str(value or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _duration_label(delta):
+    if delta is None:
+        return "N/A"
+    total_seconds = max(0, int(delta.total_seconds()))
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    if days:
+        return f"J+{days}" + (f" {hours}h" if hours else "")
+    if hours:
+        return f"{hours}h{minutes:02d}"
+    return f"{minutes} min"
 
 
 def _drawer_open_key(scope):
@@ -550,10 +640,6 @@ def _reset_vinted_form():
 def _select_cards(cards):
     st.session_state["vinted_selected_keys"] = [card["_listing_key"] for card in cards]
     st.session_state.pop("vinted_listing_signature", None)
-
-
-def _open_classic_submenu():
-    st.session_state["_vinted_submenu_target"] = "Annonces classiques"
 
 
 def _active_drop_id(drops_data):
@@ -1146,7 +1232,8 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
         }
     )
     posted = bool(card.get("listing_posted", False))
-    badge = "INDISPONIBLE" if unavailable else ("POSTÉE" if posted else "À PRÉPARER")
+    status = str(card.get("status") or ("online" if posted else "to_prepare"))
+    badge = "INDISPONIBLE" if unavailable else drop_item_status_label(status)
     with st.container(key=f"vinted_card_drop_{active_drop.get('id')}_{_safe_js_id(card_ref_key)}"):
         st.markdown(
             _card_static_html(card, proxy_img_func, fp_func, badge=badge, unavailable=unavailable, drop_card=True),
@@ -1157,11 +1244,17 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
                 drop_qty = max(1, int(card.get("drop_quantity", card.get("quantity", 1)) or 1))
                 selected = [_card_with_drop_quantity(card, drop_qty)]
                 _select_cards(selected)
-                _open_classic_submenu()
+                st.session_state["vinted_drop_step"] = "Création des annonces"
                 st.rerun()
-            posted_label = "Annuler postée" if posted else "Annonce postée"
-            if st.button(posted_label, key=f"posted_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                if toggle_drop_card_posted(drops_data, active_drop.get("id"), card_ref_key, not posted):
+            if status in ("draft_ready", "online", "sold"):
+                st.caption(f"Statut : {drop_item_status_label(status)}")
+            else:
+                if st.button("✓ Brouillon créé", key=f"draft_ready_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
+                    if set_drop_card_status(drops_data, active_drop.get("id"), card_ref_key, "draft_ready"):
+                        save_vinted_drops(drops_data)
+                        st.rerun()
+            if status == "draft_ready" and st.button("Modifier le brouillon", key=f"reopen_draft_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
+                if set_drop_card_status(drops_data, active_drop.get("id"), card_ref_key, "to_prepare"):
                     save_vinted_drops(drops_data)
                     st.rerun()
         if st.button("Retirer du drop", key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
@@ -1171,11 +1264,352 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
                 st.rerun()
 
 
-def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile):
+def _drop_status_counts(drop):
+    counts = {status: 0 for status in DROP_ITEM_STATUSES}
+    for ref in drop.get("cards", []) or []:
+        counts[drop_item_status(ref)] = counts.get(drop_item_status(ref), 0) + max(1, _safe_int(ref.get("quantity"), 1))
+    return counts
+
+
+def _render_drop_placeholder(title, body):
+    st.markdown(
+        f"""
+<div class="ps-vinted-muted-panel">
+  <strong>{_html_escape(title)}</strong><br>
+  {_html_escape(body)}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_launch_drop_panel(drops_data, active_drop, fp_func):
+    counts = _drop_status_counts(active_drop)
+    total_cards = sum(max(1, _safe_int(ref.get("quantity"), 1)) for ref in active_drop.get("cards", []) or [])
+    ready = counts.get("draft_ready", 0)
+    online = counts.get("online", 0)
+    st.markdown(f"**{ready} / {total_cards} brouillons prêts**")
+    if active_drop.get("drop_launched_at"):
+        st.success(f"Drop lancé le {active_drop.get('drop_launched_at')}")
+        return
+    if ready <= 0:
+        st.caption("Prépare au moins un brouillon avant de lancer le drop.")
+        return
+    with st.expander("🚀 Le drop est maintenant en ligne", expanded=False):
+        channel = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
+        st.write(f"Drop : **{active_drop.get('name', 'Drop sans nom')}**")
+        st.write(f"Canal : **{channel}**")
+        st.write(f"Brouillons prêts : **{ready}**")
+        confirm_key = f"confirm_launch_drop_{active_drop.get('id')}"
+        confirm = st.checkbox("Je confirme que ces brouillons sont en ligne", key=confirm_key)
+        if st.button("Confirmer le lancement", key=f"launch_drop_{active_drop.get('id')}", disabled=not confirm, width="stretch"):
+            if launch_drop(drops_data, active_drop.get("id")):
+                save_vinted_drops(drops_data)
+                st.success("Drop lancé.")
+                st.rerun()
+
+
+def _drop_card_total(drop):
+    return sum(max(1, _safe_int(ref.get("quantity"), 1)) for ref in drop.get("cards", []) or [])
+
+
+def _drop_value_total(drop):
+    return sum(_safe_float(ref.get("price_at_add")) * max(1, _safe_int(ref.get("quantity"), 1)) for ref in drop.get("cards", []) or [])
+
+
+def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None):
+    rows = []
+    for lot_idx, lot in enumerate((stock_data or {}).get("lots", []) or []):
+        costs_by_sale_id = {}
+        if callable(calc_cout_lot_func):
+            try:
+                cost_rows, _ = calc_cout_lot_func(lot, lot_idx=lot_idx)
+                costs_by_sale_id = {se.get("sale_id"): cost for _, se, cost in cost_rows if se.get("sale_id")}
+            except Exception:
+                costs_by_sale_id = {}
+        for card in lot.get("cards", []) or []:
+            for sale in card.get("sold_entries", []) or []:
+                if str(sale.get("drop_id") or "") != str(drop_id or ""):
+                    continue
+                quantity = max(1, _safe_int(sale.get("quantity"), 1))
+                revenue = _safe_float(sale.get("price"))
+                suggested_unit = _safe_float(sale.get("suggested_price_at_sale"))
+                displayed_total = suggested_unit * quantity
+                cost = costs_by_sale_id.get(sale.get("sale_id"))
+                rows.append({
+                    "sale": sale,
+                    "card": card,
+                    "lot": lot,
+                    "quantity": quantity,
+                    "revenue": revenue,
+                    "displayed_total": displayed_total,
+                    "profit": (revenue - cost) if cost is not None else None,
+                    "date": _parse_dt(sale.get("date")),
+                    "card_name": sale.get("card_name") or card.get("name", ""),
+                    "lot_name": lot.get("nom", ""),
+                })
+    return rows
+
+
+def _drop_metrics(drop, sales_rows):
+    counts = _drop_status_counts(drop)
+    total_cards = _drop_card_total(drop)
+    revenue = sum(row["revenue"] for row in sales_rows)
+    known_profits = [row["profit"] for row in sales_rows if row.get("profit") is not None]
+    sold_cards = sum(row["quantity"] for row in sales_rows) or counts.get("sold", 0)
+    transactions = {row["sale"].get("sale_id") or f"{row['date']}-{idx}" for idx, row in enumerate(sales_rows)}
+    return {
+        "cards": total_cards,
+        "draft_ready": counts.get("draft_ready", 0),
+        "online": counts.get("online", 0),
+        "sold": sold_cards,
+        "published_value": _drop_value_total(drop),
+        "revenue": revenue,
+        "profit": sum(known_profits) if known_profits else None,
+        "sell_through": (sold_cards / total_cards * 100.0) if total_cards else None,
+        "avg_sold_price": (revenue / sold_cards) if sold_cards else None,
+        "avg_basket": (revenue / len(transactions)) if transactions else None,
+        "avg_cards_per_transaction": (sold_cards / len(transactions)) if transactions else None,
+    }
+
+
+def _render_kpis(metrics, fp_func):
+    items = [
+        ("Cartes sélectionnées", str(metrics.get("cards", 0))),
+        ("Brouillons prêts", str(metrics.get("draft_ready", 0))),
+        ("En ligne", str(metrics.get("online", 0))),
+        ("Vendues", str(metrics.get("sold", 0))),
+        ("Valeur publiée", fp_func(metrics.get("published_value", 0))),
+        ("CA", fp_func(metrics.get("revenue", 0))),
+        ("Bénéfice", fp_func(metrics["profit"]) if metrics.get("profit") is not None else "N/A"),
+        ("Marge", f"{(metrics['profit'] / metrics['revenue'] * 100):.1f}%" if metrics.get("profit") is not None and metrics.get("revenue") else "N/A"),
+        ("Taux d'écoulement", f"{metrics['sell_through']:.1f}%" if metrics.get("sell_through") is not None else "N/A"),
+        ("Prix moyen vendu", fp_func(metrics["avg_sold_price"]) if metrics.get("avg_sold_price") is not None else "N/A"),
+        ("Panier moyen", fp_func(metrics["avg_basket"]) if metrics.get("avg_basket") is not None else "N/A"),
+        ("Cartes / transaction", f"{metrics['avg_cards_per_transaction']:.2f}" if metrics.get("avg_cards_per_transaction") is not None else "N/A"),
+    ]
+    html = '<div class="ps-vinted-kpi-grid">' + "".join(
+        f'<div class="ps-vinted-kpi"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>'
+        for label, value in items
+    ) + "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _negotiation_stats(rows):
+    diffs = []
+    pct = []
+    under = equal = above = 0
+    for row in rows:
+        displayed = row.get("displayed_total", 0)
+        if displayed <= 0:
+            continue
+        diff = row.get("revenue", 0) - displayed
+        diffs.append(diff)
+        pct.append(diff / displayed * 100.0)
+        if abs(diff) < 0.01:
+            equal += 1
+        elif diff < 0:
+            under += 1
+        else:
+            above += 1
+    pct_sorted = sorted(pct)
+    median = pct_sorted[len(pct_sorted) // 2] if pct_sorted else None
+    if pct_sorted and len(pct_sorted) % 2 == 0:
+        median = (pct_sorted[len(pct_sorted) // 2 - 1] + pct_sorted[len(pct_sorted) // 2]) / 2
+    total = len(pct)
+    return {
+        "avg_pct": (sum(pct) / total) if total else None,
+        "median_pct": median,
+        "equal_pct": equal / total * 100.0 if total else None,
+        "under_pct": under / total * 100.0 if total else None,
+        "above_pct": above / total * 100.0 if total else None,
+        "total_diff": sum(diffs),
+    }
+
+
+def _render_drop_timing(drop, rows, fp_func):
+    launched = _parse_dt(drop.get("drop_launched_at"))
+    if not launched:
+        st.caption("Temporalité : N/A, drop non lancé.")
+        return
+    rows = sorted([row for row in rows if row.get("date")], key=lambda row: row["date"])
+    if not rows:
+        st.caption("Aucune vente liée après lancement.")
+        return
+    first = rows[0]["date"] - launched
+    st.markdown(f"**Première vente :** {_duration_label(first)}")
+    thresholds = [50, 100, 200, 500, 1000, 2000]
+    cumulative = 0.0
+    reached = {}
+    for row in rows:
+        cumulative += row["revenue"]
+        for threshold in thresholds:
+            if threshold not in reached and cumulative >= threshold:
+                reached[threshold] = _duration_label(row["date"] - launched)
+    if reached:
+        st.caption("Seuils CA atteints : " + " · ".join(f"{fp_func(k)} : {v}" for k, v in reached.items()))
+    total_cards = _drop_card_total(drop)
+    if total_cards:
+        sold = 0
+        reached_cards = {}
+        for row in rows:
+            sold += row["quantity"]
+            for threshold in (10, 25, 50, 75):
+                if threshold not in reached_cards and sold / total_cards * 100.0 >= threshold:
+                    reached_cards[threshold] = _duration_label(row["date"] - launched)
+        if reached_cards:
+            st.caption("Écoulement atteint : " + " · ".join(f"{k}% : {v}" for k, v in reached_cards.items()))
+    for days in (0, 1, 3, 7, 30):
+        cutoff = launched + timedelta(days=days + 1)
+        ca = sum(row["revenue"] for row in rows if row["date"] < cutoff)
+        cards = sum(row["quantity"] for row in rows if row["date"] < cutoff)
+        st.caption(f"J{days} : {fp_func(ca)} · {cards} carte(s)")
+
+
+def _render_drop_charts(drop, rows):
+    launched = _parse_dt(drop.get("drop_launched_at"))
+    if not launched or not rows:
+        return
+    try:
+        import pandas as pd
+    except Exception:
+        return
+    ordered = sorted([row for row in rows if row.get("date")], key=lambda row: row["date"])
+    cumulative_ca = cumulative_profit = cumulative_cards = 0.0
+    chart_rows = []
+    total_cards = max(1, _drop_card_total(drop))
+    for row in ordered:
+        cumulative_ca += row["revenue"]
+        cumulative_cards += row["quantity"]
+        if row.get("profit") is not None:
+            cumulative_profit += row["profit"]
+        chart_rows.append({
+            "J+": max(0, (row["date"] - launched).days),
+            "CA cumulé": cumulative_ca,
+            "Bénéfice cumulé": cumulative_profit,
+            "Cartes vendues": cumulative_cards,
+            "Taux écoulement": cumulative_cards / total_cards * 100.0,
+        })
+    if chart_rows:
+        df = pd.DataFrame(chart_rows).groupby("J+", as_index=True).max()
+        st.line_chart(df[["CA cumulé", "Bénéfice cumulé"]])
+        st.line_chart(df[["Cartes vendues", "Taux écoulement"]])
+
+
+def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None):
+    drops = drops_data.get("drops", []) or []
+    if not drops:
+        st.caption("Aucun drop à analyser.")
+        return
+    channel_options = ["Tous", *VINTED_CHANNELS]
+    channel_filter = st.selectbox("Canal", channel_options, key="vinted_analysis_channel")
+    filtered = [
+        drop for drop in drops
+        if channel_filter == "Tous" or normalize_vinted_channel(drop.get("channel", "")) == channel_filter
+    ]
+    if not filtered:
+        st.caption("Aucun drop pour ce canal.")
+        return
+    drop_names = ["Tous les drops"] + [drop.get("name", "Drop sans nom") for drop in filtered]
+    selected_name = st.selectbox("Drop", drop_names, key="vinted_analysis_drop")
+    selected = filtered if selected_name == "Tous les drops" else [drop for drop in filtered if drop.get("name", "Drop sans nom") == selected_name]
+    all_rows = []
+    aggregate = {
+        "cards": 0,
+        "draft_ready": 0,
+        "online": 0,
+        "sold": 0,
+        "published_value": 0.0,
+        "revenue": 0.0,
+        "profit": 0.0,
+        "known_profit": False,
+    }
+    for drop in selected:
+        rows = _sale_rows_for_drop(stock_data, drop.get("id"), calc_cout_lot_func)
+        all_rows.extend(rows)
+        metrics = _drop_metrics(drop, rows)
+        for key in ("cards", "draft_ready", "online", "sold", "published_value", "revenue"):
+            aggregate[key] += metrics.get(key, 0) or 0
+        if metrics.get("profit") is not None:
+            aggregate["profit"] += metrics["profit"]
+            aggregate["known_profit"] = True
+    aggregate["profit"] = aggregate["profit"] if aggregate.pop("known_profit") else None
+    aggregate["sell_through"] = aggregate["sold"] / aggregate["cards"] * 100.0 if aggregate["cards"] else None
+    tx_count = len({row["sale"].get("sale_id") for row in all_rows if row["sale"].get("sale_id")})
+    aggregate["avg_sold_price"] = aggregate["revenue"] / aggregate["sold"] if aggregate["sold"] else None
+    aggregate["avg_basket"] = aggregate["revenue"] / tx_count if tx_count else None
+    aggregate["avg_cards_per_transaction"] = aggregate["sold"] / tx_count if tx_count else None
+    _render_kpis(aggregate, fp_func)
+
+    neg = _negotiation_stats(all_rows)
+    st.markdown("**Négociation**")
+    st.caption(
+        " · ".join([
+            f"Moyenne {neg['avg_pct']:.1f}%" if neg.get("avg_pct") is not None else "Moyenne N/A",
+            f"Médiane {neg['median_pct']:.1f}%" if neg.get("median_pct") is not None else "Médiane N/A",
+            f"Au prix {neg['equal_pct']:.0f}%" if neg.get("equal_pct") is not None else "Au prix N/A",
+            f"Sous prix {neg['under_pct']:.0f}%" if neg.get("under_pct") is not None else "Sous prix N/A",
+            f"Au-dessus {neg['above_pct']:.0f}%" if neg.get("above_pct") is not None else "Au-dessus N/A",
+            f"Total {fp_func(neg['total_diff'])}",
+        ])
+    )
+
+    if len(selected) == 1:
+        st.markdown("**Temporalité**")
+        _render_drop_timing(selected[0], all_rows, fp_func)
+        _render_drop_charts(selected[0], all_rows)
+
+    if all_rows:
+        st.markdown("**Transactions marquantes**")
+        top_rows = sorted(all_rows, key=lambda row: row["revenue"], reverse=True)[:5]
+        for row in top_rows:
+            st.caption(f"{row['card_name']} · {fp_func(row['revenue'])} · {row.get('lot_name', '')}")
+
+    st.markdown("**Tranches de prix**")
+    bands = [("<2 €", 0, 2), ("2–5 €", 2, 5), ("5–10 €", 5, 10), ("10–20 €", 10, 20), (">20 €", 20, float("inf"))]
+    for label, low, high in bands:
+        published = 0
+        sold = ca = 0
+        for drop in selected:
+            for ref in drop.get("cards", []) or []:
+                price = _safe_float(ref.get("price_at_add"))
+                qty = max(1, _safe_int(ref.get("quantity"), 1))
+                if low <= price < high:
+                    published += qty
+        for row in all_rows:
+            unit = row["revenue"] / max(1, row["quantity"])
+            if low <= unit < high:
+                sold += row["quantity"]
+                ca += row["revenue"]
+        rate = sold / published * 100.0 if published else None
+        st.caption(f"{label} : {published} publiée(s) · {sold} vendue(s) · {f'{rate:.0f}%' if rate is not None else 'N/A'} · {fp_func(ca)}")
+
+
+def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile):
+    resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
+    card_by_key = {card.get("_listing_key"): card for card in resolved_cards if card.get("_listing_key")}
+    selected_keys = st.session_state.setdefault("vinted_selected_keys", [])
+    selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
+    listing_type = "Plusieurs cartes" if len(selected_cards) > 1 else "Carte seule"
+    if selected_cards:
+        _sync_listing_text(selected_cards, listing_type, fp_func)
+        _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
+    else:
+        st.caption("Clique sur Préparer sur une carte du drop pour générer son annonce.")
+    _render_launch_drop_panel(drops_data, active_drop, fp_func)
+    st.divider()
+    _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+
+
+def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None):
     with st.expander("+ Nouveau drop", expanded=not bool(drops_data.get("drops"))):
         new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
+        new_channel = st.selectbox("Canal Vinted", list(VINTED_CHANNELS), key="new_vinted_drop_channel")
         if st.button("Créer le drop", key="create_vinted_drop", width="stretch"):
-            create_drop(drops_data, new_name)
+            if not str(new_name or "").strip():
+                st.warning("Indique un nom de drop.")
+                return
+            create_drop(drops_data, new_name, new_channel)
             save_vinted_drops(drops_data)
             st.session_state.pop("new_vinted_drop_name", None)
             st.success("Drop créé.")
@@ -1199,11 +1633,12 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
 
     total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
     total_value = _drop_total_value(active_drop)
+    channel_label = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
     st.markdown(
         f"""
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
-  <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'}</span>
+  <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'} · {channel_label}</span>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1211,10 +1646,16 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
 
     with st.expander("⚙️ Gérer le drop", expanded=False):
         renamed = st.text_input("Renommer le drop", value=active_drop.get("name", ""), key=f"rename_drop_{active_id}")
+        current_channel = normalize_vinted_channel(active_drop.get("channel", ""))
+        channel_options = ["Non défini", *VINTED_CHANNELS]
+        channel_index = channel_options.index(current_channel) if current_channel in channel_options else 0
+        chosen_channel = st.selectbox("Canal Vinted", channel_options, index=channel_index, key=f"drop_channel_{active_id}")
         if st.button("Enregistrer le nom", key=f"save_drop_name_{active_id}", width="stretch"):
-            if rename_drop(drops_data, active_id, renamed):
+            changed = rename_drop(drops_data, active_id, renamed)
+            changed = update_drop_channel(drops_data, active_id, "" if chosen_channel == "Non défini" else chosen_channel) or changed
+            if changed:
                 save_vinted_drops(drops_data)
-                st.success("Drop renommé.")
+                st.success("Drop mis à jour.")
                 st.rerun()
         st.divider()
         confirm = st.checkbox("Confirmer suppression", key=f"confirm_delete_drop_{active_id}")
@@ -1225,11 +1666,85 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
                 st.success("Drop supprimé.")
                 st.rerun()
 
-    if _render_drop_drawer_header("add_cards", "Ajouter des cartes au drop", default_open=True):
-        _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+    if step == "Choix des cartes":
+        if _render_drop_drawer_header("add_cards", "Ajouter des cartes au drop", default_open=True):
+            _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
-    if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
-        _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+        if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
+            _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+    elif step == "Tri des photos":
+        _render_drop_placeholder(
+            "Tri des photos",
+            "Le tri photo sera ajouté ensuite. Aucun upload, OCR ou reconnaissance n'est actif pour l'instant.",
+        )
+    elif step == "Vérification":
+        _render_drop_placeholder(
+            "Vérification",
+            "La vérification automatique des photos sera ajoutée ensuite. Les cartes et annonces existantes restent inchangées.",
+        )
+    elif step == "Création des annonces":
+        _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile)
+    elif step == "Analyse des drops":
+        _render_drop_analytics(drops_data, ld_func() if callable(ld_func) else {}, fp_func, calc_cout_lot_func)
+
+
+def _render_classic_listing_section(cards, drops_data, proxy_img_func, fp_func, run_html_func, mobile, *, allow_drop_add=False):
+    card_by_key = {card["_listing_key"]: card for card in cards}
+    selected_keys = st.session_state.setdefault("vinted_selected_keys", [])
+    active_drop_id = _active_drop_id(drops_data) if allow_drop_add else ""
+    st.subheader("Créer une annonce")
+    listing_type = st.radio(
+        "Mode d'annonce",
+        ["Carte seule", "Plusieurs cartes"],
+        horizontal=not mobile,
+        key="vinted_listing_type",
+    )
+    if listing_type == "Carte seule" and len(selected_keys) > 1:
+        selected_keys = selected_keys[:1]
+        st.session_state["vinted_selected_keys"] = selected_keys
+
+    query = st.text_input(
+        "Rechercher une carte disponible",
+        key="vinted_search_query",
+        placeholder="Ex : Meganium, Dracaufeu 199/165, Rayquaza 89/90...",
+    )
+    results_all = _filter_cards_for_display(cards, query)
+    limit = _visible_limit("classic", query, mobile, len(results_all))
+    results = results_all[:limit]
+    st.caption(f"{len(results)} / {len(results_all)} carte(s) affichée(s).")
+    _render_grouped_available_grid(
+        results,
+        scope="classic",
+        listing_type=listing_type,
+        selected_keys=selected_keys,
+        drops_data=drops_data,
+        active_drop_id=active_drop_id,
+        proxy_img_func=proxy_img_func,
+        fp_func=fp_func,
+        mobile=mobile,
+        mode="classic",
+    )
+    _show_more("classic", mobile, len(results_all))
+
+    selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
+    prepared = _sync_listing_text(selected_cards, listing_type, fp_func)
+    if listing_type == "Plusieurs cartes":
+        st.markdown(f'<span class="ps-vinted-pill">{len(selected_cards)} sélectionnée(s)</span>', unsafe_allow_html=True)
+        if allow_drop_add:
+            _render_selected_add_to_drop(drops_data, selected_cards, scope="classic")
+
+    if selected_cards:
+        left, right = st.columns([1, 1])
+        with left:
+            if st.button("Régénérer le titre et la description", width="stretch"):
+                st.session_state["vinted_listing_title"] = prepared["title"]
+                st.session_state["vinted_listing_description"] = prepared["description"]
+                st.rerun()
+        with right:
+            if st.button("Réinitialiser", width="stretch"):
+                _reset_vinted_form()
+
+    _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
 
 
 def render_vinted_listings_page(
@@ -1243,13 +1758,23 @@ def render_vinted_listings_page(
     is_mobile_mode_func=None,
     perf_count_func=None,
     run_html_func=None,
+    page_mode="drop",
+    calc_cout_lot_func=None,
 ):
-    render_page_header_func("Annonces Vinted", "Assistant de création d'annonces prêtes à copier-coller")
+    if page_mode == "individual":
+        st.markdown(
+            render_page_header_func("Annonces individuelles", "Créer une annonce ponctuelle hors drop", "📝"),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            render_page_header_func("Drop Vinted", "Préparer, suivre et analyser tes drops Vinted", "🛍️"),
+            unsafe_allow_html=True,
+        )
     _inject_vinted_styles()
 
     d = ld_func()
     cards = _available_cards(d, card_available_qty_func, is_collection_system_lot_func)
-    card_by_key = {card["_listing_key"]: card for card in cards}
     if perf_count_func:
         perf_count_func("vinted_cards_available", len(cards))
 
@@ -1258,74 +1783,28 @@ def render_vinted_listings_page(
         return
 
     mobile = bool(is_mobile_mode_func and is_mobile_mode_func())
-    selected_keys = st.session_state.setdefault("vinted_selected_keys", [])
     drops_data = load_vinted_drops()
-    active_drop_id = _active_drop_id(drops_data)
+    if page_mode == "individual":
+        _render_classic_listing_section(cards, drops_data, proxy_img_func, fp_func, run_html_func, mobile, allow_drop_add=False)
+        return
 
-    target_submenu = st.session_state.pop("_vinted_submenu_target", None)
-    if target_submenu in ("Annonces classiques", "Drops Vinted"):
-        st.session_state["vinted_submenu"] = target_submenu
-
-    submenu = st.radio(
-        "Sous-menu",
-        ["Annonces classiques", "Drops Vinted"],
+    if st.session_state.get("vinted_drop_step") not in DROP_WORKFLOW_STEPS:
+        st.session_state["vinted_drop_step"] = DROP_WORKFLOW_STEPS[0]
+    step = st.radio(
+        "Workflow Drop Vinted",
+        list(DROP_WORKFLOW_STEPS),
         horizontal=not mobile,
-        key="vinted_submenu",
+        key="vinted_drop_step",
         label_visibility="collapsed",
     )
-
-    if submenu == "Annonces classiques":
-        st.subheader("Créer une annonce")
-        listing_type = st.radio(
-            "Mode d'annonce",
-            ["Carte seule", "Plusieurs cartes"],
-            horizontal=not mobile,
-            key="vinted_listing_type",
-        )
-        if listing_type == "Carte seule" and len(selected_keys) > 1:
-            selected_keys = selected_keys[:1]
-            st.session_state["vinted_selected_keys"] = selected_keys
-
-        query = st.text_input(
-            "Rechercher une carte disponible",
-            key="vinted_search_query",
-            placeholder="Ex : Meganium, Dracaufeu 199/165, Rayquaza 89/90...",
-        )
-        results_all = _filter_cards_for_display(cards, query)
-        limit = _visible_limit("classic", query, mobile, len(results_all))
-        results = results_all[:limit]
-        st.caption(f"{len(results)} / {len(results_all)} carte(s) affichée(s).")
-        _render_grouped_available_grid(
-            results,
-            scope="classic",
-            listing_type=listing_type,
-            selected_keys=selected_keys,
-            drops_data=drops_data,
-            active_drop_id=active_drop_id,
-            proxy_img_func=proxy_img_func,
-            fp_func=fp_func,
-            mobile=mobile,
-            mode="classic",
-        )
-        _show_more("classic", mobile, len(results_all))
-
-        selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
-        prepared = _sync_listing_text(selected_cards, listing_type, fp_func)
-        if listing_type == "Plusieurs cartes":
-            st.markdown(f'<span class="ps-vinted-pill">{len(selected_cards)} sélectionnée(s)</span>', unsafe_allow_html=True)
-            _render_selected_add_to_drop(drops_data, selected_cards, scope="classic")
-
-        if selected_cards:
-            left, right = st.columns([1, 1])
-            with left:
-                if st.button("Régénérer le titre et la description", width="stretch"):
-                    st.session_state["vinted_listing_title"] = prepared["title"]
-                    st.session_state["vinted_listing_description"] = prepared["description"]
-                    st.rerun()
-            with right:
-                if st.button("Réinitialiser", width="stretch"):
-                    _reset_vinted_form()
-
-        _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
-    else:
-        _render_drops_manager(drops_data, cards, proxy_img_func, fp_func, mobile)
+    _render_drops_manager(
+        drops_data,
+        cards,
+        proxy_img_func,
+        fp_func,
+        mobile,
+        step,
+        run_html_func=run_html_func,
+        ld_func=ld_func,
+        calc_cout_lot_func=calc_cout_lot_func,
+    )

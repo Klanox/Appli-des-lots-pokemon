@@ -7,10 +7,20 @@ from datetime import datetime
 
 from utils import safe_write_json
 from services.cloud_sync_service import save_synced_dataset
+from services.vinted_channels import normalize_vinted_channel, is_vinted_channel
 from services.vinted_listing_service import card_search_blob, full_card_number, normalize_search_text
 
 
 VINTED_DROPS_FILE = "vinted_drops.json"
+DROP_ITEM_STATUSES = {
+    "to_photograph": "À photographier",
+    "needs_review": "À vérifier",
+    "sorted": "Triée",
+    "to_prepare": "À préparer",
+    "draft_ready": "Brouillon prêt",
+    "online": "En ligne",
+    "sold": "Vendue",
+}
 
 
 def default_drops_data():
@@ -41,14 +51,20 @@ def save_vinted_drops(data, path=VINTED_DROPS_FILE):
         safe_write_json(path, data, indent=2)
 
 
-def create_drop(data, name):
+def _now_iso():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def create_drop(data, name, channel=""):
     name = str(name or "").strip()
     if not name:
         name = f"Drop Vinted {datetime.now().strftime('%d/%m/%Y')}"
     drop = {
         "id": uuid.uuid4().hex,
         "name": name,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "channel": normalize_vinted_channel(channel),
+        "created_at": _now_iso(),
+        "drop_launched_at": "",
         "cards": [],
     }
     data.setdefault("drops", []).append(drop)
@@ -70,6 +86,14 @@ def delete_drop(data, drop_id):
     before = len(data.get("drops", []))
     data["drops"] = [drop for drop in data.get("drops", []) if drop.get("id") != drop_id]
     return len(data["drops"]) != before
+
+
+def update_drop_channel(data, drop_id, channel):
+    drop = find_drop(data, drop_id)
+    if not drop:
+        return False
+    drop["channel"] = normalize_vinted_channel(channel)
+    return True
 
 
 def find_drop(data, drop_id):
@@ -111,7 +135,12 @@ def make_card_ref(card):
         "image_url": card.get("image_url", "") or card.get("image_url_en", ""),
         "price_at_add": card.get("price", card.get("suggested_price", 0)),
         "quantity": quantity,
-        "added_at": datetime.now().isoformat(timespec="seconds"),
+        "drop_item_id": card.get("drop_item_id") or uuid.uuid4().hex,
+        "status": "to_photograph",
+        "added_at": _now_iso(),
+        "draft_ready_at": "",
+        "online_at": "",
+        "sold_at": "",
         "listing_posted": bool(card.get("listing_posted", False)),
         "listing_posted_at": card.get("listing_posted_at", ""),
     }
@@ -156,6 +185,47 @@ def remove_card_from_drop(data, drop_id, card_key):
     return len(drop["cards"]) != before
 
 
+def drop_item_status(ref):
+    status = str((ref or {}).get("status") or "").strip()
+    if status in DROP_ITEM_STATUSES:
+        return status
+    if (ref or {}).get("sold_at"):
+        return "sold"
+    if (ref or {}).get("online_at") or (ref or {}).get("listing_posted"):
+        return "online"
+    if (ref or {}).get("draft_ready_at"):
+        return "draft_ready"
+    return "to_prepare"
+
+
+def drop_item_status_label(ref_or_status):
+    status = ref_or_status if isinstance(ref_or_status, str) else drop_item_status(ref_or_status)
+    return DROP_ITEM_STATUSES.get(status, "À préparer")
+
+
+def set_drop_card_status(data, drop_id, card_key, status):
+    if status not in DROP_ITEM_STATUSES:
+        return False
+    drop = find_drop(data, drop_id)
+    if not drop:
+        return False
+    now = _now_iso()
+    for ref in drop.get("cards", []):
+        if drop_card_key(ref) != card_key:
+            continue
+        ref["status"] = status
+        if status == "draft_ready":
+            ref["draft_ready_at"] = ref.get("draft_ready_at") or now
+        elif status == "online":
+            ref["online_at"] = ref.get("online_at") or now
+            ref["listing_posted"] = True
+            ref["listing_posted_at"] = ref.get("listing_posted_at") or now
+        elif status == "sold":
+            ref["sold_at"] = ref.get("sold_at") or now
+        return True
+    return False
+
+
 def toggle_drop_card_posted(data, drop_id, card_key, posted=None):
     drop = find_drop(data, drop_id)
     if not drop:
@@ -165,9 +235,28 @@ def toggle_drop_card_posted(data, drop_id, card_key, posted=None):
             continue
         new_value = (not bool(ref.get("listing_posted"))) if posted is None else bool(posted)
         ref["listing_posted"] = new_value
-        ref["listing_posted_at"] = datetime.now().isoformat(timespec="seconds") if new_value else ""
+        ref["listing_posted_at"] = _now_iso() if new_value else ""
+        if new_value:
+            ref["status"] = "online"
+            ref["online_at"] = ref.get("online_at") or ref["listing_posted_at"]
         return True
     return False
+
+
+def launch_drop(data, drop_id):
+    drop = find_drop(data, drop_id)
+    if not drop:
+        return False
+    now = _now_iso()
+    if not drop.get("drop_launched_at"):
+        drop["drop_launched_at"] = now
+    for ref in drop.get("cards", []):
+        if drop_item_status(ref) == "draft_ready":
+            ref["status"] = "online"
+            ref["online_at"] = ref.get("online_at") or now
+            ref["listing_posted"] = True
+            ref["listing_posted_at"] = ref.get("listing_posted_at") or now
+    return True
 
 
 def resolve_drop_cards_from_data(drop, available_cards):
@@ -193,6 +282,12 @@ def resolve_drop_cards_from_data(drop, available_cards):
             enriched["_drop_ref_key"] = key
             enriched["listing_posted"] = bool(ref.get("listing_posted", False))
             enriched["listing_posted_at"] = ref.get("listing_posted_at", "")
+            enriched["drop_item_id"] = ref.get("drop_item_id", "")
+            enriched["status"] = drop_item_status(ref)
+            enriched["status_label"] = drop_item_status_label(ref)
+            enriched["draft_ready_at"] = ref.get("draft_ready_at", "")
+            enriched["online_at"] = ref.get("online_at", "")
+            enriched["sold_at"] = ref.get("sold_at", "")
             enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
             enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
             enriched["_drop_available"] = True
@@ -202,6 +297,8 @@ def resolve_drop_cards_from_data(drop, available_cards):
         else:
             ref = dict(ref)
             ref.setdefault("quantity", 1)
+            ref["status"] = drop_item_status(ref)
+            ref["status_label"] = drop_item_status_label(ref)
             ref["_drop_ref_key"] = key
             ref["_drop_available"] = False
             missing.append(ref)
@@ -227,3 +324,65 @@ def filter_drop_cards(cards, query):
         if all(term in blob for term in terms):
             results.append(card)
     return results
+
+
+def _drop_sort_key(drop):
+    return str(drop.get("drop_launched_at") or drop.get("created_at") or "")
+
+
+def link_sale_entry_to_drop(data, sale_entry, canal):
+    if not is_vinted_channel(canal):
+        return False
+    channel = normalize_vinted_channel(canal)
+    drops = [
+        drop for drop in data.get("drops", []) or []
+        if normalize_vinted_channel(drop.get("channel", "")) == channel
+    ]
+    if not drops:
+        return False
+
+    card_uid = str((sale_entry or {}).get("card_uid") or "").strip()
+    lot_uid = str((sale_entry or {}).get("lot_uid") or "").strip()
+    chosen_drop = None
+    chosen_ref = None
+    if card_uid:
+        matches = []
+        for drop in drops:
+            for ref in drop.get("cards", []) or []:
+                if str(ref.get("card_uid") or "").strip() != card_uid:
+                    continue
+                if lot_uid and str(ref.get("lot_uid") or "").strip() not in ("", lot_uid):
+                    continue
+                matches.append((drop, ref))
+        if matches:
+            launched = [item for item in matches if item[0].get("drop_launched_at")]
+            pool = launched or matches
+            chosen_drop, chosen_ref = sorted(pool, key=lambda item: _drop_sort_key(item[0]), reverse=True)[0]
+
+    method = "card_match"
+    if chosen_drop is None:
+        launched = [drop for drop in drops if drop.get("drop_launched_at")]
+        if not launched:
+            return False
+        chosen_drop = sorted(launched, key=_drop_sort_key, reverse=True)[0]
+        method = "channel_latest"
+
+    sale_entry["drop_id"] = chosen_drop.get("id", "")
+    sale_entry["drop_channel"] = channel
+    sale_entry["drop_link_method"] = method
+    if chosen_ref is not None:
+        chosen_ref.setdefault("drop_item_id", uuid.uuid4().hex)
+        sale_entry["drop_item_id"] = chosen_ref.get("drop_item_id", "")
+        chosen_ref["status"] = "sold"
+        chosen_ref["sold_at"] = chosen_ref.get("sold_at") or sale_entry.get("date") or _now_iso()
+    return True
+
+
+def link_sale_to_vinted_drop_if_applicable(sale_entry, canal):
+    if not is_vinted_channel(canal):
+        return False
+    data = load_vinted_drops()
+    if not link_sale_entry_to_drop(data, sale_entry, canal):
+        return False
+    save_vinted_drops(data)
+    return True

@@ -24,6 +24,7 @@ NAV_SECTIONS = (
             ("Collection", "Collection", "🧾"),
             ("Estimations", "Estimations", "📉"),
             ("Fournisseurs", "Fournisseurs", "🤝"),
+            ("Annonces individuelles", "Annonces individuelles", "📝"),
             ("Annonces Vinted", "Drop Vinted", "🛍️"),
             ("Archivés", "Archivés", "🗄️"),
         ),
