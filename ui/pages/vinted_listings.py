@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from datetime import datetime, timedelta
 
 import streamlit as st
@@ -39,6 +39,7 @@ from services.vinted_listing_service import (
     suggested_price,
 )
 from services.custom_card_image_service import resolve_custom_card_image
+from services.card_identity import card_identity_fingerprint
 from ui.badges import card_stamp_label
 from ui.vinted_drop_virtual_grid import render_vinted_drop_virtual_grid
 
@@ -337,6 +338,11 @@ def _inject_vinted_styles():
 .ps-vinted-badge.warn {
     background:#fee2e2;
     color:#991b1b;
+}
+.ps-vinted-badge.duplicate {
+    background:#ffedd5;
+    color:#c2410c;
+    border:1px solid #fed7aa;
 }
 .ps-vinted-badge.stamp {
     background:#fdf2f8;
@@ -724,7 +730,17 @@ def _adjust_quantity(scope, card, delta):
     st.session_state[key] = min(max(1, current + delta), max_qty)
 
 
-def _card_static_html(card, proxy_img_func, fp_func, *, badge="", badge_class="", unavailable=False, drop_card=False):
+def _card_static_html(
+    card,
+    proxy_img_func,
+    fp_func,
+    *,
+    badge="",
+    badge_class="",
+    duplicate_badge="",
+    unavailable=False,
+    drop_card=False,
+):
     img = _card_image(card, proxy_img_func)
     if img:
         img_html = f'<img src="{_html_escape(img)}" loading="lazy" decoding="async" alt="">'
@@ -735,6 +751,8 @@ def _card_static_html(card, proxy_img_func, fp_func, *, badge="", badge_class=""
         meta_bits.append(_card_set(card))
     if _card_number(card):
         meta_bits.append(f"#{_card_number(card)}")
+    if drop_card and card.get("lot_name"):
+        meta_bits.append(str(card.get("lot_name")))
     meta = " · ".join(meta_bits)
     price = suggested_price(card)
     price_label = fp_func(price) if price else "Prix à définir"
@@ -751,6 +769,11 @@ def _card_static_html(card, proxy_img_func, fp_func, *, badge="", badge_class=""
     if badge:
         cls = badge_class or ("warn" if unavailable else ("ok" if "POST" in badge.upper() else ""))
         badge_html = f'<span class="ps-vinted-badge {cls}">{_html_escape(badge)}</span>'
+    duplicate_html = (
+        f'<span class="ps-vinted-badge duplicate">{_html_escape(duplicate_badge)}</span>'
+        if duplicate_badge
+        else ""
+    )
     stamp_label = card_stamp_label(card)
     stamp_html = f'<span class="ps-vinted-badge stamp">{_html_escape(stamp_label)}</span>' if stamp_label else ""
     return f"""
@@ -761,6 +784,7 @@ def _card_static_html(card, proxy_img_func, fp_func, *, badge="", badge_class=""
   <div class="ps-vinted-price">{_html_escape(price_label)} · {_html_escape(stock_label)}</div>
   {stamp_html}
   {badge_html}
+  {duplicate_html}
 </div>
 """
 
@@ -789,6 +813,7 @@ def _available_cards(d, card_available_qty_func, is_collection_system_lot_func):
             item["card_uid"] = _card_uid(card, lot_idx, card_idx)
             item["_listing_key"] = _card_key(item)
             item["_drop_card_key"] = drop_card_key(item)
+            item["identity_fingerprint"] = card_identity_fingerprint(item)
             options.append(item)
     return options
 
@@ -877,6 +902,33 @@ def _card_with_drop_quantity(card, quantity):
     item = dict(card)
     item["drop_quantity"] = max(1, int(quantity or 1))
     return item
+
+
+def _card_identity(card):
+    return str(card.get("identity_fingerprint") or card_identity_fingerprint(card) or "")
+
+
+def _drop_identity_counts(drop):
+    counts = Counter()
+    for ref in (drop or {}).get("cards", []) or []:
+        fingerprint = _card_identity(ref)
+        if fingerprint:
+            counts[fingerprint] += 1
+    return counts
+
+
+def _drop_duplicate_extra_count(drop):
+    return sum(count - 1 for count in _drop_identity_counts(drop).values() if count > 1)
+
+
+def _candidate_duplicate_count(drop, card):
+    fingerprint = _card_identity(card)
+    if not fingerprint:
+        return 0
+    count = _drop_identity_counts(drop).get(fingerprint, 0)
+    if card_is_in_drop(drop, card):
+        count -= 1
+    return max(0, count)
 
 
 def _add_card_to_drop_action(drops_data, drop_id, card, quantity=1):
@@ -1018,7 +1070,14 @@ def _render_available_card(
     key = card["_listing_key"]
     active_drop = find_drop(drops_data, active_drop_id) if active_drop_id else None
     already = bool(active_drop and card_is_in_drop(active_drop, card))
-    st.markdown(_card_static_html(card, proxy_img_func, fp_func), unsafe_allow_html=True)
+    duplicate_count = _candidate_duplicate_count(active_drop, card) if active_drop else 0
+    duplicate_badge = ""
+    if duplicate_count:
+        duplicate_badge = f"⚠ Déjà présent ×{duplicate_count}" if duplicate_count > 1 else "⚠ Déjà présent dans le drop"
+    st.markdown(
+        _card_static_html(card, proxy_img_func, fp_func, duplicate_badge=duplicate_badge),
+        unsafe_allow_html=True,
+    )
     quantity = _render_quantity_stepper(scope, card)
 
     if mode == "classic":
@@ -1137,6 +1196,7 @@ def _drop_grid_groups(cards, proxy_img_func, fp_func):
                     "stock": int(card.get("available_qty", 0) or 0),
                     "image_url": img,
                     "stamp_label": card_stamp_label(card),
+                    "duplicate_fingerprint": _card_identity(card),
                 }
             )
         if payload_cards:
@@ -1424,10 +1484,12 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
     st.caption(f"{len(candidates_all)} carte(s) disponible(s).")
     groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func)
     added_keys = _drop_added_keys(active_drop)
+    duplicate_counts = dict(_drop_identity_counts(active_drop))
     processed_action_ids = _drop_grid_processed_actions(active_drop.get("id"))
     result = render_vinted_drop_virtual_grid(
         groups,
         added_keys,
+        duplicate_counts=duplicate_counts,
         key=f"drop_add_{active_drop.get('id')}",
         mobile=mobile,
         scroll_top_token=_drop_scroll_top_token(active_drop.get("id"), query),
@@ -1477,8 +1539,20 @@ def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, 
     if missing_cards:
         st.warning(f"{len(missing_cards)} carte(s) du drop ne sont plus disponibles à la vente.")
 
+    duplicate_counts = _drop_identity_counts(active_drop)
+    duplicate_extra = _drop_duplicate_extra_count(active_drop)
+    if duplicate_extra:
+        st.markdown(
+            f'<span class="ps-vinted-badge duplicate">⚠ {duplicate_extra} doublon(s) potentiel(s)</span>',
+            unsafe_allow_html=True,
+        )
+
     cols_count = _grid_columns(mobile)
-    all_cards = list(filtered_cards) + list(filtered_missing)
+    all_cards = []
+    for card in list(filtered_cards) + list(filtered_missing):
+        item = dict(card)
+        item["_drop_duplicate_total"] = duplicate_counts.get(_card_identity(item), 0)
+        all_cards.append(item)
     for row_index, row in _chunked(all_cards, cols_count):
         with st.container(horizontal=True, key=f"vinted_grid_drop_cards_{active_drop.get('id')}_{row_index}"):
             for card in row:
@@ -1502,6 +1576,10 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
     status = str(card.get("status") or ("online" if posted else "to_prepare"))
     badge = "INDISPONIBLE" if unavailable else drop_item_status_label(status)
     badge_class = "warn" if unavailable else _drop_status_badge_class(status)
+    duplicate_total = int(card.get("_drop_duplicate_total", 0) or 0)
+    duplicate_badge = ""
+    if duplicate_total > 1:
+        duplicate_badge = f"⚠ {duplicate_total} exemplaires" if duplicate_total > 2 else "⚠ Doublon"
     with st.container(key=f"vinted_card_drop_{active_drop.get('id')}_{_safe_js_id(card_ref_key)}"):
         st.markdown(
             _card_static_html(
@@ -1510,6 +1588,7 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
                 fp_func,
                 badge=badge,
                 badge_class=badge_class,
+                duplicate_badge=duplicate_badge,
                 unavailable=unavailable,
                 drop_card=True,
             ),

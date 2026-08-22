@@ -7,6 +7,7 @@ from datetime import datetime
 
 from utils import safe_write_json
 from services.cloud_sync_service import save_synced_dataset
+from services.card_identity import card_identity_fingerprint
 from services.vinted_channels import normalize_vinted_channel, is_vinted_channel
 from services.vinted_listing_service import card_search_blob, full_card_number, normalize_search_text
 
@@ -135,6 +136,7 @@ def make_card_ref(card):
         "image_url": card.get("image_url", "") or card.get("image_url_en", ""),
         "price_at_add": card.get("price", card.get("suggested_price", 0)),
         "quantity": quantity,
+        "identity_fingerprint": card.get("identity_fingerprint") or card_identity_fingerprint(card),
         "drop_item_id": card.get("drop_item_id") or uuid.uuid4().hex,
         "status": "to_photograph",
         "added_at": _now_iso(),
@@ -290,6 +292,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
             enriched["sold_at"] = ref.get("sold_at", "")
             enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
             enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
+            enriched["identity_fingerprint"] = ref.get("identity_fingerprint") or card_identity_fingerprint(enriched)
             enriched["_drop_available"] = True
             if ref.get("display_number"):
                 enriched["display_number"] = ref.get("display_number")
@@ -299,6 +302,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
             ref.setdefault("quantity", 1)
             ref["status"] = drop_item_status(ref)
             ref["status_label"] = drop_item_status_label(ref)
+            ref["identity_fingerprint"] = ref.get("identity_fingerprint") or card_identity_fingerprint(ref)
             ref["_drop_ref_key"] = key
             ref["_drop_available"] = False
             missing.append(ref)

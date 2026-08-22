@@ -155,6 +155,25 @@ def _get_vinted_drop_grid_component():
         color: #334155;
         font-weight: 700;
     }
+    .ps-sale-duplicate {
+        display: none;
+        width: max-content;
+        max-width: 100%;
+        margin-top: 5px;
+        border-radius: 999px;
+        padding: 3px 7px;
+        border: 1px solid #fed7aa;
+        background: #ffedd5;
+        color: #c2410c;
+        font-size: 0.66rem;
+        font-weight: 900;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .ps-sale-duplicate.visible {
+        display: inline-flex;
+    }
     .ps-sale-actions {
         display: flex;
         align-items: center;
@@ -250,6 +269,7 @@ def _get_vinted_drop_grid_component():
         const stateKey = "__pokestockVintedDropGrid_" + key;
         const groups = Array.isArray(data.groups) ? data.groups : [];
         const baseAdded = new Set(Array.isArray(data.addedKeys) ? data.addedKeys : []);
+        const baseDuplicateCounts = data.duplicateCounts && typeof data.duplicateCounts === "object" ? data.duplicateCounts : {};
         const processedActionIds = new Set(Array.isArray(data.processedActionIds) ? data.processedActionIds : []);
         const signature = String(data.signature || "");
         const addedSignature = JSON.stringify(Array.from(baseAdded).sort());
@@ -335,6 +355,19 @@ def _get_vinted_drop_grid_component():
             return current;
         }
 
+        function effectiveDuplicateCount(item) {
+            const fingerprint = String(item.duplicate_fingerprint || "");
+            if (!fingerprint) return 0;
+            let count = Number(baseDuplicateCounts[fingerprint] || 0);
+            state.pendingActions.forEach((action) => {
+                if (!action || String(action.duplicate_fingerprint || "") !== fingerprint) return;
+                if (action.type === "add") count += 1;
+                if (action.type === "remove") count -= 1;
+            });
+            if (effectiveAdded(itemKey(item))) count -= 1;
+            return Math.max(0, count);
+        }
+
         function queuedActionIds() {
             const ids = new Set(state.pendingActions.map((action) => String(action.id || "")));
             return ids;
@@ -358,6 +391,9 @@ def _get_vinted_drop_grid_component():
         }
 
         function applyCardVisual(card, key) {
+            const itemJson = card.dataset.item || "";
+            let item = {};
+            try { item = JSON.parse(itemJson); } catch (e) {}
             const isAdded = effectiveAdded(key);
             card.className = "ps-sale-lot-card" + (isAdded ? " in-cart" : "");
             const imageWrap = card.querySelector(".ps-sale-img-wrap");
@@ -375,6 +411,12 @@ def _get_vinted_drop_grid_component():
             const button = card.querySelector(".ps-sale-add");
             if (button) {
                 button.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
+            }
+            const duplicate = card.querySelector(".ps-sale-duplicate");
+            if (duplicate) {
+                const duplicateCount = effectiveDuplicateCount(item);
+                duplicate.textContent = duplicateCount > 1 ? "⚠ Déjà présent ×" + duplicateCount : "⚠ Déjà présent dans le drop";
+                duplicate.classList.toggle("visible", duplicateCount > 0);
             }
         }
 
@@ -468,6 +510,10 @@ def _get_vinted_drop_grid_component():
             const card = doc.createElement("div");
             card.className = "ps-sale-lot-card" + (isAdded ? " in-cart" : "");
             card.dataset.cardKey = key;
+            card.dataset.item = JSON.stringify({
+                card_key: key,
+                duplicate_fingerprint: item.duplicate_fingerprint || ""
+            });
             card.style.width = width + "px";
             card.style.height = height + "px";
             card.style.fontFamily = saleFont;
@@ -503,6 +549,10 @@ def _get_vinted_drop_grid_component():
             text(card, "ps-sale-name", item.name || "Carte");
             text(card, "ps-sale-meta", (item.set || "") + (item.number ? " · #" + item.number : ""));
             text(card, "ps-sale-price", (item.price_label || "") + " · Stock " + String(item.stock || 0));
+            const duplicate = doc.createElement("div");
+            duplicate.className = "ps-sale-duplicate";
+            card.appendChild(duplicate);
+            applyCardVisual(card, key);
 
             const actions = doc.createElement("div");
             actions.className = "ps-sale-actions";
@@ -549,6 +599,7 @@ def _get_vinted_drop_grid_component():
                     lot_uid: item.lot_uid,
                     lot_idx: item.lot_idx,
                     card_idx: item.card_idx,
+                    duplicate_fingerprint: item.duplicate_fingerprint || "",
                     quantity: clampQty(key, item.stock),
                     ts: Date.now()
                 };
@@ -748,7 +799,7 @@ def _get_vinted_drop_grid_component():
     return _vinted_drop_grid_component
 
 
-def grouped_payload_signature(groups, added_keys=None):
+def grouped_payload_signature(groups, added_keys=None, duplicate_counts=None):
     compact = []
     for group in groups or []:
         compact.append(
@@ -756,11 +807,19 @@ def grouped_payload_signature(groups, added_keys=None):
                 group.get("lot_uid"),
                 group.get("lot_idx"),
                 [
-                    (item.get("card_key"), item.get("card_uid"), item.get("card_idx"), item.get("stock"), item.get("price"))
+                    (
+                        item.get("card_key"),
+                        item.get("card_uid"),
+                        item.get("card_idx"),
+                        item.get("stock"),
+                        item.get("price"),
+                        item.get("duplicate_fingerprint"),
+                    )
                     for item in group.get("cards", []) or []
                 ],
             )
         )
+    compact.append(("duplicates", sorted((duplicate_counts or {}).items())))
     raw = json.dumps(compact, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -786,6 +845,7 @@ def render_vinted_drop_virtual_grid(
     groups,
     added_keys,
     *,
+    duplicate_counts=None,
     key="vinted_drop",
     mobile=False,
     scroll_top_token=0,
@@ -802,9 +862,10 @@ def render_vinted_drop_virtual_grid(
         key=f"vinted_drop_virtual_grid_{key}",
         data={
             "key": key,
-            "signature": grouped_payload_signature(groups, added_keys),
+            "signature": grouped_payload_signature(groups, added_keys, duplicate_counts),
             "groups": list(groups or []),
             "addedKeys": list(added_keys or []),
+            "duplicateCounts": dict(duplicate_counts or {}),
             "processedActionIds": list(processed_action_ids or []),
             "scrollTopToken": str(scroll_top_token or ""),
         },
