@@ -2242,7 +2242,6 @@ if not wrapped_story_active:
                             st.success(f"Sauvegarde créée : {os.path.basename(path)}")
                         except Exception as e:
                             st.error(f"Sauvegarde impossible : {e}")
-                st.caption("Build Lots: 2026-08-22-1323")
 
 if selected_native_nav_page is not None:
     with rerun_phase("native_navigation_run"):
