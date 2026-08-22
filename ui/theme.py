@@ -553,6 +553,75 @@ h2 {{
     background: rgba(220, 38, 38, 0.25) !important;
     color: #fff !important;
 }}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
+    color: #cbd5e1 !important;
+    padding: 0.2rem 0.25rem 0.7rem !important;
+    margin: 0 0 0.65rem 0 !important;
+    border-bottom: 1px solid var(--ps-sidebar-border) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] {{
+    gap: 0.05rem !important;
+    padding: 0 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stNavSectionHeader"] {{
+    min-height: auto !important;
+    padding: 0.95rem 0.35rem 0.35rem !important;
+    margin: 0 !important;
+    color: rgba(203,213,225,0.72) !important;
+    background: transparent !important;
+    border: 0 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    font-size: 0.65rem !important;
+    font-weight: 800 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stNavSectionHeader"] * {{
+    color: rgba(203,213,225,0.72) !important;
+    font-size: 0.65rem !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLinkContainer"] {{
+    margin: 0.1rem 0 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] {{
+    min-height: 2.45rem !important;
+    border-radius: 10px !important;
+    padding: 0.55rem 0.75rem !important;
+    background: transparent !important;
+    color: #cbd5e1 !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+    text-decoration: none !important;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] * {{
+    color: inherit !important;
+    font-size: 0.82rem !important;
+    line-height: 1.2 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover {{
+    background: rgba(255,255,255,0.06) !important;
+    color: #f8fafc !important;
+    border-color: rgba(255,255,255,0.08) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] {{
+    background: linear-gradient(135deg, rgba(124,58,237,0.42), rgba(59,130,246,0.18)) !important;
+    color: #ffffff !important;
+    border-color: rgba(167,139,250,0.44) !important;
+    box-shadow: inset 0 0 0 1px rgba(167,139,250,0.08) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] * {{
+    color: #ffffff !important;
+    font-weight: 800 !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]:hover {{
+    background: linear-gradient(135deg, rgba(124,58,237,0.52), rgba(59,130,246,0.24)) !important;
+}}
 
 /* ── Buttons ── */
 .stButton > button {{
