@@ -85,15 +85,9 @@ def virtual_window_slice(
                 scroll_top = max(0, int(float(event.get("scrollTop") or 0)))
             except Exception:
                 scroll_top = 0
-            try:
-                section_top = max(0, int(float(event.get("sectionTop") or 0)))
-            except Exception:
-                section_top = 0
-            relative_scroll_top = max(0, scroll_top - section_top)
-
             if scroll_top > 0:
                 lead_rows = max(4, int(window_count / slots_per_row / 3))
-                viewport_row = max(0, int(max(0, relative_scroll_top + (row_height * lead_rows)) / max(1, row_height)))
+                viewport_row = max(0, int(max(0, scroll_top + (row_height * lead_rows)) / max(1, row_height)))
                 back_rows = 3
                 desired_start = max(0, (viewport_row - back_rows) * slots_per_row)
                 desired_start = min(max(0, total_count - window_count), desired_start)
@@ -198,17 +192,8 @@ def _get_virtual_scroll_component():
                 id: direction + "-" + now + "-" + Math.random().toString(36).slice(2),
                 direction,
                 rowHeight: rowHeight(),
-                scrollTop: root ? root.scrollTop : win.scrollY,
-                sectionTop: sectionTop()
+                scrollTop: root ? root.scrollTop : win.scrollY
             });
-        }
-
-        function sectionTop() {
-            const top = doc.getElementById(data.topAnchorId);
-            if (!top) return 0;
-            const current = root ? root.scrollTop : win.scrollY;
-            const rr = rootRect();
-            return Math.max(0, Math.round(top.getBoundingClientRect().top - rr.top + current));
         }
 
         function rootRect() {
@@ -373,16 +358,31 @@ def render_infinite_sentinel(
         f"""
         <style>
         .st-key-{control_key},
+        .st-key-{control_key} > div,
+        .st-key-{control_key} [data-testid="stVerticalBlock"],
+        .st-key-{control_key} [data-testid="stElementContainer"],
         .st-key-{control_key} [data-testid="stButton"],
         .st-key-{control_key} button {{
             position: absolute !important;
             width: 1px !important;
             height: 1px !important;
+            min-height: 0 !important;
+            max-height: 1px !important;
             overflow: hidden !important;
             opacity: 0 !important;
             pointer-events: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            line-height: 0 !important;
+        }}
+        .st-key-{control_key} {{
+            display: block !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
         }}
         </style>
         """,
@@ -464,7 +464,3 @@ def render_infinite_sentinel(
         run_html_func(script, height=0)
     else:
         components.html(script, height=0)
-
-
-def virtual_scroll_available() -> bool:
-    return components_v2 is not None

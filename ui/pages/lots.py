@@ -5,18 +5,13 @@ as context to preserve behavior while moving the large page out of app.py.
 """
 
 import html
+import json
+import os
 
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
 from ui.badges import status_badge
-from ui.infinite_scroll import (
-    progressive_slice,
-    render_infinite_sentinel,
-    render_virtual_scroll_sensor,
-    stable_list_signature,
-    virtual_scroll_available,
-    virtual_window_slice,
-)
+from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 from ui.mobile_scan import render_assisted_scan
 
 
@@ -138,16 +133,30 @@ def render_lots_page(context):
         )
 
     def card_is_sold_status(card):
-        return card_available_qty(card) <= 0 and int(card.get("stored_quantity", 0) or 0) <= 0
+        try:
+            total_qty = int(card.get("quantity", 0) or 0)
+            sold_or_exchanged = int(card.get("sold_quantity", 0) or 0) + int(card.get("exchange_out_quantity", 0) or 0)
+        except (TypeError, ValueError):
+            return False
+        return total_qty > 0 and sold_or_exchanged >= total_qty
 
     def card_lot_display_status(card, lot=None):
         if card_is_collection_status(card):
             return "collection"
-        if card_is_storage_status(card, lot):
-            return "stored"
         if card_is_sold_status(card):
             return "sold"
+        if card_is_storage_status(card, lot):
+            return "stored"
         return "stock"
+
+    def lot_card_status_badges(card, display_status):
+        badges = card_status_badges(card, include_storage=False)
+        badge_text = badges.upper()
+        if display_status == "collection" and "COLLECTION" not in badge_text:
+            badges += " " + status_badge("Collection")
+        elif display_status == "stored" and "STOCKAGE" not in badge_text:
+            badges += " " + status_badge("Stockage")
+        return badges
 
     st.markdown(
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
@@ -229,12 +238,12 @@ def render_lots_page(context):
             border: 1px solid transparent !important;
             padding: 0.35rem !important;
         }
-        [class*="st-key-lot_card_item_"][class*="_stored_"] {
+        [class*="st-key-lot_card_item_"][class*="_scope-stored_"] {
             background: #f0f9ff !important;
             border-color: #7dd3fc !important;
             box-shadow: 0 8px 20px rgba(3,105,161,0.08) !important;
         }
-        [class*="st-key-lot_card_item_"][class*="_collection_"] {
+        [class*="st-key-lot_card_item_"][class*="_scope-collection_"] {
             background: #fffbeb !important;
             border-color: #f59e0b !important;
             box-shadow: 0 8px 20px rgba(146,64,14,0.08) !important;
@@ -753,14 +762,80 @@ def render_lots_page(context):
                     for i, c in cards_with_idx
                     if card_lot_display_status(c, lt) == "sold"
                 ]
-                lot_cols_per_row = 2 if is_mobile_mode() else 6
                 lot_initial = 24 if is_mobile_mode() else 48
-                lot_window = 36 if is_mobile_mode() else 60
                 lot_step = 12 if is_mobile_mode() else 24
-                lot_row_height_default = 780 if is_mobile_mode() else 620
-                lot_use_virtual_window = virtual_scroll_available()
                 rendered_lot_card_count = 0
-                first_lot_section_window_rendered = False
+
+                def build_recent_sale_note_index():
+                    def note_keys(name, num):
+                        normalized = normalize_name(name)
+                        raw_num = str(num or "").strip()
+                        if not normalized:
+                            return []
+                        if not raw_num:
+                            return [(normalized, "")]
+                        return list({
+                            (normalized, raw_num),
+                            (normalized, raw_num.zfill(3)),
+                            (normalized, raw_num.lstrip("0")),
+                        })
+
+                    notes_by_key = {}
+                    archives = []
+                    try:
+                        if os.path.exists("lots_archives.json"):
+                            with open("lots_archives.json", "r", encoding="utf-8") as f:
+                                archives = json.load(f)
+                    except Exception:
+                        archives = []
+
+                    for source_lot in cd.get("lots", []) + archives:
+                        for source_card in source_lot.get("cards", []):
+                            sale_entries = source_card.get("sold_entries", [])
+                            if not sale_entries:
+                                continue
+                            keys = note_keys(source_card.get("name", ""), source_card.get("number", ""))
+                            keys.append((normalize_name(source_card.get("name", "")), ""))
+                            keys = [key for key in set(keys) if key[0]]
+                            for sale in sale_entries:
+                                q = max(int(sale.get("quantity", 1) or 1), 1)
+                                price = float(sale.get("price", 0) or 0) / q
+                                if price <= 0:
+                                    continue
+                                note = {
+                                    "date": str(sale.get("date", ""))[:10],
+                                    "price": price,
+                                    "lot": source_lot.get("nom", ""),
+                                }
+                                for key in keys:
+                                    notes_by_key.setdefault(key, []).append(note)
+
+                    latest_by_key = {}
+                    for key, notes in notes_by_key.items():
+                        notes.sort(key=lambda x: x.get("date", ""), reverse=True)
+                        latest_by_key[key] = notes[0]
+                    return latest_by_key
+
+                recent_sale_note_index = build_recent_sale_note_index()
+
+                def recent_sale_note_for_render(card):
+                    normalized = normalize_name(card.get("name", ""))
+                    raw_num = str(card.get("number", "") or "").strip()
+                    if not normalized:
+                        return None
+                    keys = []
+                    if raw_num:
+                        keys.extend([
+                            (normalized, raw_num),
+                            (normalized, raw_num.zfill(3)),
+                            (normalized, raw_num.lstrip("0")),
+                        ])
+                    else:
+                        keys.append((normalized, ""))
+                    for key in keys:
+                        if key in recent_sale_note_index:
+                            return recent_sale_note_index[key]
+                    return None
                 
                 def render_card_grid(card_list_with_idx, sold=False, collection=False, storage=False, grid_scope="active", row_index_offset=0):
                     safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
@@ -807,7 +882,7 @@ def render_lots_page(context):
                             f'</div>'
                         )
 
-                    COLS_PER_ROW = lot_cols_per_row
+                    COLS_PER_ROW = 6
                     for row_start in range(0, len(card_list_with_idx), COLS_PER_ROW):
                         with st.container(
                             key=f"lot_cards_grid_{safe_lot_key}_{safe_scope}_{row_index_offset + row_start}",
@@ -823,43 +898,37 @@ def render_lots_page(context):
                                 card_key_part = str(crd.get("card_uid") or real_cix).replace(" ", "_").replace("/", "_")
                                 widget_key = f"{ix}_{safe_scope}_{real_cix}"
 
-                                with st.container(key=f"lot_card_item_{safe_lot_key}_{safe_scope}_{card_key_part}_{col_idx}"):
-                                    # Image
+                                with st.container(key=f"lot_card_item_{safe_lot_key}_scope-{safe_scope}_{card_key_part}_{col_idx}"):
+                                    # Image + informations statiques.
                                     img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
                                     img_url_en = crd.get("image_url_en", "")
+                                    static_parts = []
                                     if img_url or img_url_en:
                                         if is_sold_card:
-                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"), unsafe_allow_html=True)
+                                            static_parts.append(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;border:3px solid #e2e8f0;", wrapper_style="opacity:0.35;filter:grayscale(100%)"))
                                         elif is_collection_card:
-                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
+                                            static_parts.append(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#fffbeb;border:3px solid #f59e0b;border-radius:14px;padding:0.2rem;"))
                                         elif is_storage_card:
-                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#f0f9ff;border:3px solid #7dd3fc;border-radius:14px;padding:0.2rem;"), unsafe_allow_html=True)
+                                            static_parts.append(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:10px;", wrapper_style="background:#f0f9ff;border:3px solid #7dd3fc;border-radius:14px;padding:0.2rem;"))
                                         else:
-                                            st.markdown(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"), unsafe_allow_html=True)
-                                            past_notes = recent_sale_notes_for_card(crd.get("name", ""), crd.get("number", ""), limit=1)
-                                            if past_notes:
-                                                st.markdown(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_notes[0]["price"]:.2f}€</div>', unsafe_allow_html=True)
+                                            static_parts.append(lot_image_markup(img_url, img_url_en, img_style="width:100%;border-radius:12px;"))
+                                            past_note = recent_sale_note_for_render(crd)
+                                            if past_note:
+                                                static_parts.append(f'<div style="font-size:0.78rem;font-weight:800;color:#0f766e;margin:0.15rem 0 0.05rem 0;">Dernière vente : {past_note["price"]:.2f}€</div>')
                                     else:
-                                        st.markdown(
+                                        static_parts.append(
                                             '<div class="ps-lot-image-placeholder">'
                                             '<strong>Image indisponible</strong>'
                                             '<span>Ajoute une photo si tu veux illustrer cette carte.</span>'
-                                            '</div>',
-                                            unsafe_allow_html=True,
+                                            '</div>'
                                         )
                                         if st.button("Ajouter une photo", key=f"add_img_{widget_key}", width="stretch"):
                                             st.session_state[f"show_upload_{widget_key}"] = True
 
-                                    # Nom + badges + stock sur une ligne
-                                    badges = card_status_badges(crd)
-                                    if is_collection_card and "COLLECTION" not in badges.upper():
-                                        badges += " " + status_badge("Collection")
-                                    if is_storage_card and "STOCKAGE" not in badges.upper():
-                                        badges += " " + status_badge("Stockage")
+                                    badges = lot_card_status_badges(crd, display_status)
                                     stock_txt = "🧾 Collection" if is_collection_card else ("📈 Stockage" if is_storage_card else ("✅" if is_sold_card else f"{stock}/{crd['quantity']}"))
-                                    if crd.get("stored_quantity", 0) and not is_storage_card:
-                                        stock_txt += f" · 📈 {int(crd.get('stored_quantity', 0))}"
-                                    st.markdown(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{crd["name"]}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>', unsafe_allow_html=True)
+                                    static_parts.append(f'<div style="font-size:0.85rem;font-weight:700;margin:0.2rem 0;">{html.escape(str(crd.get("name", "")))}{badges} <span style="color:#64748b;font-weight:500;">· {stock_txt}</span></div>')
+                                    st.markdown("".join(static_parts), unsafe_allow_html=True)
 
                                     # Prix : pour les cartes vendues, afficher le prix de vente réel
                                     if is_sold_card and crd.get("sold_entries"):
@@ -977,41 +1046,38 @@ def render_lots_page(context):
                                                     st.session_state[store_panel_key] = False
                                                     st.rerun()
 
-                                    # Checkboxes Reverse / 1ère Éd + bouton modifier image
-                                    def save_badges(ix=ix, real_cix=real_cix, widget_key=widget_key):
-                                        cdd = ld()
-                                        cdd["lots"][ix]["cards"][real_cix]["is_reverse"] = st.session_state.get(f"erv{widget_key}", False)
-                                        cdd["lots"][ix]["cards"][real_cix]["is_ed1"] = st.session_state.get(f"eed{widget_key}", False)
-                                        sd(cdd)
-
-                                    col_rv, col_ed, col_img = st.columns([2, 2, 1])
-                                    col_rv.checkbox("Reverse", value=crd.get("is_reverse", False), key=f"erv{widget_key}", on_change=save_badges)
-                                    col_ed.checkbox("1ère Éd", value=crd.get("is_ed1", False), key=f"eed{widget_key}", on_change=save_badges)
-                                    if col_img.button("🖼️", key=f"edit_img_{widget_key}", help="Modifier l'image"):
+                                    if st.button("🖼️", key=f"edit_img_{widget_key}", help="Modifier l'image"):
                                         st.session_state[f"show_upload_{widget_key}"] = True
 
                                     if st.session_state.get(f"show_upload_{widget_key}", False):
-                                        uploaded = st.file_uploader(
-                                            "Nouvelle image",
-                                            type=["jpg","jpeg","png","webp"],
-                                            key=f"reupload_{widget_key}",
-                                        )
-                                        if uploaded:
+                                        def save_uploaded_card_image(ix=ix, real_cix=real_cix, widget_key=widget_key, crd=crd):
+                                            uploaded_file = st.session_state.get(f"reupload_{widget_key}")
+                                            if not uploaded_file:
+                                                return
                                             img_dir = os.path.join(os.getcwd(), "card_images")
                                             os.makedirs(img_dir, exist_ok=True)
                                             card_id = crd.get("id","") or f"{ix}_{real_cix}"
                                             safe_id = card_id.replace("/","_").replace(" ","_")
-                                            ext = uploaded.name.split(".")[-1]
+                                            ext = uploaded_file.name.split(".")[-1]
                                             img_path = os.path.join(img_dir, f"{safe_id}.{ext}")
                                             with open(img_path, "wb") as f:
-                                                f.write(uploaded.read())
+                                                f.write(uploaded_file.read())
                                             cdd = ld()
                                             image_ref = f"card_images/{safe_id}.{ext}"
                                             cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
                                             register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
                                             sd(cdd)
                                             st.session_state[f"show_upload_{widget_key}"] = False
-                                            st.rerun()
+                                            st.session_state[f"upload_saved_{widget_key}"] = True
+
+                                        st.file_uploader(
+                                            "Nouvelle image",
+                                            type=["jpg","jpeg","png","webp"],
+                                            key=f"reupload_{widget_key}",
+                                            on_change=save_uploaded_card_image,
+                                        )
+                                    if st.session_state.pop(f"upload_saved_{widget_key}", False):
+                                        st.success("Image mise à jour.")
 
                                     # Restaurer (cartes vendues)
                                     if sold:
@@ -1044,181 +1110,305 @@ def render_lots_page(context):
 
                         st.markdown("---")
 
-                def lot_section_signature(grid_scope, card_list_with_idx):
-                    return stable_list_signature(
-                        "lot_cards_section",
+                def lot_card_image_url(card):
+                    candidates = []
+                    for raw_url in (card.get("image_url", "") or resolve_custom_card_image(card), card.get("image_url_en", "")):
+                        raw_url = str(raw_url or "").strip()
+                        if not raw_url or raw_url == "__placeholder__":
+                            continue
+                        if (raw_url.startswith(("card_images/", "card_images\\")) or os.path.exists(raw_url)) and not os.path.exists(raw_url):
+                            continue
+                        if raw_url not in candidates:
+                            candidates.append(raw_url)
+                    return proxy_img(candidates[0]) if candidates else ""
+
+                def lot_virtual_card_payload(real_cix, card, grid_scope):
+                    display_status = card_lot_display_status(card, lt)
+                    is_collection_card = display_status == "collection"
+                    is_storage_card = display_status == "stored"
+                    is_sold_card = display_status == "sold"
+                    stock = card_available_qty(card)
+                    badges = lot_card_status_badges(card, display_status)
+                    stock_txt = "Collection" if is_collection_card else ("Stockage" if is_storage_card else ("Vendu" if is_sold_card else f"{stock}/{card.get('quantity', 0)}"))
+                    sold_label = ""
+                    if is_sold_card and card.get("sold_entries"):
+                        last_sale = card["sold_entries"][-1]
+                        prix_reel = float(last_sale.get("price", 0)) / max(int(last_sale.get("quantity", 1)), 1)
+                        sold_label = f"Vendu : {prix_reel:.2f}€"
+                    price_delta_label = ""
+                    ph = card.get("price_history", [])
+                    if ph and len(ph) >= 2:
+                        diff = float(ph[-1].get("price", 0) or 0) - float(ph[-2].get("price", 0) or 0)
+                        arrow = "↑" if diff > 0 else "↓"
+                        price_delta_label = f"{arrow} {fp(abs(diff))}"
+                    sale_note = ""
+                    if not is_sold_card and not is_collection_card and not is_storage_card:
+                        past_note = recent_sale_note_for_render(card)
+                        if past_note:
+                            sale_note = f"Dernière vente : {past_note['price']:.2f}€"
+                    return {
+                        "lot_idx": ix,
+                        "card_idx": real_cix,
+                        "card_uid": card.get("card_uid") or "",
+                        "card_key": f"{ix}_{grid_scope}_{real_cix}",
+                        "section": grid_scope,
+                        "status": display_status,
+                        "sold": is_sold_card,
+                        "collection": is_collection_card,
+                        "stored": is_storage_card,
+                        "name": card.get("name", "Carte"),
+                        "badges_html": badges,
+                        "stock_text": stock_txt,
+                        "sale_note": sale_note,
+                        "sold_label": sold_label,
+                        "price_delta_label": price_delta_label,
+                        "image_url": lot_card_image_url(card),
+                        "price": float(card.get("suggested_price") or 0),
+                        "quantity": int(card.get("quantity", 1) or 1),
+                        "sold_quantity": int(card.get("sold_quantity", 0) or 0),
+                        "stored_quantity": int(card.get("stored_quantity", 0) or 0),
+                        "available": int(stock),
+                        "is_reverse": bool(card.get("is_reverse", False)),
+                        "is_ed1": bool(card.get("is_ed1", False)),
+                        "trade_move": bool(is_trade and stock > 0 and not is_sold_card and not is_collection_card),
+                        "can_store": bool((not is_storage) and stock > 0 and not is_sold_card and not is_collection_card and not is_trade),
+                    }
+
+                def build_lot_virtual_sections():
+                    return [
+                        {
+                            "key": "stock",
+                            "title": f"🟢 En stock ({len(cards_in_stock_lot)})",
+                            "cards": [lot_virtual_card_payload(real_cix, card, "stock") for real_cix, card in cards_in_stock_lot],
+                        },
+                        {
+                            "key": "stored",
+                            "title": f"🔵 En stockage ({len(cards_stored_lot)})",
+                            "cards": [lot_virtual_card_payload(real_cix, card, "stored") for real_cix, card in cards_stored_lot],
+                        },
+                        {
+                            "key": "collection",
+                            "title": f"🟡 Collection ({len(cards_collection_lot)})",
+                            "boxed": True,
+                            "cards": [lot_virtual_card_payload(real_cix, card, "collection") for real_cix, card in cards_collection_lot],
+                        },
+                        {
+                            "key": "sold",
+                            "title": f"✅ VENDUES ({len(cards_sold_lot)})",
+                            "boxed": True,
+                            "cards": [lot_virtual_card_payload(real_cix, card, "sold") for real_cix, card in cards_sold_lot],
+                        },
+                    ]
+
+                def render_lot_sections_fallback():
+                    nonlocal rendered_lot_card_count
+                    lot_render_items = (
+                        [("stock", item) for item in cards_in_stock_lot]
+                        + [("stored", item) for item in cards_stored_lot]
+                        + [("collection", item) for item in cards_collection_lot]
+                        + [("sold", item) for item in cards_sold_lot]
+                    )
+                    lot_signature = stable_list_signature(
+                        "lot_cards_fallback",
                         lt.get("lot_uid") or ix,
-                        grid_scope,
                         lot_card_search,
                         [
-                            (
-                                real_cix,
-                                card.get("card_uid") or card.get("id") or card.get("name"),
-                                card.get("quantity"),
-                                card.get("sold_quantity"),
-                                card.get("exchange_out_quantity"),
-                                card.get("stored_quantity"),
-                                card.get("trade_transfer_destination"),
-                            )
-                            for real_cix, card in card_list_with_idx
+                            (section, real_cix, card.get("card_uid") or card.get("name"))
+                            for section, (real_cix, card) in lot_render_items
                         ],
                     )
-
-                def lot_preload_urls(card_list_with_idx, start, end):
-                    urls = []
-                    for _, card in list(card_list_with_idx or [])[max(0, start):max(0, end)]:
-                        img_url = card.get("image_url", "") or resolve_custom_card_image(card)
-                        img_url_en = card.get("image_url_en", "")
-                        for raw_url in (img_url, img_url_en):
-                            raw_url = str(raw_url or "").strip()
-                            if not raw_url or raw_url == "__placeholder__":
-                                continue
-                            if (raw_url.startswith(("card_images/", "card_images\\")) or os.path.exists(raw_url)) and not os.path.exists(raw_url):
-                                continue
-                            urls.append(proxy_img(raw_url))
-                            if len(urls) >= 32:
-                                return urls
-                    return urls
-
-                @st.fragment
-                def render_lot_section(title_html, card_list_with_idx, *, sold=False, collection=False, storage=False, grid_scope="active", html_title=False):
-                    nonlocal rendered_lot_card_count, first_lot_section_window_rendered
-                    card_list_with_idx = list(card_list_with_idx or [])
-                    if not card_list_with_idx:
-                        return
-
-                    if html_title:
-                        st.markdown(title_html, unsafe_allow_html=True)
-                    else:
-                        st.markdown(title_html)
-
-                    safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
-                    safe_scope = str(grid_scope or "active").replace(" ", "_").replace("/", "_")
-                    section_key = f"lot_cards_{safe_lot_key}_{safe_scope}"
-                    section_signature = lot_section_signature(grid_scope, card_list_with_idx)
-                    section_initial = lot_initial
-                    if lot_use_virtual_window:
-                        section_signature_key = f"{section_key}_virtual_signature"
-                        section_has_state = st.session_state.get(section_signature_key) == section_signature
-                        if not section_has_state:
-                            section_initial = lot_initial if not first_lot_section_window_rendered else 0
-                        first_lot_section_window_rendered = True
-
-                    if not lot_use_virtual_window:
-                        visible_cards, visible_count, total_count, count_key = progressive_slice(
-                            section_key,
-                            card_list_with_idx,
-                            section_signature,
-                            initial_count=lot_initial,
-                        )
-                        render_card_grid(
-                            visible_cards,
-                            sold=sold,
-                            collection=collection,
-                            storage=storage,
-                            grid_scope=grid_scope,
-                        )
-                        rendered_lot_card_count += len(visible_cards)
-                        render_infinite_sentinel(
-                            section_key,
-                            count_key=count_key,
-                            visible_count=visible_count,
-                            total_count=total_count,
-                            batch_size=lot_step,
-                            root_margin_px=1800,
-                            run_html_func=run_html,
-                            button_label="\u200b",
-                        )
-                        return
-
-                    top_anchor_id = f"lot-virtual-top-{section_key}"
-                    bottom_anchor_id = f"lot-virtual-bottom-{section_key}"
-                    preload_start = int(st.session_state.get(f"{section_key}_window_end", section_initial) or section_initial)
-                    event = render_virtual_scroll_sensor(
-                        section_key,
-                        top_anchor_id=top_anchor_id,
-                        bottom_anchor_id=bottom_anchor_id,
-                        row_selector=(
-                            f'[class*="st-key-lot_cards_grid_{safe_lot_key}_{safe_scope}_"]'
-                            '[data-testid="stHorizontalBlock"]'
-                        ),
+                    visible_lot_items, lot_visible_count, lot_total_count, lot_count_key = progressive_slice(
+                        f"lot_cards_{lt.get('lot_uid') or ix}",
+                        lot_render_items,
+                        lot_signature,
+                        initial_count=lot_initial,
+                    )
+                    visible_stock_lot = [item for section, item in visible_lot_items if section == "stock"]
+                    visible_stored_lot = [item for section, item in visible_lot_items if section == "stored"]
+                    visible_collection_lot = [item for section, item in visible_lot_items if section == "collection"]
+                    visible_sold_lot = [item for section, item in visible_lot_items if section == "sold"]
+                    rendered_lot_card_count += len(visible_lot_items)
+                    if visible_stock_lot:
+                        st.markdown(f"**🟢 En stock ({len(cards_in_stock_lot)})**")
+                        render_card_grid(visible_stock_lot, sold=False, grid_scope="stock")
+                    if visible_stored_lot:
+                        st.markdown(f"**🔵 En stockage ({len(cards_stored_lot)})**")
+                        render_card_grid(visible_stored_lot, sold=False, storage=True, grid_scope="stored")
+                    if visible_collection_lot:
+                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🟡 Collection ({len(cards_collection_lot)})</span></div>', unsafe_allow_html=True)
+                        render_card_grid(visible_collection_lot, sold=False, collection=True, grid_scope="collection")
+                    if visible_sold_lot:
+                        st.markdown(f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>', unsafe_allow_html=True)
+                        render_card_grid(visible_sold_lot, sold=True, grid_scope="sold")
+                    render_infinite_sentinel(
+                        f"lot_cards_{lt.get('lot_uid') or ix}",
+                        count_key=lot_count_key,
+                        visible_count=lot_visible_count,
+                        total_count=lot_total_count,
+                        batch_size=lot_step,
                         root_margin_px=1800,
-                        top_margin_px=900,
-                        preload_urls=lot_preload_urls(card_list_with_idx, preload_start, preload_start + lot_step * 2),
-                        default_row_height=lot_row_height_default,
+                        run_html_func=run_html,
+                        button_label="\u200b",
                     )
-                    visible_cards, start, end, total_count, row_height = virtual_window_slice(
-                        section_key,
-                        card_list_with_idx,
-                        section_signature,
-                        initial_count=min(section_initial, lot_window),
-                        window_count=lot_window,
-                        step_count=lot_step,
-                        event=event,
-                        row_height_default=lot_row_height_default,
-                        slots_per_row=lot_cols_per_row,
-                    )
-                    rendered_lot_card_count += len(visible_cards)
 
-                    top_rows = max(0, start // max(1, lot_cols_per_row))
-                    bottom_rows = max(0, (total_count - end + lot_cols_per_row - 1) // max(1, lot_cols_per_row))
-                    st.markdown(f'<div id="{top_anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
-                    if top_rows:
-                        st.markdown(
-                            f'<div style="height:{int(top_rows * row_height)}px;"></div>',
-                            unsafe_allow_html=True,
+                def restore_sold_card(real_cix):
+                    cdd = ld()
+                    if ix >= len(cdd.get("lots", [])) or real_cix >= len(cdd["lots"][ix].get("cards", [])):
+                        return False, "Carte introuvable."
+                    card_data = cdd["lots"][ix]["cards"][real_cix]
+                    if card_data.get("sold_entries"):
+                        last_entry = card_data["sold_entries"].pop()
+                        qty_restored = last_entry.get("quantity", 1)
+                        card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - qty_restored)
+                        sale_id = last_entry.get("sale_id")
+                        if sale_id:
+                            for lot_restore in cdd.get("lots", []):
+                                lot_restore["ventes"] = [
+                                    v for v in lot_restore.get("ventes", [])
+                                    if v.get("source_sale_id") != sale_id
+                                ]
+                    else:
+                        card_data["sold_quantity"] = max(0, card_data.get("sold_quantity", 0) - 1)
+                    sd(cdd)
+                    return True, "Vente annulée."
+
+                def process_lot_virtual_action(action):
+                    try:
+                        action_lot_idx = int(action.get("lot_idx"))
+                        real_cix = int(action.get("card_idx"))
+                    except Exception:
+                        return
+                    if action_lot_idx != ix:
+                        return
+                    action_type = str(action.get("type") or "")
+                    if action_type == "set_price":
+                        cdd = ld()
+                        if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
+                            card_data = cdd["lots"][ix]["cards"][real_cix]
+                            new_price = float(action.get("value") or 0)
+                            old_price = float(card_data.get("suggested_price", 0) or 0)
+                            card_data["suggested_price"] = new_price
+                            if card_data.get("is_collection_keep"):
+                                card_data["collection_current_value"] = new_price
+                            if new_price != old_price:
+                                card_data.setdefault("price_history", []).append({
+                                    "date": datetime.now().isoformat()[:10],
+                                    "price": new_price,
+                                })
+                            sd(cdd)
+                            st.rerun()
+                    elif action_type == "set_quantity":
+                        cdd = ld()
+                        if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
+                            card_data = cdd["lots"][ix]["cards"][real_cix]
+                            new_q = int(action.get("value") or card_data.get("quantity", 1))
+                            sold_q = int(card_data.get("sold_quantity", 0))
+                            card_data["quantity"] = max(new_q, sold_q)
+                            sd(cdd)
+                            st.rerun()
+                    elif action_type == "set_badges":
+                        field = str(action.get("field") or "")
+                        if field not in ("is_reverse", "is_ed1"):
+                            return
+                        cdd = ld()
+                        if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
+                            cdd["lots"][ix]["cards"][real_cix][field] = bool(action.get("value"))
+                            sd(cdd)
+                            st.rerun()
+                    elif action_type == "delete":
+                        ok, _ = dc(ix, real_cix)
+                        if ok:
+                            st.rerun()
+                    elif action_type == "restore":
+                        ok, msg = restore_sold_card(real_cix)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    elif action_type == "store":
+                        ok, msg = transfer_card_to_storage(
+                            ix,
+                            real_cix,
+                            int(action.get("quantity") or 1),
+                            float(action.get("storage_cote") or 0),
                         )
-                    render_card_grid(
-                        visible_cards,
-                        sold=sold,
-                        collection=collection,
-                        storage=storage,
-                        grid_scope=grid_scope,
-                        row_index_offset=start,
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    elif action_type == "trade_transfer":
+                        ok, msg = transfer_trade_card_to_system_lot(
+                            ix,
+                            real_cix,
+                            str(action.get("destination") or "stockage"),
+                            int(action.get("quantity") or 1),
+                        )
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    elif action_type == "upload_image":
+                        st.session_state["lot_virtual_upload"] = {
+                            "lot_idx": ix,
+                            "card_idx": real_cix,
+                            "scope": str(action.get("section") or "stock"),
+                        }
+                        st.rerun()
+
+                st.session_state.pop("lot_virtual_pending_action", None)
+
+                def render_lot_virtual_upload():
+                    upload_state = st.session_state.get("lot_virtual_upload")
+                    if not isinstance(upload_state, dict):
+                        return
+                    try:
+                        upload_lot_idx = int(upload_state.get("lot_idx"))
+                        real_cix = int(upload_state.get("card_idx"))
+                    except Exception:
+                        st.session_state.pop("lot_virtual_upload", None)
+                        return
+                    if upload_lot_idx != ix:
+                        return
+                    if real_cix < 0 or real_cix >= len(lt.get("cards", [])):
+                        st.session_state.pop("lot_virtual_upload", None)
+                        return
+                    upload_card = lt["cards"][real_cix]
+                    st.markdown("#### Modifier l'image")
+                    st.caption(upload_card.get("name", "Carte"))
+                    uploaded = st.file_uploader(
+                        "Nouvelle image",
+                        type=["jpg", "jpeg", "png", "webp"],
+                        key=f"lot_virtual_reupload_{ix}_{real_cix}",
                     )
-                    st.markdown(f'<div id="{bottom_anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
-                    if bottom_rows:
-                        st.markdown(
-                            f'<div style="height:{int(bottom_rows * row_height)}px;"></div>',
-                            unsafe_allow_html=True,
-                        )
+                    cancel_col, _ = st.columns([1, 4])
+                    if cancel_col.button("Annuler", key=f"lot_virtual_upload_cancel_{ix}_{real_cix}"):
+                        st.session_state.pop("lot_virtual_upload", None)
+                        st.rerun()
+                    if uploaded:
+                        img_dir = os.path.join(os.getcwd(), "card_images")
+                        os.makedirs(img_dir, exist_ok=True)
+                        card_id = upload_card.get("id", "") or f"{ix}_{real_cix}"
+                        safe_id = card_id.replace("/", "_").replace(" ", "_")
+                        ext = uploaded.name.split(".")[-1]
+                        img_path = os.path.join(img_dir, f"{safe_id}.{ext}")
+                        with open(img_path, "wb") as f:
+                            f.write(uploaded.read())
+                        cdd = ld()
+                        image_ref = f"card_images/{safe_id}.{ext}"
+                        if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
+                            cdd["lots"][ix]["cards"][real_cix]["image_url"] = image_ref
+                            register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
+                            sd(cdd)
+                        st.session_state.pop("lot_virtual_upload", None)
+                        st.rerun()
                 
                 if not cards_all:
                     st.info("Aucune carte dans ce lot")
                 else:
-                    # ── En stock ──
-                    render_lot_section(
-                        f"**🟢 En stock ({len(cards_in_stock_lot)})**",
-                        cards_in_stock_lot,
-                        sold=False,
-                        grid_scope="stock",
-                    )
-
-                    render_lot_section(
-                        f"**🔵 En stockage ({len(cards_stored_lot)})**",
-                        cards_stored_lot,
-                        sold=False,
-                        storage=True,
-                        grid_scope="stored",
-                    )
-
-                    render_lot_section(
-                        f'<div style="margin-top:1.5rem;padding:1rem;background:#fffbeb;border-radius:12px;border:2px dashed #f59e0b;"><span style="font-weight:800;color:#92400e;font-size:0.9rem;">🟡 Collection ({len(cards_collection_lot)})</span></div>',
-                        cards_collection_lot,
-                        sold=False,
-                        collection=True,
-                        grid_scope="collection",
-                        html_title=True,
-                    )
-                    
-                    # ── Vendues ──
-                    render_lot_section(
-                        f'<div style="margin-top:1.5rem;padding:1rem;background:#f8fafc;border-radius:12px;border:2px dashed #cbd5e1;"><span style="font-weight:800;color:#64748b;font-size:0.9rem;">✅ VENDUES ({len(cards_sold_lot)})</span></div>',
-                        cards_sold_lot,
-                        sold=True,
-                        grid_scope="sold",
-                        html_title=True,
-                    )
+                    render_lot_sections_fallback()
 
                     if "perf_count" in globals():
                         perf_count("cards_lots_rendered", rendered_lot_card_count)

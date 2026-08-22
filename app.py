@@ -2071,7 +2071,33 @@ selected_native_nav_page = None
 if not wrapped_story_active:
     with rerun_phase("sidebar_total"):
         with st.sidebar:
-            st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
+            st.markdown(
+                """
+                <style>
+                [data-testid="stSidebar"] > div,
+                [data-testid="stSidebar"] [data-testid="stSidebarContent"],
+                [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+                    display: flex !important;
+                    flex-direction: column !important;
+                }
+                [data-testid="stSidebar"] .st-key-ps_sidebar_brand_block {
+                    order: 10 !important;
+                }
+                [data-testid="stSidebar"] .st-key-ps_sidebar_stats_block {
+                    order: 20 !important;
+                }
+                [data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+                    order: 30 !important;
+                }
+                [data-testid="stSidebar"] .st-key-ps_sidebar_bottom_block {
+                    order: 40 !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            with st.container(key="ps_sidebar_brand_block"):
+                st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
             with perf_timer("gst() call", counter="gst_call"):
                 sts = gst()
             sidebar_stats = [
@@ -2081,128 +2107,130 @@ if not wrapped_story_active:
                 ("CA", fp(sts["total_revenue"])),
                 ("Bénéfice", fp(sts["total_profit"])),
             ]
-            with st.container():
+            with st.container(key="ps_sidebar_stats_block"):
                 for label, value in sidebar_stats:
                     st.metric(label, value)
             selected_native_nav_page = st.navigation(
                 build_native_navigation_pages(),
                 position="sidebar",
             )
-            st.markdown("---")
-            with st.expander("⚙️ Paramètres", expanded=False):
-                st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
-                st.toggle(
-                    "Logs performance console",
-                    key="perf_debug_enabled",
-                    help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
-                )
-                cloud_notice = st.session_state.get("cloud_sync_notice")
-                if cloud_notice and not st.session_state.get("cloud_sync_notice_seen", False):
-                    st.caption(f"Cloud protégé : {cloud_notice}")
-                    st.session_state["cloud_sync_notice_seen"] = True
-                cloud_ready, cloud_message = cloud_sync_status()
-                if cloud_ready:
-                    status_summary = cloud_sync_status_summary()
-                    last_read = status_summary.get("last_read") or "jamais"
-                    last_save = status_summary.get("last_save") or "jamais"
-                    unsynced = status_summary.get("unsynced") or []
-                    st.caption(
-                        f"☁️ {cloud_message} · jeux synchronisés "
-                        f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
+            with st.container(key="ps_sidebar_bottom_block"):
+                st.markdown("---")
+                with st.expander("⚙️ Paramètres", expanded=False):
+                    st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
+                    st.toggle(
+                        "Logs performance console",
+                        key="perf_debug_enabled",
+                        help="Affiche des mesures [PERF] dans la console. Desactive par defaut.",
                     )
-                    st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
-                    if unsynced:
-                        st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
-                        st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
-                    sync_status = st.session_state.get("cloud_sync_status") or {}
-                    if sync_status.get("message"):
-                        st.caption(f"Statut : {sync_status.get('message')}")
-                    conflicts = st.session_state.get("cloud_sync_conflicts") or {}
-                    legacy_conflict = st.session_state.get("cloud_sync_conflict")
-                    if legacy_conflict:
-                        conflicts.setdefault("data", {
-                            "dataset": "data",
-                            "filename": "data.json",
-                            "label": "Stock/lots/ventes",
-                            "message": legacy_conflict.get("message", ""),
-                        })
-                    if conflicts:
-                        st.warning(f"Conflit local/cloud détecté sur {len(conflicts)} jeu(x) de données.")
-                        for dataset_key, conflict in list(conflicts.items()):
-                            dataset = SYNCED_DATASETS.get(dataset_key)
-                            if not dataset:
-                                continue
-                            label = conflict.get("label") or dataset.label
-                            st.caption(f"{label} · {dataset.filename}")
-                            c1, c2 = st.columns(2)
-                            if c1.button("Récupérer la version cloud", width="stretch", key=f"resolve_cloud_conflict_pull_{dataset_key}"):
-                                result = pull_dataset_from_cloud(dataset, force=True)
-                                if result.get("status") == "loaded":
-                                    st.success(f"{label} récupéré depuis le cloud.")
+                    cloud_notice = st.session_state.get("cloud_sync_notice")
+                    if cloud_notice and not st.session_state.get("cloud_sync_notice_seen", False):
+                        st.caption(f"Cloud protégé : {cloud_notice}")
+                        st.session_state["cloud_sync_notice_seen"] = True
+                    cloud_ready, cloud_message = cloud_sync_status()
+                    if cloud_ready:
+                        status_summary = cloud_sync_status_summary()
+                        last_read = status_summary.get("last_read") or "jamais"
+                        last_save = status_summary.get("last_save") or "jamais"
+                        unsynced = status_summary.get("unsynced") or []
+                        st.caption(
+                            f"☁️ {cloud_message} · jeux synchronisés "
+                            f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
+                        )
+                        st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
+                        if unsynced:
+                            st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
+                            st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
+                        sync_status = st.session_state.get("cloud_sync_status") or {}
+                        if sync_status.get("message"):
+                            st.caption(f"Statut : {sync_status.get('message')}")
+                        conflicts = st.session_state.get("cloud_sync_conflicts") or {}
+                        legacy_conflict = st.session_state.get("cloud_sync_conflict")
+                        if legacy_conflict:
+                            conflicts.setdefault("data", {
+                                "dataset": "data",
+                                "filename": "data.json",
+                                "label": "Stock/lots/ventes",
+                                "message": legacy_conflict.get("message", ""),
+                            })
+                        if conflicts:
+                            st.warning(f"Conflit local/cloud détecté sur {len(conflicts)} jeu(x) de données.")
+                            for dataset_key, conflict in list(conflicts.items()):
+                                dataset = SYNCED_DATASETS.get(dataset_key)
+                                if not dataset:
+                                    continue
+                                label = conflict.get("label") or dataset.label
+                                st.caption(f"{label} · {dataset.filename}")
+                                c1, c2 = st.columns(2)
+                                if c1.button("Récupérer la version cloud", width="stretch", key=f"resolve_cloud_conflict_pull_{dataset_key}"):
+                                    result = pull_dataset_from_cloud(dataset, force=True)
+                                    if result.get("status") == "loaded":
+                                        st.success(f"{label} récupéré depuis le cloud.")
+                                        st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
+                                        if dataset_key == "data":
+                                            st.session_state.pop("cloud_sync_conflict", None)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Récupération cloud impossible pour {label}.")
+                                if c2.button("Conserver la version locale", width="stretch", key=f"resolve_cloud_conflict_keep_{dataset_key}"):
+                                    update_cloud_sync_state(dataset.key, source="local", dirty=True)
                                     st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
                                     if dataset_key == "data":
                                         st.session_state.pop("cloud_sync_conflict", None)
+                                    st.info(f"{label} local conservé. Aucun envoi cloud automatique n'a été fait.")
                                     st.rerun()
-                                else:
-                                    st.error(f"Récupération cloud impossible pour {label}.")
-                            if c2.button("Conserver la version locale", width="stretch", key=f"resolve_cloud_conflict_keep_{dataset_key}"):
-                                update_cloud_sync_state(dataset.key, source="local", dirty=True)
-                                st.session_state.get("cloud_sync_conflicts", {}).pop(dataset_key, None)
-                                if dataset_key == "data":
-                                    st.session_state.pop("cloud_sync_conflict", None)
-                                st.info(f"{label} local conservé. Aucun envoi cloud automatique n'a été fait.")
+                        if st.button("Récupérer les dernières données cloud", width="stretch", key="pull_all_cloud_datasets"):
+                            result = pull_all_cloud_datasets(force=True)
+                            if result.get("enabled"):
+                                loaded = [SYNCED_DATASETS[k].label for k in result.get("loaded", []) if k in SYNCED_DATASETS]
+                                fallback = [SYNCED_DATASETS[k].label for k in result.get("fallback_local", []) if k in SYNCED_DATASETS]
+                                conflicts_after = [SYNCED_DATASETS[k].label for k in result.get("conflicts", []) if k in SYNCED_DATASETS]
+                                if loaded:
+                                    st.success("Données cloud récupérées : " + ", ".join(loaded))
+                                if fallback:
+                                    st.caption("Local conservé pour : " + ", ".join(fallback))
+                                if conflicts_after:
+                                    st.warning("Conflits détectés : " + ", ".join(conflicts_after))
+                                st.caption("Aucune donnée locale n'a été envoyée au cloud.")
+                                st.session_state.pop("cloud_sync_conflict", None)
                                 st.rerun()
-                    if st.button("Récupérer les dernières données cloud", width="stretch", key="pull_all_cloud_datasets"):
-                        result = pull_all_cloud_datasets(force=True)
-                        if result.get("enabled"):
-                            loaded = [SYNCED_DATASETS[k].label for k in result.get("loaded", []) if k in SYNCED_DATASETS]
-                            fallback = [SYNCED_DATASETS[k].label for k in result.get("fallback_local", []) if k in SYNCED_DATASETS]
-                            conflicts_after = [SYNCED_DATASETS[k].label for k in result.get("conflicts", []) if k in SYNCED_DATASETS]
-                            if loaded:
-                                st.success("Données cloud récupérées : " + ", ".join(loaded))
-                            if fallback:
-                                st.caption("Local conservé pour : " + ", ".join(fallback))
-                            if conflicts_after:
-                                st.warning("Conflits détectés : " + ", ".join(conflicts_after))
-                            st.caption("Aucune donnée locale n'a été envoyée au cloud.")
-                            st.session_state.pop("cloud_sync_conflict", None)
+                            else:
+                                st.error("Récupération cloud impossible : cloud non disponible.")
+                        confirm_cloud_push = st.checkbox(
+                            "Confirmer l'envoi des données locales vers le cloud",
+                            key="confirm_push_data_to_cloud",
+                            help="Utilise ce bouton seulement quand le PC contient la version complète à envoyer au téléphone.",
+                        )
+                        if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
+                            local_data_for_cloud = load_local_data_file_for_cloud_push()
+                            if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
+                                update_cloud_sync_state(SUPABASE_DATA_KEY, data=local_data_for_cloud, source="local", dirty=False, last_save=utc_now_iso())
+                                st.success("Données envoyées dans le cloud.")
+                            else:
+                                st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
+                    else:
+                        st.caption(f"☁️ Cloud non prêt : {cloud_message}")
+                        if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
+                            st.session_state.pop("cloud_sync_error", None)
+                            if hasattr(get_supabase_client, "clear"):
+                                get_supabase_client.clear()
                             st.rerun()
-                        else:
-                            st.error("Récupération cloud impossible : cloud non disponible.")
-                    confirm_cloud_push = st.checkbox(
-                        "Confirmer l'envoi des données locales vers le cloud",
-                        key="confirm_push_data_to_cloud",
-                        help="Utilise ce bouton seulement quand le PC contient la version complète à envoyer au téléphone.",
-                    )
-                    if st.button("☁️ Envoyer les données locales vers le cloud", width="stretch", key="push_data_to_cloud", disabled=not confirm_cloud_push):
-                        local_data_for_cloud = load_local_data_file_for_cloud_push()
-                        if local_data_for_cloud and save_cloud_json(SUPABASE_DATA_KEY, local_data_for_cloud):
-                            update_cloud_sync_state(SUPABASE_DATA_KEY, data=local_data_for_cloud, source="local", dirty=False, last_save=utc_now_iso())
-                            st.success("Données envoyées dans le cloud.")
-                        else:
-                            st.error(st.session_state.get("cloud_sync_error", "Synchronisation impossible."))
-                else:
-                    st.caption(f"☁️ Cloud non prêt : {cloud_message}")
-                    if st.button("Tester le cloud", width="stretch", key="test_cloud_connection"):
-                        st.session_state.pop("cloud_sync_error", None)
-                        if hasattr(get_supabase_client, "clear"):
-                            get_supabase_client.clear()
-                        st.rerun()
-                backup_state = _load_backup_state()
-                last_weekly_path = backup_state.get("last_weekly_backup_path", "")
-                if st.session_state.get("last_auto_backup_message"):
-                    st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
-                elif last_weekly_path:
-                    st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
-                else:
-                    st.caption("🛡️ Sauvegarde locale prête")
-                if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
-                    try:
-                        path, copied = create_local_backup("manual", include_images=True)
-                        cleanup_old_backups()
-                        st.success(f"Sauvegarde créée : {os.path.basename(path)}")
-                    except Exception as e:
-                        st.error(f"Sauvegarde impossible : {e}")
+                    backup_state = _load_backup_state()
+                    last_weekly_path = backup_state.get("last_weekly_backup_path", "")
+                    if st.session_state.get("last_auto_backup_message"):
+                        st.caption(f"🛡️ {st.session_state['last_auto_backup_message']}")
+                    elif last_weekly_path:
+                        st.caption(f"🛡️ Dernière sauvegarde : {os.path.basename(last_weekly_path)}")
+                    else:
+                        st.caption("🛡️ Sauvegarde locale prête")
+                    if st.button("🛡️ Sauvegarde maintenant", width="stretch", key="manual_local_backup"):
+                        try:
+                            path, copied = create_local_backup("manual", include_images=True)
+                            cleanup_old_backups()
+                            st.success(f"Sauvegarde créée : {os.path.basename(path)}")
+                        except Exception as e:
+                            st.error(f"Sauvegarde impossible : {e}")
+                st.caption("Build Lots: 2026-08-22-1323")
 
 if selected_native_nav_page is not None:
     with rerun_phase("native_navigation_run"):

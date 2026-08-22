@@ -43,6 +43,8 @@ def card_status_badges(card, include_storage=True):
     special_tag = card.get("special_tag", "")
     if special_tag:
         for tag in [t.strip() for t in str(special_tag).split(",") if t.strip()]:
+            if tag.casefold() == "stockage" and not include_storage:
+                continue
             if tag not in ("Collection", "Stockage") or (
                 tag == "Collection" and not (card.get("is_collection_keep") or card.get("is_collection") or transfer_destination == "collection")
             ) or (
