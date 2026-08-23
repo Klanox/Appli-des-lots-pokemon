@@ -27,29 +27,20 @@ def render_lots_page(context):
             sequence = 0
         return (sequence, original_index)
 
-    def compact_lot_reimbursement_html(lot, lot_index):
+    def compact_lot_reimbursement_label(lot, lot_index):
         gauge = lot_reimbursement(lot, lot_index)
         if not gauge["available"]:
-            return (
-                f'<div class="lot-reimbursement-row lot-reimbursement-unavailable" data-lot-gauge-for="{lot_index}">'
-                "Coût non renseigné — jauge indisponible"
-                "</div>"
-            )
+            return "Coût non renseigné · jauge indisponible"
         pct = max(float(gauge.get("pct") or 0), 0.0)
         clamped = min(pct, 100.0)
         slots = 14
         filled = int(round(clamped / 100 * slots))
         bar = "█" * filled + "░" * (slots - filled)
         if pct >= 100:
-            label = f"{bar} 100 % · Remboursé"
+            return f"{bar} 100 % · Remboursé"
         else:
             recovered = fp(gauge.get("recovered", 0.0))
-            label = f"{bar} {pct:.0f} % · {recovered} récupérés"
-        return (
-            f'<div class="lot-reimbursement-row" data-lot-gauge-for="{lot_index}" aria-label="Jauge de remboursement du lot">'
-            f'<span class="lot-reimbursement-bar">{html.escape(label)}</span>'
-            "</div>"
-        )
+            return f"{bar} {pct:.0f} % · {recovered} récupérés"
 
     def lot_detail_reimbursement_html(lot, lot_index):
         gauge = lot_reimbursement(lot, lot_index)
@@ -167,29 +158,11 @@ def render_lots_page(context):
     st.markdown(
         """
         <style>
-        .lot-reimbursement-row {
-            margin: 0.45rem 0 0 0;
-            padding: 0.38rem 0.55rem;
-            max-width: 100%;
-            color: #14532d;
-            font-size: 0.82rem;
-            font-weight: 800;
-            line-height: 1.25;
-            word-break: break-word;
-            background: rgba(34,197,94,0.08);
-            border: 1px solid rgba(34,197,94,0.18);
-            border-radius: 8px;
-        }
         .lot-reimbursement-unavailable {
             color: #64748b;
             font-weight: 700;
             background: rgba(148,163,184,0.10);
             border-color: rgba(148,163,184,0.22);
-        }
-        .lot-reimbursement-bar {
-            display: inline-block;
-            max-width: 100%;
-            white-space: normal;
         }
         .lot-detail-reimbursement-row {
             display: grid;
@@ -292,10 +265,6 @@ def render_lots_page(context):
             border-color: rgba(124,58,237,0.32);
         }
         @media (max-width: 768px) {
-            .lot-reimbursement-row {
-                margin-left: 0.2rem;
-                font-size: 0.78rem;
-            }
             .lot-detail-reimbursement-row {
                 grid-template-columns: 1fr;
                 gap: 0.45rem;
@@ -379,15 +348,24 @@ def render_lots_page(context):
                 target.style.setProperty('white-space', 'normal', 'important');
                 target.style.setProperty('align-items', 'flex-start', 'important');
                 target.style.setProperty('flex-direction', 'column', 'important');
-                target.style.setProperty('gap', '0.2rem', 'important');
+                target.style.setProperty('gap', '0.12rem', 'important');
                 target.style.setProperty('text-transform', 'none', 'important');
                 target.style.setProperty('font-weight', '700', 'important');
                 target.style.setProperty('font-size', '0.95rem', 'important');
-                target.style.setProperty('min-height', '86px', 'important');
-                target.style.setProperty('padding', '1rem 1.25rem', 'important');
+                target.style.setProperty('line-height', '1.28', 'important');
+                target.style.setProperty('white-space', 'pre-line', 'important');
+                target.style.setProperty('min-height', '68px', 'important');
+                target.style.setProperty('padding', '0.72rem 1.05rem', 'important');
                 target.style.setProperty('box-shadow', '0 4px 12px rgba(15, 23, 42, 0.08)', 'important');
                 target.style.setProperty('transform', 'none', 'important');
-                target.style.setProperty('margin-bottom', '0.35rem', 'important');
+                target.style.setProperty('margin-bottom', '0.22rem', 'important');
+                target.querySelectorAll('p, div, span').forEach(function(child) {
+                    child.style.setProperty('text-align', 'left', 'important');
+                    child.style.setProperty('justify-content', 'flex-start', 'important');
+                    child.style.setProperty('text-transform', 'none', 'important');
+                    child.style.setProperty('white-space', 'pre-line', 'important');
+                    child.style.setProperty('line-height', '1.28', 'important');
+                });
                 target.setAttribute('data-pokestock-lot-header', '1');
                 target.setAttribute('data-pokestock-lot-status', status || 'default');
             });
@@ -541,10 +519,11 @@ def render_lots_page(context):
             badge_100 = " 🎉" if just_reached_100 else ""
             badge_mixte = " 🗂️" if lt.get("is_mixte") else ""
             expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {fp(lt.get('prix_achat',0))}{badge_mixte}{badge_100}"
+            reimbursement_line = compact_lot_reimbursement_label(lt, ix)
             is_active_lot = st.session_state.get("active_lot_ix") == ix
             row_prefix = "▼" if is_active_lot else "›"
             if st.button(
-                f"{row_prefix} {expander_title}",
+                f"{row_prefix} {expander_title}\n{reimbursement_line}",
                 key=f"lot_row_{ix}",
                 width="stretch",
                 type="secondary",
@@ -554,7 +533,6 @@ def render_lots_page(context):
                 else:
                     st.session_state["active_lot_ix"] = ix
                 st.rerun()
-            st.markdown(compact_lot_reimbursement_html(lt, ix), unsafe_allow_html=True)
 
             if not is_active_lot:
                 continue
