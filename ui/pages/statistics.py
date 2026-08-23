@@ -212,7 +212,7 @@ def render_statistics_page(
             showlegend=False,
         )
         with perf_timer("stats chart CA"):
-            st.plotly_chart(fig_bar, width="stretch")
+            st.plotly_chart(fig_bar, width="stretch", key="stats_chart_ca_by_month")
 
     with col_g2:
         st.markdown("#### 🃏 Cartes vendues par mois")
@@ -232,7 +232,7 @@ def render_statistics_page(
             showlegend=False,
         )
         with perf_timer("stats chart quantity"):
-            st.plotly_chart(fig_qty, width="stretch")
+            st.plotly_chart(fig_qty, width="stretch", key="stats_chart_quantity_by_month")
 
     st.markdown("#### 💎 Bénéfice par mois")
     benef_values = [benef_by_month[m] for m in months_sorted]
@@ -252,7 +252,7 @@ def render_statistics_page(
         showlegend=False,
     )
     with perf_timer("stats chart monthly benefit"):
-        st.plotly_chart(fig_benef_month, width="stretch")
+        st.plotly_chart(fig_benef_month, width="stretch", key="stats_chart_monthly_benefit")
 
     with st.expander("🔎 Détail du bénéfice du mois"):
         detail_rows = []
@@ -266,7 +266,7 @@ def render_statistics_page(
                 "Coût estimé": round(float(s.get("cost", 0)), 2),
                 "Bénéfice": round(float(s.get("benef", 0)), 2),
             })
-        st.dataframe(detail_rows, width="stretch", hide_index=True)
+        st.dataframe(detail_rows, width="stretch", hide_index=True, key="stats_current_month_benefit_detail")
         st.caption("Calcul actuel : coût = cote vendue ÷ valeur estimée du lot × prix d'achat du lot. Pour les lots mixtes : coût = cote vendue ÷ valeur totale du lot × prix réel payé.")
 
     # Graphique tendance CA (courbe lissée)
@@ -291,7 +291,7 @@ def render_statistics_page(
             xaxis=dict(showgrid=False),
         )
         with perf_timer("stats chart trend"):
-            st.plotly_chart(fig_line, width="stretch")
+            st.plotly_chart(fig_line, width="stretch", key="stats_chart_ca_trend")
 
     # ── CA et bénéfice par lot — mois courant ──
     st.markdown("---")
@@ -320,7 +320,7 @@ def render_statistics_page(
             fig_ca.update_layout(height=280, margin=dict(t=10,b=0,l=0,r=0),
                                  paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
             with perf_timer("stats chart lot CA"):
-                st.plotly_chart(fig_ca, width="stretch")
+                st.plotly_chart(fig_ca, width="stretch", key="stats_chart_lot_ca_current_month")
         else:
             st.info("Aucune vente ce mois.")
 
@@ -348,7 +348,7 @@ def render_statistics_page(
                 showlegend=False,
             )
             with perf_timer("stats chart lot benefit"):
-                st.plotly_chart(fig_benef, width="stretch")
+                st.plotly_chart(fig_benef, width="stretch", key="stats_chart_lot_benefit_current_month")
         else:
             st.info("Aucune donnée de bénéfice ce mois.")
 
