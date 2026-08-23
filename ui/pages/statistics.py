@@ -1,19 +1,569 @@
-"""Statistics page renderer for Pokestock.
+"""Statistics page renderer for Pokestock."""
 
-This module contains the existing Streamlit UI rendering for the Statistiques page.
-It preserves the current calculations and monthly_goals.json behavior.
-"""
+from __future__ import annotations
 
 from collections import defaultdict
 import datetime as dt_module
+import html
 import json
 import os
 from datetime import datetime
+from statistics import median
 
-import streamlit as st
 import plotly.graph_objects as go
-from services.perf_service import perf_log, perf_timer
+import streamlit as st
+
 from core.trade_economics import trade_sale_stat_rows
+from services.perf_service import perf_log, perf_timer
+from services.vinted_channels import SALE_CHANNELS, normalize_vinted_channel
+
+
+MOIS_FR = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"}
+STATS_SECTIONS = ("Vue globale", "Lots", "Canaux", "Records & objectifs")
+PERIOD_OPTIONS = ("Ce mois", "3 mois", "6 mois", "1 an", "Tout")
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value if value is not None else default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _month_label(month_key: str) -> str:
+    try:
+        dt = datetime.strptime(str(month_key), "%Y-%m")
+        return f"{MOIS_FR[dt.month]} {dt.year}"
+    except Exception:
+        return str(month_key or "N/A")
+
+
+def _month_start(month_key: str) -> datetime | None:
+    try:
+        return datetime.strptime(str(month_key), "%Y-%m")
+    except Exception:
+        return None
+
+
+def _add_months(date_value: datetime, months: int) -> datetime:
+    month = date_value.month - 1 + months
+    year = date_value.year + month // 12
+    month = month % 12 + 1
+    return date_value.replace(year=year, month=month, day=1)
+
+
+def _period_months(months_sorted, current_month, period):
+    if period == "Tout":
+        return list(months_sorted)
+    count = {"Ce mois": 1, "3 mois": 3, "6 mois": 6, "1 an": 12}.get(period, 1)
+    current_start = _month_start(current_month) or datetime.now().replace(day=1)
+    start = _add_months(current_start, -(count - 1))
+    return [m for m in months_sorted if (dt := _month_start(m)) and start <= dt <= current_start]
+
+
+def _previous_period(months, months_sorted):
+    if not months:
+        return []
+    starts = [_month_start(m) for m in months if _month_start(m)]
+    if not starts:
+        return []
+    first = min(starts)
+    count = len(months)
+    prev_end = _add_months(first, -1)
+    prev_start = _add_months(prev_end, -(count - 1))
+    return [m for m in months_sorted if (dt := _month_start(m)) and prev_start <= dt <= prev_end]
+
+
+def _fmt_eur(value):
+    if value is None:
+        return "N/A"
+    return f"{float(value):,.2f}€".replace(",", " ").replace(".", ",")
+
+
+def _fmt_pct(value):
+    if value is None:
+        return "N/A"
+    return f"{float(value):.1f}%".replace(".", ",")
+
+
+def _pct_change(new, old):
+    if old in (None, 0):
+        return None
+    return ((new - old) / old) * 100
+
+
+def _delta_text(new, old):
+    pct = _pct_change(new, old)
+    if pct is None:
+        return None
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.1f}% vs période préc.".replace(".", ",")
+
+
+def _is_system_lot(lot):
+    name = str(lot.get("nom") or "").lower()
+    return bool(lot.get("is_trade") or lot.get("is_storage") or lot.get("is_collection_lot") or "trade" in name or "stockage" in name or "collection" in name)
+
+
+def _normalize_channel(value):
+    raw = str(normalize_vinted_channel(value) or value or "").strip()
+    aliases = {"": "Non renseigné", "Vente": "Main propre", "Dexify_TCG": "Dexify", "Main": "Main propre"}
+    return aliases.get(raw, raw)
+
+
+def _transaction_key(row, fallback_idx=0):
+    sale = row.get("sale") or {}
+    return sale.get("sale_transaction_id") or sale.get("transaction_id") or sale.get("sale_id") or f"{row.get('date')}-{row.get('card_name')}-{fallback_idx}"
+
+
+def _collect_statistics_data(cd, *, calc_cout_lot_func, effective_purchase_price_func, lots_archives_path):
+    all_sales = []
+    purchase_rows = []
+    all_lots = list(cd.get("lots", []))
+    archives_list = []
+    if os.path.exists(lots_archives_path):
+        with open(lots_archives_path, "r", encoding="utf-8") as f:
+            archives_list = json.load(f)
+
+    stats_collect_start = dt_module.datetime.now()
+    for lot_idx_s, lot in enumerate(all_lots + archives_list):
+        real_lot_idx = lot_idx_s if lot_idx_s < len(all_lots) else None
+        lot_name = lot.get("nom", "?")
+        lot_uid = lot.get("lot_uid") or f"lot_{lot_idx_s}"
+        is_system = _is_system_lot(lot)
+        purchase_date = _parse_dt(lot.get("created") or lot.get("created_at") or lot.get("date_achat") or lot.get("date"))
+        purchase_cost = _safe_float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)))
+        if purchase_date and purchase_cost > 0 and not is_system:
+            purchase_rows.append({"date": purchase_date, "month": purchase_date.strftime("%Y-%m"), "lot": lot_name, "cost": purchase_cost})
+
+        try:
+            ventes_avec_cout, valeur_est = calc_cout_lot_func(lot, lot_idx=real_lot_idx)
+        except Exception:
+            ventes_avec_cout, valeur_est = [], 0.0
+
+        for v in lot.get("ventes", []) or []:
+            if v.get("is_lot_sale") or v.get("is_exchange_benefit"):
+                continue
+            d = _parse_dt(v.get("date"))
+            if not d:
+                continue
+            price = _safe_float(v.get("price"))
+            qty = max(1, _safe_int(v.get("quantity"), 1))
+            if v.get("is_off_stock") and v.get("cost_basis_known"):
+                cost = _safe_float(v.get("cost_basis"))
+            elif lot.get("is_mixte") and _safe_float(lot.get("valeur_totale")) > 0:
+                cost = (price / (_safe_float(lot.get("valeur_totale")) or 1.0)) * _safe_float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)))
+            else:
+                cost = (price / (_safe_float(valeur_est) or 1.0)) * effective_purchase_price_func(lot)
+            all_sales.append({
+                "sale": v, "date": d, "month": d.strftime("%Y-%m"), "price": price, "quantity": qty,
+                "card_name": v.get("card_name") or v.get("description") or "Vente lot",
+                "card_image": v.get("card_image", ""), "lot": lot_name, "lot_uid": lot_uid,
+                "unit_price": price / max(qty, 1), "cost": cost, "benef": price - cost,
+                "cote": _safe_float(v.get("suggested_price_at_sale"), price), "canal": _normalize_channel(v.get("canal")),
+                "is_off_stock": bool(v.get("is_off_stock")), "is_system_lot": is_system,
+            })
+
+        for card, se, cout_total in ventes_avec_cout:
+            if se.get("is_exchange"):
+                continue
+            d = _parse_dt(se.get("date"))
+            if not d:
+                continue
+            qty = max(1, _safe_int(se.get("quantity"), 1))
+            price = _safe_float(se.get("price"))
+            card_img = card.get("image_url", "") or card.get("image", "")
+            suggested_unit = _safe_float(se.get("suggested_price_at_sale"), _safe_float(card.get("suggested_price")))
+            cote_total = suggested_unit * qty if suggested_unit > 0 else price
+            base_row = {
+                "sale": se, "date": d, "month": d.strftime("%Y-%m"),
+                "card_name": se.get("card_name", card.get("name", "?")), "card_image": card_img,
+                "unit_price": price / max(qty, 1), "canal": _normalize_channel(se.get("canal")),
+                "is_off_stock": False, "is_system_lot": is_system,
+            }
+            if card.get("received_by_exchange") and (card.get("trade_contributors") or card.get("exchange_repartition")):
+                for row in trade_sale_stat_rows(card, se, lot_name):
+                    ratio = _safe_float(row.get("ratio"), 1.0)
+                    all_sales.append({
+                        **base_row, "price": _safe_float(row.get("price")), "quantity": qty * ratio,
+                        "lot": row.get("lot", lot_name), "lot_uid": lot_uid, "cost": _safe_float(row.get("cost")),
+                        "benef": _safe_float(row.get("benef")), "cote": cote_total * ratio,
+                        "is_system_lot": _is_system_lot({"nom": row.get("lot", lot_name)}),
+                        "is_trade_allocation": bool(row.get("allocation")),
+                    })
+                continue
+            all_sales.append({
+                **base_row, "price": price, "quantity": qty, "lot": lot_name, "lot_uid": lot_uid,
+                "cost": cout_total, "benef": price - cout_total, "cote": cote_total,
+            })
+
+    for sale in cd.get("ventes_hors_stock", []) or []:
+        d = _parse_dt(sale.get("date"))
+        if not d:
+            continue
+        price = _safe_float(sale.get("price"))
+        qty = max(1, _safe_int(sale.get("quantity"), 1))
+        cost = _safe_float(sale.get("cost_basis")) if sale.get("cost_basis_known") else None
+        all_sales.append({
+            "sale": sale, "date": d, "month": d.strftime("%Y-%m"), "price": price, "quantity": qty,
+            "card_name": sale.get("card_name") or sale.get("description") or sale.get("category") or "Vente hors stock",
+            "card_image": "", "lot": sale.get("source_lot_name") or "Hors stock", "lot_uid": sale.get("source_lot_id") or "off_stock",
+            "unit_price": price / max(qty, 1), "cost": cost, "benef": (price - cost) if cost is not None else None,
+            "cote": _safe_float(sale.get("suggested_price_at_sale"), price), "canal": _normalize_channel(sale.get("canal")),
+            "is_off_stock": True, "is_system_lot": True,
+        })
+
+    perf_log("stats collect sales", (dt_module.datetime.now() - stats_collect_start).total_seconds(), f"sales={len(all_sales)} purchases={len(purchase_rows)}")
+    return all_sales, purchase_rows
+
+
+def _build_monthly_stats(all_sales, purchases):
+    stats = defaultdict(lambda: {"ca": 0.0, "benef": 0.0, "benef_known": True, "qty": 0.0, "transactions": set(), "purchases": 0.0})
+    for idx, row in enumerate(all_sales):
+        item = stats[row["month"]]
+        item["ca"] += _safe_float(row.get("price"))
+        if row.get("benef") is None:
+            item["benef_known"] = False
+        else:
+            item["benef"] += _safe_float(row.get("benef"))
+        item["qty"] += _safe_float(row.get("quantity"))
+        item["transactions"].add(_transaction_key(row, idx))
+    for row in purchases:
+        stats[row["month"]]["purchases"] += _safe_float(row.get("cost"))
+    return stats
+
+
+def _aggregate_sales(rows):
+    transactions = {_transaction_key(row, idx) for idx, row in enumerate(rows)}
+    ca = sum(_safe_float(row.get("price")) for row in rows)
+    known_benef = [row.get("benef") for row in rows if row.get("benef") is not None]
+    benef = sum(_safe_float(value) for value in known_benef) if known_benef else None
+    qty = sum(_safe_float(row.get("quantity")) for row in rows)
+    return {
+        "ca": ca,
+        "benef": benef,
+        "qty": qty,
+        "transactions": len(transactions),
+        "basket": ca / len(transactions) if transactions else 0.0,
+        "avg_card": ca / qty if qty else 0.0,
+        "margin": (benef / ca * 100.0) if benef is not None and ca else None,
+    }
+
+
+def _month_profile(month, monthly_stats, months_sorted):
+    current = monthly_stats.get(month)
+    if not current:
+        return None
+    historic = [monthly_stats[m] for m in months_sorted if m != month and monthly_stats[m].get("ca", 0) > 0]
+    if len(historic) < 2:
+        return None
+    ca_values = [item["ca"] for item in historic]
+    benef_values = [item["benef"] for item in historic]
+    qty_values = [item["qty"] for item in historic]
+    purchase_values = [item["purchases"] for item in historic]
+    avg_ca = sum(ca_values) / len(ca_values)
+    med_ca = median(ca_values)
+    avg_benef = sum(benef_values) / len(benef_values)
+    avg_qty = sum(qty_values) / len(qty_values)
+    avg_purchases = sum(purchase_values) / len(purchase_values) if purchase_values else 0.0
+    idx = months_sorted.index(month)
+    prev = monthly_stats.get(months_sorted[idx - 1]) if idx > 0 else None
+    ca = current["ca"]
+    benef = current["benef"]
+    qty = current["qty"]
+    purchases = current["purchases"]
+    margin = (benef / ca * 100.0) if ca else 0.0
+    if ca >= max(ca_values + [ca]) and ca > avg_ca * 1.25:
+        return "🏆 Mois record", "CA au plus haut de l'historique"
+    if ca > max(avg_ca * 1.8, med_ca * 1.7):
+        return "🚀 Mois explosif", "CA nettement au-dessus de la tendance"
+    if purchases > max(avg_purchases * 1.8, ca * 0.9) and purchases > 0:
+        return "🌱 Mois d'investissement", "Achats nettement supérieurs à la moyenne"
+    if qty > avg_qty * 1.5 and ca >= avg_ca * 0.8:
+        return "📦 Mois de volume", "Beaucoup plus de cartes vendues que d'habitude"
+    if benef >= max(benef_values + [benef]) or (benef > avg_benef * 1.35 and margin >= 35):
+        return "💎 Mois rentable", "Bénéfice et marge solides"
+    if prev and ca > prev.get("ca", 0) * 1.35 and ca > avg_ca:
+        return "🔥 Mois vendeur", "Forte progression par rapport au mois précédent"
+    if ca < avg_ca * 0.45 and qty < avg_qty * 0.6:
+        return "🌿 Mois calme", "Activité inférieure à la moyenne"
+    if ca < avg_ca * 0.7 and prev and ca < prev.get("ca", 0) * 0.75:
+        return "📉 Mois en retrait", "Recul par rapport à la tendance récente"
+    if margin >= 25 and qty >= avg_qty * 0.8:
+        return "⚖️ Mois équilibré", "CA, marge et volume restent cohérents"
+    if ca > avg_ca and qty < avg_qty * 0.8:
+        return "🛒 Mois acheteur", "Moins de volume mais panier moyen plus élevé"
+    return "⚖️ Mois équilibré", "Activité proche de la tendance historique"
+
+
+def _inject_stats_css():
+    st.markdown(
+        """
+        <style>
+        .ps-stats-hero{background:linear-gradient(135deg,rgba(109,93,252,.14),rgba(14,165,233,.08));border:1px solid rgba(109,93,252,.18);border-radius:18px;padding:1rem 1.15rem;margin-bottom:.9rem}
+        .ps-stats-hero h2{margin:0;color:#111827;font-size:1.45rem;font-weight:850}.ps-stats-hero p{margin:.2rem 0 0;color:#64748b;font-size:.92rem}
+        .ps-stats-kpi{background:#fff;border:1px solid #e8e5ff;border-radius:16px;padding:.95rem 1rem;box-shadow:0 6px 20px rgba(15,23,42,.06);min-height:112px}
+        .ps-stats-kpi .label{color:#64748b;font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.02em}.ps-stats-kpi .value{color:#111827;font-size:1.45rem;font-weight:900;margin-top:.2rem}.ps-stats-kpi .delta{color:#6d5dfc;font-size:.78rem;font-weight:750;margin-top:.35rem}
+        .ps-stats-card{background:#fff;border:1px solid #ece9ff;border-radius:16px;padding:.9rem 1rem;box-shadow:0 6px 18px rgba(15,23,42,.045);margin-bottom:.65rem}
+        .ps-stats-month{background:linear-gradient(135deg,#fff,#f7f5ff);border:1px solid #e9d5ff;border-radius:14px;padding:.85rem .95rem;min-height:126px}.ps-stats-month .month{font-size:.82rem;color:#64748b;font-weight:800}.ps-stats-month .profile{font-size:1rem;color:#1e1b4b;font-weight:850;margin:.28rem 0}.ps-stats-month .numbers{font-size:.82rem;color:#334155;font-weight:700}.ps-stats-month .why{font-size:.76rem;color:#64748b;margin-top:.35rem}
+        .ps-stats-note{border-left:4px solid #6d5dfc;background:#f8f7ff;border-radius:12px;padding:.8rem 1rem;color:#4338ca;font-weight:700;margin:.5rem 0}
+        div[data-testid="stPills"] button[aria-checked="true"],div[data-testid="stSegmentedControl"] button[aria-checked="true"]{background:#6d5dfc!important;color:#fff!important;border-color:#6d5dfc!important;box-shadow:0 8px 18px rgba(109,93,252,.22)}
+        div[data-testid="stPills"] button,div[data-testid="stSegmentedControl"] button{border-radius:999px!important;font-weight:800!important}
+        @media (max-width:768px){.ps-stats-kpi{min-height:auto;padding:.85rem}.ps-stats-kpi .value{font-size:1.2rem}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kpi_cards(items):
+    columns = st.columns(len(items))
+    for col, item in zip(columns, items):
+        with col:
+            st.markdown(
+                f'<div class="ps-stats-kpi"><div class="label">{html.escape(item["label"])}</div><div class="value">{html.escape(str(item["value"]))}</div><div class="delta">{html.escape(item.get("delta") or " ")}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+
+def _render_horizontal_bar(rows, x_key, y_key, title, key, color="#6d5dfc", suffix="€"):
+    if not rows:
+        st.info("Pas assez de données pour ce graphique.")
+        return
+    rows = list(reversed(rows))
+    x_vals = [row[x_key] for row in rows]
+    y_vals = [row[y_key] for row in rows]
+    text = [(_fmt_eur(v) if suffix == "€" else _fmt_pct(v) if suffix == "%" else f"{v:.1f}") for v in x_vals]
+    fig = go.Figure(go.Bar(x=x_vals, y=y_vals, orientation="h", marker_color=color, text=text, textposition="outside", hovertemplate="%{y}<br>%{x:.2f}<extra></extra>"))
+    fig.update_layout(title=title, height=max(280, 34 * len(rows) + 80), margin=dict(t=42, b=8, l=8, r=70), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", xaxis=dict(gridcolor="#f1f5f9", zeroline=False), yaxis=dict(showgrid=False), showlegend=False)
+    st.plotly_chart(fig, width="stretch", key=key)
+
+
+def _render_global_view(all_sales, monthly_stats, months_sorted, current_month):
+    period = st.segmented_control("Période", PERIOD_OPTIONS, default=st.session_state.get("stats_period", "6 mois"), key="stats_period", label_visibility="collapsed", width="stretch") or "6 mois"
+    months = _period_months(months_sorted, current_month, period)
+    prev_months = _previous_period(months, months_sorted) if period != "Tout" else []
+    rows = [row for row in all_sales if row["month"] in months]
+    prev_rows = [row for row in all_sales if row["month"] in prev_months]
+    metrics = _aggregate_sales(rows)
+    prev = _aggregate_sales(prev_rows) if prev_rows else None
+    _render_kpi_cards([
+        {"label": "CA", "value": _fmt_eur(metrics["ca"]), "delta": _delta_text(metrics["ca"], prev["ca"]) if prev else None},
+        {"label": "Bénéfice", "value": _fmt_eur(metrics["benef"]), "delta": _delta_text(metrics["benef"], prev["benef"]) if prev and metrics["benef"] is not None and prev["benef"] is not None else None},
+        {"label": "Marge", "value": _fmt_pct(metrics["margin"]), "delta": _delta_text(metrics["margin"], prev["margin"]) if prev and metrics["margin"] is not None and prev["margin"] is not None else None},
+        {"label": "Cartes vendues", "value": f"{metrics['qty']:.0f}", "delta": _delta_text(metrics["qty"], prev["qty"]) if prev else None},
+        {"label": "Panier moyen", "value": _fmt_eur(metrics["basket"]), "delta": _delta_text(metrics["basket"], prev["basket"]) if prev else None},
+    ])
+
+    labels = [_month_label(m) for m in months]
+    ca_values = [monthly_stats[m]["ca"] for m in months]
+    benef_values = [monthly_stats[m]["benef"] for m in months]
+    qty_values = [monthly_stats[m]["qty"] for m in months]
+    profiles = [_month_profile(m, monthly_stats, months_sorted) for m in months]
+    custom = [[ca_values[idx], benef_values[idx], (benef_values[idx] / ca_values[idx] * 100.0) if ca_values[idx] else 0.0, qty_values[idx], profiles[idx][0] if profiles[idx] else "N/A"] for idx in range(len(months))]
+    st.markdown("### Évolution CA & bénéfice")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=labels, y=ca_values, mode="lines+markers", name="CA", line=dict(color="#6d5dfc", width=3), marker=dict(size=9), customdata=custom, hovertemplate="%{x}<br>CA : %{y:.2f}€<br>Bénéfice : %{customdata[1]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=labels, y=benef_values, mode="lines+markers", name="Bénéfice", line=dict(color="#16a34a", width=3), marker=dict(size=9), customdata=custom, hovertemplate="%{x}<br>Bénéfice : %{y:.2f}€<br>CA : %{customdata[0]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
+    fig.update_layout(height=390, margin=dict(t=16, b=8, l=8, r=8), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(title="€", gridcolor="#f1f5f9"), xaxis=dict(showgrid=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig, width="stretch", key="stats_v2_global_ca_benef")
+
+    st.markdown("### Profil des mois")
+    month_cards = []
+    for m in reversed(months[-8:]):
+        profile = _month_profile(m, monthly_stats, months_sorted)
+        if not profile:
+            continue
+        stat = monthly_stats[m]
+        month_cards.append(f'<div class="ps-stats-month"><div class="month">{html.escape(_month_label(m))}</div><div class="profile">{html.escape(profile[0])}</div><div class="numbers">{_fmt_eur(stat["ca"])} CA · {_fmt_eur(stat["benef"])} bénéfice · {stat["qty"]:.0f} cartes</div><div class="why">{html.escape(profile[1])}</div></div>')
+    if month_cards:
+        cols = st.columns(min(4, len(month_cards)))
+        for idx, card in enumerate(month_cards):
+            with cols[idx % len(cols)]:
+                st.markdown(card, unsafe_allow_html=True)
+    else:
+        st.info("Pas encore assez d'historique pour qualifier les mois proprement.")
+
+    st.markdown("### Cartes vendues par mois")
+    qty_fig = go.Figure(go.Bar(x=labels, y=qty_values, marker_color="#8b5cf6", text=[f"{v:.0f}" for v in qty_values], textposition="outside", hovertemplate="%{x}<br>Cartes vendues : %{y:.0f}<extra></extra>"))
+    qty_fig.update_layout(height=240, margin=dict(t=14, b=8, l=8, r=8), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(gridcolor="#f1f5f9"), xaxis=dict(showgrid=False), showlegend=False)
+    st.plotly_chart(qty_fig, width="stretch", key="stats_v2_cards_sold_by_month")
+
+
+def _render_lots_view(all_sales, cd):
+    lot_meta = {}
+    for idx, lot in enumerate(cd.get("lots", []) or []):
+        if _is_system_lot(lot):
+            continue
+        lot_meta[lot.get("nom", f"Lot {idx + 1}")] = {"cost": _safe_float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)))}
+    lot_rows = {}
+    for row in all_sales:
+        if row.get("is_system_lot") or row.get("is_off_stock"):
+            continue
+        name = row.get("lot") or "Lot inconnu"
+        item = lot_rows.setdefault(name, {"lot": name, "ca": 0.0, "benef": 0.0, "qty": 0.0, "cost": lot_meta.get(name, {}).get("cost", 0.0)})
+        item["ca"] += _safe_float(row.get("price"))
+        item["qty"] += _safe_float(row.get("quantity"))
+        if row.get("benef") is not None:
+            item["benef"] += _safe_float(row.get("benef"))
+    for item in lot_rows.values():
+        cost = item.get("cost", 0.0)
+        item["roi"] = (item["benef"] / cost * 100.0) if cost > 0 else None
+        item["remboursement"] = (item["ca"] / cost * 100.0) if cost > 0 else None
+        item["reste"] = max(0.0, cost - item["ca"]) if cost > 0 else 0.0
+
+    sort_metric = st.segmented_control("Tri", ["CA", "Bénéfice", "ROI"], default="CA", key="stats_lots_sort", width="content")
+    metric_key, suffix = {"CA": ("ca", "€"), "Bénéfice": ("benef", "€"), "ROI": ("roi", "%")}.get(sort_metric or "CA", ("ca", "€"))
+    top = sorted([row for row in lot_rows.values() if row.get(metric_key) is not None], key=lambda row: row.get(metric_key) or 0, reverse=True)[:10]
+    _render_horizontal_bar(top, metric_key, "lot", f"Top lots par {sort_metric}", "stats_v2_lots_top", color="#6d5dfc", suffix=suffix)
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("### Lots encore non remboursés")
+        pending = sorted([row for row in lot_rows.values() if row.get("reste", 0) > 0 and row.get("cost", 0) > 0], key=lambda row: row["reste"], reverse=True)[:10]
+        st.dataframe([{"Lot": row["lot"], "Coût": round(row["cost"], 2), "CA généré": round(row["ca"], 2), "Reste": round(row["reste"], 2), "Remb.": _fmt_pct(row.get("remboursement"))} for row in pending], width="stretch", hide_index=True, key="stats_v2_lots_unreimbursed")
+    with right:
+        st.markdown("### Lots les plus performants")
+        best = sorted([row for row in lot_rows.values() if row.get("benef", 0) != 0], key=lambda row: row["benef"], reverse=True)[:10]
+        st.dataframe([{"Lot": row["lot"], "CA": round(row["ca"], 2), "Bénéfice": round(row["benef"], 2), "ROI": _fmt_pct(row.get("roi")), "Cartes": round(row["qty"], 1)} for row in best], width="stretch", hide_index=True, key="stats_v2_lots_best")
+    st.markdown("### Lots à surveiller")
+    worst = sorted([row for row in lot_rows.values() if row.get("benef", 0) < 0], key=lambda row: row["benef"])[:8]
+    if worst:
+        st.dataframe([{"Lot": row["lot"], "Bénéfice": round(row["benef"], 2), "CA": round(row["ca"], 2), "Coût": round(row["cost"], 2)} for row in worst], width="stretch", hide_index=True, key="stats_v2_lots_worst")
+    else:
+        st.markdown('<div class="ps-stats-note">Aucun lot en perte nette dans les données calculables.</div>', unsafe_allow_html=True)
+
+
+def _render_channels_view(all_sales):
+    channel_rows = {}
+    for row in all_sales:
+        channel = _normalize_channel(row.get("canal"))
+        item = channel_rows.setdefault(channel, {"channel": channel, "ca": 0.0, "benef": 0.0, "benef_known": True, "qty": 0.0, "transactions": set()})
+        item["ca"] += _safe_float(row.get("price"))
+        item["qty"] += _safe_float(row.get("quantity"))
+        item["transactions"].add(_transaction_key(row, len(item["transactions"])))
+        if row.get("benef") is None:
+            item["benef_known"] = False
+        else:
+            item["benef"] += _safe_float(row.get("benef"))
+    for item in channel_rows.values():
+        item["sales"] = len(item["transactions"])
+        item["margin"] = (item["benef"] / item["ca"] * 100.0) if item["ca"] and item["benef_known"] else None
+        item["basket"] = item["ca"] / item["sales"] if item["sales"] else 0.0
+        item["avg_card"] = item["ca"] / item["qty"] if item["qty"] else 0.0
+    ordered_names = [*SALE_CHANNELS, *sorted(name for name in channel_rows if name not in SALE_CHANNELS)]
+    rows = [channel_rows[name] for name in ordered_names if name in channel_rows]
+    metric = st.selectbox("Meilleur canal selon", ["CA", "Bénéfice", "Marge", "Panier moyen", "Prix / carte"], key="stats_channel_metric")
+    metric_key, suffix = {"CA": ("ca", "€"), "Bénéfice": ("benef", "€"), "Marge": ("margin", "%"), "Panier moyen": ("basket", "€"), "Prix / carte": ("avg_card", "€")}[metric]
+    valid = [row for row in rows if row.get(metric_key) is not None]
+    best = max(valid, key=lambda row: row.get(metric_key) or 0) if valid else None
+    if best:
+        value = _fmt_eur(best[metric_key]) if suffix == "€" else _fmt_pct(best[metric_key])
+        st.markdown(f'<div class="ps-stats-note">Meilleur canal : {html.escape(best["channel"])} · {value}</div>', unsafe_allow_html=True)
+    _render_horizontal_bar(sorted(valid, key=lambda row: row.get(metric_key) or 0, reverse=True), metric_key, "channel", f"Comparatif canaux · {metric}", "stats_v2_channels_chart", color="#0ea5e9", suffix=suffix)
+    st.dataframe([{"Canal": row["channel"], "CA": round(row["ca"], 2), "Bénéfice": round(row["benef"], 2) if row["benef_known"] else "N/A", "Marge": _fmt_pct(row.get("margin")), "Ventes": row["sales"], "Cartes": round(row["qty"], 1), "Panier moyen": round(row["basket"], 2), "Prix / carte": round(row["avg_card"], 2)} for row in rows], width="stretch", hide_index=True, key="stats_v2_channels_table")
+
+
+def _load_month_goals(monthly_goals_path, current_month, prev_month, monthly_stats, months_sorted, safe_write_json_func):
+    if os.path.exists(monthly_goals_path):
+        with open(monthly_goals_path, "r", encoding="utf-8") as f:
+            goals_data = json.load(f)
+    else:
+        goals_data = {}
+    progression_rate = 0.15
+    if current_month not in goals_data:
+        prev = monthly_stats.get(prev_month, {})
+        prev_ca_real = _safe_float(prev.get("ca"))
+        prev_qty_real = _safe_float(prev.get("qty"))
+        if prev_ca_real > 0:
+            goals_data[current_month] = {"ca_target": round(prev_ca_real * (1 + progression_rate), 2), "qty_target": max(1, round(prev_qty_real * (1 + progression_rate))), "benef_target": round(_safe_float(prev.get("benef")) * (1 + progression_rate), 2), "auto_generated": True, "based_on": prev_month}
+        else:
+            ref_months = [m for m in months_sorted if m < current_month and monthly_stats.get(m, {}).get("ca", 0) > 0]
+            ref = monthly_stats.get(ref_months[-1], {}) if ref_months else {}
+            goals_data[current_month] = {"ca_target": round(_safe_float(ref.get("ca"), 100) * (1 + progression_rate), 2), "qty_target": max(1, round(_safe_float(ref.get("qty"), 20) * (1 + progression_rate))), "benef_target": round(_safe_float(ref.get("benef"), 30) * (1 + progression_rate), 2), "auto_generated": bool(ref_months), "based_on": ref_months[-1] if ref_months else ""}
+        safe_write_json_func(monthly_goals_path, goals_data)
+    return goals_data, goals_data[current_month]
+
+
+def _render_challenge(label, current, target, unit="€", icon="🎯", color="#6d5dfc", motivation=""):
+    pct = min((current / target * 100) if target > 0 else 0, 100)
+    done = pct >= 100
+    bar_color = "#10b981" if done else color
+    status = "ACCOMPLI !" if done else f"{current:.0f}{unit} / {target:.0f}{unit}"
+    remaining = max(0, target - current)
+    msg = "Objectif atteint, bravo !" if done else motivation.format(remaining=f"{remaining:.1f}{unit}")
+    st.markdown(f'<div class="ps-stats-card"><div style="display:flex;justify-content:space-between;gap:.7rem;align-items:center;"><span style="font-weight:850;color:#1e293b;">{icon} {html.escape(label)}</span><span style="font-weight:900;color:{bar_color};">{html.escape(status)}</span></div><div style="background:#f1f5f9;border-radius:99px;height:12px;overflow:hidden;margin-top:.65rem;"><div style="height:100%;width:{pct:.1f}%;background:linear-gradient(90deg,{bar_color},{bar_color}bb);border-radius:99px;"></div></div><div style="margin-top:.45rem;font-size:.8rem;color:#64748b;">{html.escape(msg)}</div></div>', unsafe_allow_html=True)
+
+
+def _render_records_view(all_sales, monthly_stats, months_sorted, current_month, monthly_goals_path, safe_write_json_func):
+    total = _aggregate_sales(all_sales)
+    best_ca = max(months_sorted, key=lambda m: monthly_stats[m]["ca"]) if months_sorted else None
+    best_benef = max(months_sorted, key=lambda m: monthly_stats[m]["benef"]) if months_sorted else None
+    best_qty = max(months_sorted, key=lambda m: monthly_stats[m]["qty"]) if months_sorted else None
+    transactions = defaultdict(lambda: {"price": 0.0, "date": None, "label": ""})
+    for idx, row in enumerate(all_sales):
+        key = _transaction_key(row, idx)
+        transactions[key]["price"] += _safe_float(row.get("price"))
+        transactions[key]["date"] = row.get("date")
+        label = row.get("card_name") or "Vente"
+        transactions[key]["label"] = label if not transactions[key]["label"] else transactions[key]["label"] + ", " + label
+    biggest_tx = max(transactions.values(), key=lambda row: row["price"]) if transactions else None
+    best_card = max(all_sales, key=lambda row: row.get("unit_price") or 0) if all_sales else None
+    records = [
+        ("Meilleur mois CA", _month_label(best_ca) if best_ca else "N/A", _fmt_eur(monthly_stats[best_ca]["ca"]) if best_ca else ""),
+        ("Meilleur mois bénéfice", _month_label(best_benef) if best_benef else "N/A", _fmt_eur(monthly_stats[best_benef]["benef"]) if best_benef else ""),
+        ("Plus de cartes vendues", _month_label(best_qty) if best_qty else "N/A", f"{monthly_stats[best_qty]['qty']:.0f} cartes" if best_qty else ""),
+        ("CA historique", _fmt_eur(total["ca"]), f"{len(transactions)} ventes"),
+        ("Bénéfice historique", _fmt_eur(total["benef"]), _fmt_pct(total["margin"])),
+        ("Plus grosse transaction", _fmt_eur(biggest_tx["price"]) if biggest_tx else "N/A", biggest_tx["label"][:70] if biggest_tx else ""),
+        ("Carte la plus chère", _fmt_eur(best_card["unit_price"]) if best_card else "N/A", best_card.get("card_name", "") if best_card else ""),
+        ("Panier moyen historique", _fmt_eur(total["basket"]), f"{total['qty']:.0f} cartes"),
+    ]
+    cols = st.columns(4)
+    for idx, (label, value, detail) in enumerate(records):
+        with cols[idx % 4]:
+            st.markdown(f'<div class="ps-stats-card"><div style="font-size:.75rem;color:#64748b;font-weight:800;text-transform:uppercase;">{html.escape(label)}</div><div style="font-size:1.15rem;color:#111827;font-weight:900;margin-top:.25rem;">{html.escape(str(value))}</div><div style="font-size:.78rem;color:#64748b;margin-top:.25rem;">{html.escape(str(detail or " "))}</div></div>', unsafe_allow_html=True)
+
+    st.markdown("### Défis du mois")
+    current_start = _month_start(current_month) or datetime.now().replace(day=1)
+    prev_month = _add_months(current_start, -1).strftime("%Y-%m")
+    goals_data, month_goals = _load_month_goals(monthly_goals_path, current_month, prev_month, monthly_stats, months_sorted, safe_write_json_func)
+    current = monthly_stats.get(current_month, {})
+    if month_goals.get("auto_generated"):
+        st.info(f"Objectifs générés automatiquement à partir de {_month_label(month_goals.get('based_on', ''))}.")
+    with st.expander("Modifier mes objectifs du mois", expanded=False):
+        gc1, gc2, gc3 = st.columns(3)
+        new_ca_t = gc1.number_input("Objectif CA (€)", 0.0, 99999.0, value=float(month_goals.get("ca_target", 100.0)), step=10.0, key="stats_goal_ca")
+        new_qty_t = gc2.number_input("Cartes à vendre", 0, 9999, value=int(month_goals.get("qty_target", 20)), step=5, key="stats_goal_qty")
+        new_benef_t = gc3.number_input("Objectif bénéfice (€)", 0.0, 99999.0, value=float(month_goals.get("benef_target", 30.0)), step=10.0, key="stats_goal_benef")
+        if st.button("Sauvegarder les objectifs", key="stats_save_goals"):
+            goals_data[current_month] = {"ca_target": new_ca_t, "qty_target": new_qty_t, "benef_target": new_benef_t, "auto_generated": False}
+            safe_write_json_func(monthly_goals_path, goals_data)
+            st.success("Objectifs mis à jour.")
+            st.rerun()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        _render_challenge("Chiffre d'affaires", _safe_float(current.get("ca")), _safe_float(month_goals.get("ca_target"), 100), "€", "💰", "#6d5dfc", "Plus que {remaining} à réaliser.")
+    with c2:
+        _render_challenge("Cartes vendues", _safe_float(current.get("qty")), _safe_float(month_goals.get("qty_target"), 20), "", "🃏", "#8b5cf6", "Encore {remaining} cartes à vendre.")
+    with c3:
+        _render_challenge("Bénéfice", _safe_float(current.get("benef")), _safe_float(month_goals.get("benef_target"), 30), "€", "💎", "#16a34a", "Plus que {remaining} de bénéfice.")
 
 
 def render_statistics_page(
@@ -26,532 +576,29 @@ def render_statistics_page(
     lots_archives_path="lots_archives.json",
     monthly_goals_path="monthly_goals.json",
 ):
-    st.markdown("## 📊 Statistiques & Défis")
+    _inject_stats_css()
+    st.markdown('<div class="ps-stats-hero"><h2>Statistiques</h2><p>Lecture compacte de l’activité PokéStock : CA, bénéfice, lots, canaux et objectifs.</p></div>', unsafe_allow_html=True)
 
     with perf_timer("stats ld"):
         cd = ld_func()
+
     now = datetime.now()
     current_month = now.strftime("%Y-%m")
-    MOIS_FR = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",
-               7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"}
-    def mois_label(dt):
-        return f"{MOIS_FR[dt.month]} {dt.year}"
-
-    current_month_label = mois_label(now)
-    with st.expander("⚙️ Calcul du bénéfice", expanded=False):
-        st.caption("Le coût d'achat d'une carte vendue est calculé avec sa cote au moment de la vente, la valeur estimée totale de son lot et le prix d'achat du lot.")
-        st.markdown("**Formule :** coût carte = cote carte vendue ÷ valeur estimée du lot × prix d'achat du lot.")
-        st.caption("Pour les lots mixtes, la formule utilise directement prix réel payé ÷ valeur totale du lot, afin de ne pas double compter les cartes déjà vendues.")
-        st.caption("Le bénéfice utilise ensuite le prix réellement vendu, donc les négociations sont bien prises en compte.")
-
-    # ── Collecter TOUTES les ventes : sold_entries (vente rapide) + ventes[] (vente en lot) ──
-    # On exclut les "ventes initiales" créées à la création du lot (is_lot_sale=True)
-    all_sales = []
-    all_lots = list(cd.get("lots", []))
-    archives_list = []
-    if os.path.exists(lots_archives_path):
-        with open(lots_archives_path, "r", encoding="utf-8") as f:
-            archives_list = json.load(f)
-
-    stats_collect_start = dt_module.datetime.now()
-    for lot_idx_s, lot in enumerate(all_lots + archives_list):
-        real_lot_idx = lot_idx_s if lot_idx_s < len(all_lots) else None
-        ventes_avec_cout, valeur_est = calc_cout_lot_func(lot, lot_idx=real_lot_idx)
-
-        # Ventes en lot
-        for v in lot.get("ventes", []):
-            if v.get("is_lot_sale") or v.get("is_exchange_benefit"):
-                continue
-            try:
-                d = datetime.fromisoformat(v["date"])
-                price = float(v.get("price", 0))
-                qty = int(v.get("quantity", 1))
-                if lot.get("is_mixte") and float(lot.get("valeur_totale", 0.) or 0.) > 0:
-                    cout_v = (price / float(lot.get("valeur_totale", 1.) or 1.)) * float(lot.get("prix_achat_reel", lot.get("prix_achat", 0.)) or 0.)
-                else:
-                    cout_v = (price / (valeur_est or 1.0)) * effective_purchase_price_func(lot)
-                all_sales.append({
-                    "date": d, "month": d.strftime("%Y-%m"),
-                    "price": price, "quantity": qty,
-                    "card_name": v.get("card_name", "Vente lot"),
-                    "card_image": v.get("card_image", ""),
-                    "lot": lot.get("nom", "?"),
-                    "unit_price": price / max(qty, 1),
-                    "cost": cout_v, "benef": price - cout_v,
-                    "cote": price,
-                })
-            except:
-                pass
-
-        # Ventes rapides
-        for card, se, cout_total in ventes_avec_cout:
-            if se.get("is_exchange"):
-                continue
-            try:
-                d = datetime.fromisoformat(se["date"])
-                qty = int(se.get("quantity", 1))
-                price = float(se.get("price", 0))
-                card_img = card.get("image_url", "") or card.get("image", "")
-                cote_total = float(se.get("suggested_price_at_sale", 0.) or card.get("suggested_price", 0.) or 0.) * qty
-                if cote_total <= 0:
-                    cote_total = price
-                if card.get("received_by_exchange") and (card.get("trade_contributors") or card.get("exchange_repartition")):
-                    for row in trade_sale_stat_rows(card, se, lot.get("nom", "?")):
-                        all_sales.append({
-                            "date": d, "month": d.strftime("%Y-%m"),
-                            "price": row["price"], "quantity": qty,
-                            "card_name": se.get("card_name", card.get("name", "?")),
-                            "card_image": card_img,
-                            "lot": row["lot"],
-                            "unit_price": price / max(qty, 1),
-                            "cost": row["cost"],
-                            "benef": row["benef"],
-                            "cote": cote_total * float(row.get("ratio", 1.0)),
-                            "is_trade_allocation": row.get("allocation", False),
-                        })
-                    continue
-                all_sales.append({
-                    "date": d, "month": d.strftime("%Y-%m"),
-                    "price": price, "quantity": qty,
-                    "card_name": se.get("card_name", card.get("name", "?")),
-                    "card_image": card_img,
-                    "lot": lot.get("nom", "?"),
-                    "unit_price": price / max(qty, 1),
-                    "cost": cout_total,
-                    "benef": price - cout_total,
-                    "cote": cote_total,
-                })
-            except:
-                pass
-
-    # ── CA, quantités et bénéfice par mois ──
-    ca_by_month = defaultdict(float)
-    qty_by_month = defaultdict(int)
-    benef_by_month = defaultdict(float)
-
-    for s in all_sales:
-        ca_by_month[s["month"]] += s["price"]
-        qty_by_month[s["month"]] += s["quantity"]
-        benef_by_month[s["month"]] += s.get("benef", s["price"] - s.get("cost", 0))
-
-    months_sorted = sorted(ca_by_month.keys())
-    perf_log(
-        "stats collect sales",
-        (dt_module.datetime.now() - stats_collect_start).total_seconds(),
-        f"sales={len(all_sales)} months={len(months_sorted)}",
-    )
+    with perf_timer("stats collect"):
+        all_sales, purchases = _collect_statistics_data(cd, calc_cout_lot_func=calc_cout_lot_func, effective_purchase_price_func=effective_purchase_price_func, lots_archives_path=lots_archives_path)
+        monthly_stats = _build_monthly_stats(all_sales, purchases)
+        months_sorted = sorted(monthly_stats.keys())
 
     if not months_sorted:
-        st.info("Aucune vente enregistrée pour le moment. Commence à vendre des cartes pour voir tes statistiques !")
-        st.stop()
+        st.info("Aucune vente enregistrée pour le moment.")
+        return
 
-    prev_month = (now.replace(day=1) - dt_module.timedelta(days=1)).strftime("%Y-%m")
-    ca_this = ca_by_month.get(current_month, 0)
-    ca_prev = ca_by_month.get(prev_month, 0)
-    qty_this = qty_by_month.get(current_month, 0)
-    qty_prev = qty_by_month.get(prev_month, 0)
-    benef_this = benef_by_month.get(current_month, 0)
-    benef_prev = benef_by_month.get(prev_month, 0)
-
-    def pct_change(new, old):
-        if old == 0:
-            return None
-        return ((new - old) / old) * 100
-
-    pct_ca = pct_change(ca_this, ca_prev)
-    pct_qty = pct_change(qty_this, qty_prev)
-
-    # ─────────────────────────────────────────────
-    # SECTION 1 : KPIs du mois courant
-    # ─────────────────────────────────────────────
-    st.markdown(f"### 📅 {current_month_label}")
-
-    k1, k2, k3, k4 = st.columns(4)
-
-    def delta_str(pct):
-        if pct is None: return None
-        return f"{'+' if pct >= 0 else ''}{pct:.1f}% vs mois préc."
-
-    k1.metric("💰 CA du mois", f"{ca_this:.2f}€", delta_str(pct_ca))
-    k2.metric("🃏 Cartes vendues", str(qty_this), delta_str(pct_qty))
-
-    # Bénéfice du mois (CA × part - coût × part)
-    pct_benef = pct_change(benef_this, benef_prev)
-    k3.metric("💎 Bénéfice estimé", f"{benef_this:.2f}€", delta_str(pct_benef))
-
-    # Prix moyen par carte
-    avg_price = (ca_this / qty_this) if qty_this > 0 else 0
-    avg_price_prev = (ca_prev / qty_prev) if qty_prev > 0 else 0
-    pct_avg = pct_change(avg_price, avg_price_prev)
-    k4.metric("📈 Prix moyen / carte", f"{avg_price:.2f}€", delta_str(pct_avg))
-
-    st.markdown("---")
-
-    # ─────────────────────────────────────────────
-    # SECTION 2 : Graphiques
-    # ─────────────────────────────────────────────
-    col_g1, col_g2 = st.columns(2)
-
-    with col_g1:
-        st.markdown("#### 📊 CA par mois")
-        months_labels = [mois_label(datetime.strptime(m, "%Y-%m")) for m in months_sorted]
-        ca_values = [ca_by_month[m] for m in months_sorted]
-        colors = ["#3b4cca" if m != current_month else "#ffcb05" for m in months_sorted]
-        fig_bar = go.Figure(go.Bar(
-            x=months_labels, y=ca_values,
-            marker_color=colors,
-            text=[f"{v:.0f}€" for v in ca_values],
-            textposition="outside",
-            hovertemplate="%{x}<br>CA : %{y:.2f}€<extra></extra>"
-        ))
-        fig_bar.update_layout(
-            height=300, margin=dict(t=20, b=0, l=0, r=0),
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            yaxis=dict(gridcolor="#f1f5f9", showgrid=True),
-            xaxis=dict(showgrid=False),
-            showlegend=False,
-        )
-        with perf_timer("stats chart CA"):
-            st.plotly_chart(fig_bar, width="stretch", key="stats_chart_ca_by_month")
-
-    with col_g2:
-        st.markdown("#### 🃏 Cartes vendues par mois")
-        qty_values = [qty_by_month[m] for m in months_sorted]
-        fig_qty = go.Figure(go.Bar(
-            x=months_labels, y=qty_values,
-            marker_color=["#10b981" if m != current_month else "#f59e0b" for m in months_sorted],
-            text=[str(v) for v in qty_values],
-            textposition="outside",
-            hovertemplate="%{x}<br>Cartes : %{y}<extra></extra>"
-        ))
-        fig_qty.update_layout(
-            height=300, margin=dict(t=20, b=0, l=0, r=0),
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            yaxis=dict(gridcolor="#f1f5f9", showgrid=True),
-            xaxis=dict(showgrid=False),
-            showlegend=False,
-        )
-        with perf_timer("stats chart quantity"):
-            st.plotly_chart(fig_qty, width="stretch", key="stats_chart_quantity_by_month")
-
-    st.markdown("#### 💎 Bénéfice par mois")
-    benef_values = [benef_by_month[m] for m in months_sorted]
-    fig_benef_month = go.Figure(go.Bar(
-        x=months_labels,
-        y=benef_values,
-        marker_color=["#10b981" if v >= 0 else "#ef4444" for v in benef_values],
-        text=[f"{v:.0f}€" for v in benef_values],
-        textposition="outside",
-        hovertemplate="%{x}<br>Bénéfice : %{y:.2f}€<extra></extra>",
-    ))
-    fig_benef_month.update_layout(
-        height=280, margin=dict(t=20, b=0, l=0, r=0),
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        yaxis=dict(gridcolor="#f1f5f9", showgrid=True, zeroline=True, zerolinecolor="#cbd5e1"),
-        xaxis=dict(showgrid=False),
-        showlegend=False,
-    )
-    with perf_timer("stats chart monthly benefit"):
-        st.plotly_chart(fig_benef_month, width="stretch", key="stats_chart_monthly_benefit")
-
-    with st.expander("🔎 Détail du bénéfice du mois"):
-        detail_rows = []
-        for s in sorted([x for x in all_sales if x["month"] == current_month], key=lambda x: x["date"], reverse=True):
-            detail_rows.append({
-                "Date": s["date"].strftime("%d/%m/%Y"),
-                "Carte": s.get("card_name", ""),
-                "Lot": s.get("lot", ""),
-                "Vendu": round(float(s.get("price", 0)), 2),
-                "Cote utilisée": round(float(s.get("cote", s.get("price", 0))), 2),
-                "Coût estimé": round(float(s.get("cost", 0)), 2),
-                "Bénéfice": round(float(s.get("benef", 0)), 2),
-            })
-        st.dataframe(detail_rows, width="stretch", hide_index=True, key="stats_current_month_benefit_detail")
-        st.caption("Calcul actuel : coût = cote vendue ÷ valeur estimée du lot × prix d'achat du lot. Pour les lots mixtes : coût = cote vendue ÷ valeur totale du lot × prix réel payé.")
-
-    # Graphique tendance CA (courbe lissée)
-    if len(months_sorted) >= 2:
-        st.markdown("#### 📈 Tendance du CA — évolution mensuelle")
-        fig_line = go.Figure()
-        fig_line.add_trace(go.Scatter(
-            x=months_labels, y=ca_values,
-            mode="lines+markers+text",
-            line=dict(color="#3b4cca", width=3),
-            marker=dict(size=10, color=colors, line=dict(width=2, color="white")),
-            text=[f"{v:.0f}€" for v in ca_values],
-            textposition="top center",
-            fill="tozeroy",
-            fillcolor="rgba(59,76,202,0.08)",
-            hovertemplate="%{x}<br>CA : %{y:.2f}€<extra></extra>"
-        ))
-        fig_line.update_layout(
-            height=250, margin=dict(t=20, b=0, l=0, r=0),
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            yaxis=dict(gridcolor="#f1f5f9"),
-            xaxis=dict(showgrid=False),
-        )
-        with perf_timer("stats chart trend"):
-            st.plotly_chart(fig_line, width="stretch", key="stats_chart_ca_trend")
-
-    # ── CA et bénéfice par lot — mois courant ──
-    st.markdown("---")
-    pie1, pie2 = st.columns(2)
-
-    ca_by_lot_month = defaultdict(float)
-    benef_by_lot_month = defaultdict(float)
-    for s in all_sales:
-        if s["month"] == current_month:
-            ca_by_lot_month[s["lot"]] += s["price"]
-            benef_by_lot_month[s["lot"]] += s.get("benef", s["price"] - s.get("cost", 0))
-
-    PALETTE = ["#3b4cca","#ffcb05","#10b981","#f59e0b","#8b5cf6","#ef4444"]
-
-    with pie1:
-        st.markdown("#### 🗂️ CA par lot — ce mois")
-        top_ca = sorted(ca_by_lot_month.items(), key=lambda x: x[1], reverse=True)[:6]
-        if top_ca:
-            names_ca, vals_ca = zip(*top_ca)
-            fig_ca = go.Figure(go.Pie(
-                labels=names_ca, values=vals_ca, hole=0.4,
-                marker_colors=PALETTE,
-                textinfo="percent+label",
-                hovertemplate="%{label}<br>CA : %{value:.2f}€<extra></extra>"
-            ))
-            fig_ca.update_layout(height=280, margin=dict(t=10,b=0,l=0,r=0),
-                                 paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-            with perf_timer("stats chart lot CA"):
-                st.plotly_chart(fig_ca, width="stretch", key="stats_chart_lot_ca_current_month")
-        else:
-            st.info("Aucune vente ce mois.")
-
-    with pie2:
-        st.markdown("#### 💎 Bénéfice par lot — ce mois")
-        top_benef = sorted(benef_by_lot_month.items(), key=lambda x: x[1], reverse=True)[:8]
-        if top_benef:
-            names_b = [t[0] for t in top_benef]
-            vals_b = [t[1] for t in top_benef]
-            colors_b = ["#10b981" if v >= 0 else "#ef4444" for v in vals_b]
-            fig_benef = go.Figure(go.Bar(
-                x=vals_b,
-                y=names_b,
-                orientation="h",
-                marker_color=colors_b,
-                text=[f"{v:+.1f}€" for v in vals_b],
-                textposition="outside",
-                hovertemplate="%{y}<br>Bénéfice : %{x:.2f}€<extra></extra>",
-            ))
-            fig_benef.update_layout(
-                height=280, margin=dict(t=10, b=0, l=0, r=60),
-                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(showgrid=True, gridcolor="#f1f5f9", zeroline=True, zerolinecolor="#cbd5e1", zerolinewidth=2),
-                yaxis=dict(showgrid=False),
-                showlegend=False,
-            )
-            with perf_timer("stats chart lot benefit"):
-                st.plotly_chart(fig_benef, width="stretch", key="stats_chart_lot_benefit_current_month")
-        else:
-            st.info("Aucune donnée de bénéfice ce mois.")
-
-    # ─────────────────────────────────────────────
-    # SECTION 3 : DÉFIS MENSUELS
-    # ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 🎯 Défis du mois")
-
-    # ── Chargement du fichier objectifs ──
-    GOALS_FILE = monthly_goals_path
-    if os.path.exists(GOALS_FILE):
-        with open(GOALS_FILE, "r", encoding="utf-8") as f:
-            goals_data = json.load(f)
+    active = st.pills("Section", STATS_SECTIONS, default=st.session_state.get("stats_active_section", "Vue globale"), key="stats_active_section", label_visibility="collapsed", width="stretch") or "Vue globale"
+    if active == "Vue globale":
+        _render_global_view(all_sales, monthly_stats, months_sorted, current_month)
+    elif active == "Lots":
+        _render_lots_view(all_sales, cd)
+    elif active == "Canaux":
+        _render_channels_view(all_sales)
     else:
-        goals_data = {}
-
-    # ── Auto-génération des objectifs si le mois n'en a pas encore ──
-    # Logique : on prend les données réelles du mois précédent et on ajoute +15%
-    PROGRESSION_RATE = 0.15  # +15% par mois automatiquement
-    if current_month not in goals_data:
-        prev_ca_real = ca_by_month.get(prev_month, 0)
-        prev_qty_real = qty_by_month.get(prev_month, 0)
-        prev_avg_real = (prev_ca_real / prev_qty_real) if prev_qty_real > 0 else 0
-
-        if prev_ca_real > 0:
-            prev_benef_real = benef_by_month.get(prev_month, 0)
-            auto_ca = round(prev_ca_real * (1 + PROGRESSION_RATE), 2)
-            auto_qty = max(1, round(prev_qty_real * (1 + PROGRESSION_RATE)))
-            auto_benef = round(prev_benef_real * (1 + PROGRESSION_RATE), 2) if prev_benef_real > 0 else round(auto_ca * 0.3, 2)
-            goals_data[current_month] = {
-                "ca_target": auto_ca,
-                "qty_target": auto_qty,
-                "benef_target": auto_benef,
-                "auto_generated": True,
-                "based_on": prev_month,
-            }
-        else:
-            mois_avec_data = [m for m in months_sorted if m < current_month and ca_by_month.get(m, 0) > 0]
-            if mois_avec_data:
-                ref_month = mois_avec_data[-1]
-                ref_ca = ca_by_month.get(ref_month, 100)
-                ref_qty = qty_by_month.get(ref_month, 20)
-                ref_benef = benef_by_month.get(ref_month, ref_ca * 0.3)
-                goals_data[current_month] = {
-                    "ca_target": round(ref_ca * (1 + PROGRESSION_RATE), 2),
-                    "qty_target": max(1, round(ref_qty * (1 + PROGRESSION_RATE))),
-                    "benef_target": round(ref_benef * (1 + PROGRESSION_RATE), 2),
-                    "auto_generated": True,
-                    "based_on": ref_month,
-                }
-            else:
-                goals_data[current_month] = {"ca_target": 100.0, "qty_target": 20, "benef_target": 30.0, "auto_generated": False}
-        safe_write_json_func(GOALS_FILE, goals_data)
-
-    month_goals = goals_data[current_month]
-
-    # ── Affichage info auto-génération ──
-    if month_goals.get("auto_generated"):
-        ref = month_goals.get("based_on", "")
-        try:
-            ref_label = mois_label(datetime.strptime(ref, "%Y-%m"))
-        except:
-            ref_label = ref
-        st.info(f"🤖 Objectifs générés automatiquement (+{int(PROGRESSION_RATE*100)}% par rapport à **{ref_label}**). Tu peux les ajuster ci-dessous.")
-
-    # ── Formulaire modification manuelle ──
-    with st.expander("⚙️ Modifier mes objectifs du mois"):
-        gc1, gc2, gc3 = st.columns(3)
-        new_ca_t = gc1.number_input("🎯 Objectif CA (€)", 0., 99999., value=float(month_goals.get("ca_target", 100.)), step=10.)
-        new_qty_t = gc2.number_input("🎯 Cartes à vendre", 0, 9999, value=int(month_goals.get("qty_target", 20)), step=5)
-        new_benef_t = gc3.number_input("🎯 Objectif bénéfice (€)", 0., 99999., value=float(month_goals.get("benef_target", 30.)), step=10.)
-        if st.button("💾 Sauvegarder les objectifs"):
-            goals_data[current_month] = {
-                "ca_target": new_ca_t,
-                "qty_target": new_qty_t,
-                "benef_target": new_benef_t,
-                "auto_generated": False,
-            }
-            safe_write_json_func(GOALS_FILE, goals_data)
-            st.success("✅ Objectifs mis à jour !")
-            st.rerun()
-
-    ca_target = month_goals.get("ca_target", 100.)
-    qty_target = month_goals.get("qty_target", 20)
-    benef_target = month_goals.get("benef_target", ca_target * 0.3)
-
-    def render_challenge(label, current, target, unit="€", icon="🎯", color="#3b4cca", motivation=""):
-        pct = min((current / target * 100) if target > 0 else 0, 100)
-        done = pct >= 100
-        bar_color = "#10b981" if done else color
-        emoji = "🏆" if done else icon
-        val_fmt = f"{current:.0f}" if unit == "" else f"{current:.2f}"
-        tgt_fmt = f"{target:.0f}"
-        status = "ACCOMPLI !" if done else f"{val_fmt}{unit} / {tgt_fmt}{unit}"
-        remaining = max(0, target - current)
-        msg = "✅ Objectif atteint, bravo !" if done else motivation.format(remaining=f"{remaining:.1f}{unit}")
-
-        st.markdown(f"""
-        <div style="background:white;border-radius:16px;padding:1.2rem 1.5rem;margin-bottom:1rem;
-                    border:2px solid {'#10b981' if done else '#e2e8f0'};
-                    box-shadow:{'0 4px 12px rgba(16,185,129,0.15)' if done else '0 2px 8px rgba(0,0,0,0.06)'};">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;">
-            <span style="font-size:1rem;font-weight:700;color:#1e293b;">{emoji} {label}</span>
-            <span style="font-size:0.95rem;font-weight:800;color:{bar_color};">{status}</span>
-          </div>
-          <div style="background:#f1f5f9;border-radius:99px;height:14px;overflow:hidden;">
-            <div style="height:100%;width:{pct:.1f}%;background:{'linear-gradient(90deg,#10b981,#34d399)' if done else f'linear-gradient(90deg,{color},{color}cc)'};
-                        border-radius:99px;"></div>
-          </div>
-          <div style="margin-top:0.5rem;font-size:0.82rem;color:{'#10b981' if done else '#64748b'};">{msg}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    render_challenge(
-        "Chiffre d'affaires du mois", ca_this, ca_target, "€", "💰", "#3b4cca",
-        "Plus que {remaining} à réaliser pour atteindre ton objectif, tu y es presque !"
-    )
-    render_challenge(
-        "Cartes vendues", float(qty_this), float(qty_target), "", "🃏", "#8b5cf6",
-        "Il te reste {remaining} cartes à vendre ce mois-ci, allez !"
-    )
-    render_challenge(
-        "Bénéfice du mois", benef_this, benef_target, "€", "💎", "#10b981",
-        "Plus que {remaining} de bénéfice à réaliser, continue !"
-    )
-
-    # ─────────────────────────────────────────────
-    # SECTION 4 : RECORDS & PALMARES
-    # ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("### 🏅 Records & Palmarès")
-
-    rec1, rec2, rec3 = st.columns(3)
-
-    # Meilleur mois CA
-    best_month = max(ca_by_month, key=ca_by_month.get) if ca_by_month else None
-    if best_month:
-        bm_label = mois_label(datetime.strptime(best_month, "%Y-%m"))
-        rec1.metric("🥇 Meilleur mois (CA)", bm_label, f"{ca_by_month[best_month]:.2f}€")
-
-    # Meilleur mois quantité
-    best_qty_month = max(qty_by_month, key=qty_by_month.get) if qty_by_month else None
-    if best_qty_month:
-        bqm_label = mois_label(datetime.strptime(best_qty_month, "%Y-%m"))
-        rec2.metric("🃏 Plus de ventes", bqm_label, f"{qty_by_month[best_qty_month]} cartes")
-
-    # CA total cumulé
-    total_ca = sum(ca_by_month.values())
-    rec3.metric("💎 CA total cumulé", f"{total_ca:.2f}€", f"{len(all_sales)} ventes au total")
-
-    # ── Carte la plus chère vendue ce mois ──
-    sales_this_month = [s for s in all_sales if s["month"] == current_month]
-    if sales_this_month:
-        best_sale = max(sales_this_month, key=lambda s: s["unit_price"])
-        st.markdown("---")
-        st.markdown("#### 🌟 Meilleure vente du mois")
-        img_col, info_col = st.columns([1, 3])
-        with img_col:
-            img_url = best_sale.get("card_image", "")
-            if img_url:
-                st.markdown(f'<img src="{proxy_img_func(img_url)}" style="width:100%;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,0.15);">', unsafe_allow_html=True)
-            else:
-                st.markdown('<div style="width:100%;aspect-ratio:0.71;background:#f1f5f9;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:2rem;">🃏</div>', unsafe_allow_html=True)
-        with info_col:
-            st.markdown(f"""
-            <div style="padding:1rem;">
-              <div style="font-size:1.3rem;font-weight:800;color:#1e293b;">{best_sale['card_name']}</div>
-              <div style="font-size:0.9rem;color:#64748b;margin-top:0.3rem;">Lot : {best_sale['lot']}</div>
-              <div style="font-size:2rem;font-weight:900;color:#3b4cca;margin-top:0.5rem;">{best_sale['unit_price']:.2f}€</div>
-              <div style="font-size:0.85rem;color:#94a3b8;">Vendue le {best_sale['date'].strftime('%d/%m/%Y')}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # Streak : combien de mois consécutifs avec des ventes
-    streak = 0
-    check_m = now
-    for _ in range(24):
-        mk = check_m.strftime("%Y-%m")
-        if mk in ca_by_month and ca_by_month[mk] > 0:
-            streak += 1
-            check_m = (check_m.replace(day=1) - dt_module.timedelta(days=1))
-        else:
-            break
-
-    # Message de motivation dynamique
-    if ca_this == 0:
-        motivation_msg = "💤 Aucune vente ce mois-ci... C'est le moment de sortir tes meilleures cartes !"
-        motivation_color = "#64748b"
-    elif pct_ca and pct_ca > 20:
-        motivation_msg = f"🚀 En feu ce mois-ci ! +{pct_ca:.0f}% par rapport au mois dernier, continue comme ça !"
-        motivation_color = "#10b981"
-    elif pct_ca and pct_ca < -20:
-        motivation_msg = f"📉 Mois un peu calme... {abs(pct_ca):.0f}% de moins que le mois dernier. Relance la machine !"
-        motivation_color = "#f59e0b"
-    else:
-        motivation_msg = f"👍 Mois régulier — {streak} mois consécutif{'s' if streak > 1 else ''} avec des ventes !"
-        motivation_color = "#3b4cca"
-
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,{motivation_color}15,{motivation_color}05);
-                border-left:4px solid {motivation_color};border-radius:12px;
-                padding:1rem 1.5rem;margin-top:1.5rem;font-size:1.05rem;font-weight:600;color:{motivation_color};">
-        {motivation_msg}
-    </div>
-    """, unsafe_allow_html=True)
+        _render_records_view(all_sales, monthly_stats, months_sorted, current_month, monthly_goals_path, safe_write_json_func)
