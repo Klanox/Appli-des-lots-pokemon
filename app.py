@@ -1353,10 +1353,18 @@ def render_with_perf(label, render_func, *args, **kwargs):
     if page != "Historique":
         st.session_state["history_visible_count"] = 40
 
-def dc(li,ci):
+def dc(li, ci, lot_uid=None, card_uid=None):
     """Delete card"""
-    cd=ld()
-    cd["lots"][li]["cards"].pop(ci)
+    cd = ld()
+    resolved_li, resolved_ci, _lot, card = resolve_card_ref(cd, {
+        "lot_idx": li,
+        "card_idx": ci,
+        "lot_uid": lot_uid,
+        "card_uid": card_uid,
+    })
+    if card is None or resolved_li is None or resolved_ci is None:
+        return False, "Carte introuvable."
+    cd["lots"][resolved_li]["cards"].pop(resolved_ci)
     sd(cd)
     return True,""
 
@@ -2311,6 +2319,7 @@ if st.session_state.current_page=="Accueil":
     }
     home_optional_kwargs = {
         "sd_func": sd,
+        "delete_card_func": dc,
         "card_available_qty_func": card_available_qty,
         "clear_stats_cache_func": lambda: gst.clear() if hasattr(gst, "clear") else None,
     }

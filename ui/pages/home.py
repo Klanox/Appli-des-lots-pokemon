@@ -112,6 +112,7 @@ def render_home_page(
     kpi_accents,
     set_current_page_func,
     sd_func=None,
+    delete_card_func=None,
     card_available_qty_func=None,
     clear_stats_cache_func=None,
 ):
@@ -316,6 +317,8 @@ def render_home_page(
         unsafe_allow_html=True,
     )
     search_global = st.text_input("🔍 Recherche", placeholder="Chercher une carte dans tous les lots...", key="global_search")
+    if st.session_state.pop("home_card_deleted_toast", False):
+        st.toast("Carte supprimée")
 
     if search_global and len(search_global) >= 2:
         cd_search = ld_func()
@@ -366,6 +369,10 @@ def render_home_page(
                         save_key = f"{res['result_key']}_save_price"
                         cancel_key = f"{res['result_key']}_cancel_price"
                         open_key = f"{res['result_key']}_open_price"
+                        delete_confirm_key = f"{res['result_key']}_confirm_delete"
+                        delete_open_key = f"{res['result_key']}_open_delete"
+                        delete_yes_key = f"{res['result_key']}_yes_delete"
+                        delete_no_key = f"{res['result_key']}_no_delete"
 
                         if st.session_state.get(edit_key):
                             current_price = float(res["card"].get("suggested_price", 0) or 0)
@@ -406,6 +413,42 @@ def render_home_page(
                                 st.rerun()
                         elif st.button("Modifier le prix", key=open_key, width="stretch"):
                             st.session_state[edit_key] = True
+                            st.rerun()
+
+                        if st.session_state.get(delete_confirm_key):
+                            card_name = res["card"].get("name") or "Carte"
+                            card_number = res["card"].get("number") or "N/A"
+                            total_qty = int(res["card"].get("quantity", 0) or 0)
+                            st.warning("Supprimer cette carte ?")
+                            st.caption(
+                                f"{card_name} · #{card_number} · {res['lot_name']} · "
+                                f"Qté actuelle : {total_qty}"
+                            )
+                            delete_cols = st.columns(2)
+                            if delete_cols[0].button("Annuler", key=delete_no_key, width="stretch"):
+                                st.session_state[delete_confirm_key] = False
+                                st.rerun()
+                            if delete_cols[1].button("Supprimer", key=delete_yes_key, type="primary", width="stretch"):
+                                if delete_card_func is None:
+                                    st.error("Suppression indisponible depuis cette vue.")
+                                else:
+                                    ok, msg = delete_card_func(
+                                        res["lot_idx"],
+                                        res["card_idx"],
+                                        lot_uid=res.get("lot_uid"),
+                                        card_uid=res.get("card_uid"),
+                                    )
+                                    if ok:
+                                        if clear_stats_cache_func is not None:
+                                            clear_stats_cache_func()
+                                        st.session_state[delete_confirm_key] = False
+                                        st.session_state["home_card_deleted_toast"] = True
+                                        st.rerun()
+                                    else:
+                                        st.error(msg or "Suppression impossible.")
+                        elif st.button("🗑️ Supprimer", key=delete_open_key, width="stretch"):
+                            st.session_state[delete_confirm_key] = True
+                            st.session_state[edit_key] = False
                             st.rerun()
         else:
             st.info(f"Aucune carte trouvée pour « {search_global} »")
