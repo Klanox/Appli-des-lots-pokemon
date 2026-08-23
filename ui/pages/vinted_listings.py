@@ -941,94 +941,85 @@ def _add_card_to_drop_action(drops_data, drop_id, card, quantity=1):
         st.warning("Cette carte est déjà dans ce drop.")
 
 
-def _drop_grid_processed_actions_key(drop_id):
-    return f"vinted_drop_processed_actions_{drop_id}"
-
-
-def _drop_grid_processed_actions(drop_id):
-    values = st.session_state.get(_drop_grid_processed_actions_key(drop_id), [])
-    return [str(value) for value in values if value]
-
-
-def _remember_drop_grid_processed_actions(drop_id, action_ids):
-    if not action_ids:
-        return
-    key = _drop_grid_processed_actions_key(drop_id)
-    current = _drop_grid_processed_actions(drop_id)
-    seen = set(current)
-    for action_id in action_ids:
-        action_id = str(action_id or "")
-        if action_id and action_id not in seen:
-            current.append(action_id)
-            seen.add(action_id)
-    st.session_state[key] = current[-500:]
-
-
-def _component_actions(result):
+def _component_batch(result):
     if result is None:
-        return []
-    actions = None
-    legacy = None
-    if isinstance(result, dict):
-        actions = result.get("actions")
-        legacy = result.get("action")
-    else:
-        actions = getattr(result, "actions", None)
-        legacy = getattr(result, "action", None)
-    if isinstance(actions, list):
-        return [action for action in actions if isinstance(action, dict)]
-    if isinstance(legacy, dict):
-        return [legacy]
-    return []
+        return {}
+    batch = result.get("batch") if isinstance(result, dict) else getattr(result, "batch", None)
+    return batch if isinstance(batch, dict) else {}
 
 
-def _process_drop_grid_actions(drops_data, active_drop, available_cards, actions):
+def _drop_grid_processed_batches_key(drop_id):
+    return f"vinted_drop_processed_batches_{drop_id}"
+
+
+def _drop_grid_committed_selection_token_key(drop_id):
+    return f"vinted_drop_committed_selection_token_{drop_id}"
+
+
+def _drop_grid_committed_selection_token(drop_id):
+    return int(st.session_state.get(_drop_grid_committed_selection_token_key(drop_id), 0) or 0)
+
+
+def _mark_drop_grid_batch_committed(drop_id, batch_id):
+    key = _drop_grid_processed_batches_key(drop_id)
+    batches = [str(value) for value in st.session_state.get(key, []) if value]
+    batch_id = str(batch_id or "")
+    if batch_id and batch_id not in batches:
+        batches.append(batch_id)
+    st.session_state[key] = batches[-100:]
+    token_key = _drop_grid_committed_selection_token_key(drop_id)
+    st.session_state[token_key] = _drop_grid_committed_selection_token(drop_id) + 1
+    st.session_state["vinted_drop_grid_scroll_token"] = int(st.session_state.get("vinted_drop_grid_scroll_token", 0) or 0) + 1
+
+
+def _process_drop_selection_batch(drops_data, active_drop, available_cards, batch):
     drop_id = active_drop.get("id") if active_drop else ""
-    if not drop_id or not actions:
+    selections = batch.get("selections") if isinstance(batch, dict) else []
+    batch_id = str(batch.get("id") or "") if isinstance(batch, dict) else ""
+    if not drop_id or not batch_id or not isinstance(selections, list) or not selections:
         return 0, 0, 0
-    processed = set(_drop_grid_processed_actions(drop_id))
+    processed_batches = {str(value) for value in st.session_state.get(_drop_grid_processed_batches_key(drop_id), [])}
+    if batch_id in processed_batches:
+        return 0, 0, 0
     card_by_key = {
         card.get("_drop_card_key") or drop_card_key(card): card
         for card in available_cards or []
     }
-    new_processed = []
     added_count = 0
-    removed_count = 0
-    changed = False
+    duplicate_count = 0
+    skipped_count = 0
+    cards_to_add = []
 
-    for action in actions:
-        action_id = str(action.get("id") or "")
-        if not action_id or action_id in processed:
+    seen_keys = set()
+    for selection in selections:
+        if not isinstance(selection, dict):
             continue
-        processed.add(action_id)
-        new_processed.append(action_id)
-        action_type = str(action.get("type") or "").strip()
-        card_key = str(action.get("card_key") or "")
-        if action_type == "remove":
-            if remove_card_from_drop(drops_data, drop_id, card_key):
-                changed = True
-                removed_count += 1
+        card_key = str(selection.get("card_key") or "")
+        if not card_key or card_key in seen_keys:
             continue
-        if action_type != "add":
-            continue
+        seen_keys.add(card_key)
         card = card_by_key.get(card_key)
         if not card:
+            skipped_count += 1
+            continue
+        if card_is_in_drop(active_drop, card):
+            duplicate_count += 1
             continue
         try:
-            quantity = int(action.get("quantity", 1) or 1)
+            quantity = int(selection.get("quantity", 1) or 1)
         except Exception:
             quantity = 1
         max_qty = max(1, int(card.get("available_qty", 1) or 1))
         quantity = min(max(1, quantity), max_qty)
-        added, _duplicate = add_card_to_drop(drops_data, drop_id, _card_with_drop_quantity(card, quantity))
-        if added:
-            changed = True
-            added_count += 1
+        cards_to_add.append(_card_with_drop_quantity(card, quantity))
 
-    _remember_drop_grid_processed_actions(drop_id, new_processed)
-    if changed:
+    if cards_to_add:
+        added_count, duplicate_count_from_service = add_cards_to_drop(drops_data, drop_id, cards_to_add)
+        duplicate_count += duplicate_count_from_service
+    _mark_drop_grid_batch_committed(drop_id, batch_id)
+    if added_count:
         save_vinted_drops(drops_data)
-    return len(new_processed), added_count, removed_count
+    return len(seen_keys), added_count, duplicate_count + skipped_count
 
 
 def _render_quantity_stepper(scope, card):
@@ -1165,13 +1156,6 @@ def _drop_total_value(drop):
             quantity = 1
         total += price * max(1, quantity)
     return total
-
-
-def _drop_added_keys(drop):
-    return {
-        drop_card_key(ref)
-        for ref in (drop.get("cards", []) or [])
-    }
 
 
 def _drop_grid_groups(cards, proxy_img_func, fp_func):
@@ -1477,35 +1461,36 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
         placeholder="Ex : Dracaufeu, Rayquaza 89/90, Pohmarmotte...",
     )
     candidates_all = _filter_cards_for_display(available_cards, query)
+    candidates_all = [card for card in candidates_all if not card_is_in_drop(active_drop, card)]
     if not candidates_all:
         st.caption("Aucune carte disponible trouvée.")
         return
 
     st.caption(f"{len(candidates_all)} carte(s) disponible(s).")
     groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func)
-    added_keys = _drop_added_keys(active_drop)
     duplicate_counts = dict(_drop_identity_counts(active_drop))
-    processed_action_ids = _drop_grid_processed_actions(active_drop.get("id"))
     result = render_vinted_drop_virtual_grid(
         groups,
-        added_keys,
+        set(),
         duplicate_counts=duplicate_counts,
         key=f"drop_add_{active_drop.get('id')}",
         mobile=mobile,
         scroll_top_token=_drop_scroll_top_token(active_drop.get("id"), query),
-        processed_action_ids=processed_action_ids,
+        committed_selection_token=_drop_grid_committed_selection_token(active_drop.get("id")),
     )
-    actions = _component_actions(result)
-    if actions:
-        processed_count, added_count, removed_count = _process_drop_grid_actions(
+    batch = _component_batch(result)
+    if batch:
+        selected_count, added_count, skipped_count = _process_drop_selection_batch(
             drops_data,
             active_drop,
             available_cards,
-            actions,
+            batch,
         )
-        if processed_count:
-            if added_count or removed_count:
-                st.success(f"{added_count} ajout(s), {removed_count} retrait(s) appliqué(s).")
+        if selected_count:
+            if added_count:
+                st.success(f"✓ {added_count} carte(s) ajoutée(s) au drop.")
+            if skipped_count:
+                st.warning(f"{skipped_count} sélection(s) déjà présente(s) ou indisponible(s).")
             st.rerun()
     if result is None:
         st.caption("Affichage simplifié utilisé pour cette session.")

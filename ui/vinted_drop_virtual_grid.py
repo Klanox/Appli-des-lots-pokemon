@@ -222,6 +222,37 @@ def _get_vinted_drop_grid_component():
     .ps-sale-lot-card.in-cart .ps-sale-add {
         background: #22c55e;
     }
+    .ps-sale-selection-footer {
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 56px;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid #c7d2fe;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #ffffff, #eef2ff);
+        color: #334155;
+        font-weight: 800;
+        box-shadow: 0 8px 22px rgba(79, 70, 229, 0.08);
+    }
+    .ps-sale-selection-footer button {
+        min-height: 34px;
+        border: 0;
+        border-radius: 999px;
+        background: #6d5dfc;
+        color: #fff;
+        font-size: 0.78rem;
+        font-weight: 900;
+        padding: 0 14px;
+        cursor: pointer;
+    }
+    .ps-sale-selection-footer button:disabled {
+        cursor: default;
+        opacity: 0.48;
+    }
     @media (max-width: 768px) {
         .ps-sale-lot-header {
             font-size: 1rem;
@@ -248,6 +279,11 @@ def _get_vinted_drop_grid_component():
             height: 29px;
             font-size: 0.7rem;
         }
+        .ps-sale-selection-footer {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 8px;
+        }
     }
     """
 
@@ -263,33 +299,38 @@ def _get_vinted_drop_grid_component():
         const win = doc.defaultView || window;
         const root = parentElement.querySelector(".ps-sale-lot-root");
         const stage = root.querySelector(".ps-sale-lot-stage");
+        const footer = root.querySelector(".ps-sale-selection-footer");
         root.style.fontFamily = saleFont;
         stage.style.fontFamily = saleFont;
+        footer.style.fontFamily = saleFont;
         const key = data.key || "vinted_drop";
         const stateKey = "__pokestockVintedDropGrid_" + key;
         const groups = Array.isArray(data.groups) ? data.groups : [];
-        const baseAdded = new Set(Array.isArray(data.addedKeys) ? data.addedKeys : []);
         const baseDuplicateCounts = data.duplicateCounts && typeof data.duplicateCounts === "object" ? data.duplicateCounts : {};
-        const processedActionIds = new Set(Array.isArray(data.processedActionIds) ? data.processedActionIds : []);
         const signature = String(data.signature || "");
-        const addedSignature = JSON.stringify(Array.from(baseAdded).sort());
         const scrollTopToken = String(data.scrollTopToken || "");
+        const committedSelectionToken = String(data.committedSelectionToken || "");
         const gap = 10;
         const lotGap = 14;
         const headerHeight = 42;
         const state = win[stateKey] || {
             signature,
-            addedSignature,
             qty: {},
+            selected: {},
             mounted: new Map(),
             lastRange: "",
             layout: null,
             preloaded: new Map(),
-            pendingActions: []
+            committedSelectionToken: ""
         };
-        state.pendingActions = Array.isArray(state.pendingActions)
-            ? state.pendingActions.filter((action) => action && !processedActionIds.has(String(action.id || "")))
-            : [];
+        state.selected = state.selected && typeof state.selected === "object" ? state.selected : {};
+        if (committedSelectionToken && state.committedSelectionToken !== committedSelectionToken) {
+            state.selected = {};
+            state.qty = {};
+            state.batchSubmitting = false;
+            state.committedSelectionToken = committedSelectionToken;
+            state.lastRange = "";
+        }
 
         function findScrollTarget(el) {
             let node = el && el.parentElement;
@@ -314,17 +355,11 @@ def _get_vinted_drop_grid_component():
         }
         if (state.signature !== signature) {
             state.signature = signature;
-            state.addedSignature = addedSignature;
             state.qty = {};
             state.mounted = new Map();
             state.lastRange = "";
             state.layout = null;
             state.preloaded = new Map();
-            stage.replaceChildren();
-        } else if (state.addedSignature !== addedSignature) {
-            state.addedSignature = addedSignature;
-            state.mounted = new Map();
-            state.lastRange = "";
             stage.replaceChildren();
         }
         win[stateKey] = state;
@@ -346,48 +381,57 @@ def _get_vinted_drop_grid_component():
         }
 
         function effectiveAdded(key) {
-            let current = baseAdded.has(key);
-            state.pendingActions.forEach((action) => {
-                if (!action || String(action.card_key || "") !== key) return;
-                if (action.type === "add") current = true;
-                if (action.type === "remove") current = false;
-            });
-            return current;
+            return Boolean(state.selected[key]);
         }
 
-        function effectiveDuplicateCount(item) {
+        function effectiveDuplicateInfo(item) {
             const fingerprint = String(item.duplicate_fingerprint || "");
-            if (!fingerprint) return 0;
-            let count = Number(baseDuplicateCounts[fingerprint] || 0);
-            state.pendingActions.forEach((action) => {
-                if (!action || String(action.duplicate_fingerprint || "") !== fingerprint) return;
-                if (action.type === "add") count += 1;
-                if (action.type === "remove") count -= 1;
+            if (!fingerprint) return { base: 0, selected: 0 };
+            const base = Math.max(0, Number(baseDuplicateCounts[fingerprint] || 0));
+            let selected = 0;
+            Object.values(state.selected).forEach((selection) => {
+                if (!selection || String(selection.duplicate_fingerprint || "") !== fingerprint) return;
+                selected += 1;
             });
-            if (effectiveAdded(itemKey(item))) count -= 1;
-            return Math.max(0, count);
-        }
-
-        function queuedActionIds() {
-            const ids = new Set(state.pendingActions.map((action) => String(action.id || "")));
-            return ids;
+            if (effectiveAdded(itemKey(item))) selected -= 1;
+            return { base, selected: Math.max(0, selected) };
         }
 
         function pendingSignature() {
-            return JSON.stringify(state.pendingActions.map((action) => [
-                String(action.id || ""),
-                String(action.type || ""),
-                String(action.card_key || "")
-            ]));
+            return JSON.stringify(Object.values(state.selected).map((selection) => [
+                String(selection.card_key || ""),
+                String(selection.quantity || 1),
+                String(selection.duplicate_fingerprint || "")
+            ]).sort());
         }
 
-        function pushPendingAction(action) {
-            if (!action || !action.id) return;
-            const ids = queuedActionIds();
-            if (!ids.has(String(action.id))) {
-                state.pendingActions.push(action);
-            }
-            setTriggerValue("actions", state.pendingActions.slice());
+        function selectedCount() {
+            return Object.keys(state.selected).length;
+        }
+
+        function updateFooter() {
+            const count = selectedCount();
+            footer.replaceChildren();
+            const label = doc.createElement("div");
+            label.textContent = count + " carte" + (count > 1 ? "s" : "") + " sélectionnée" + (count > 1 ? "s" : "");
+            const button = doc.createElement("button");
+            button.type = "button";
+            button.disabled = count <= 0 || Boolean(state.batchSubmitting);
+            button.textContent = state.batchSubmitting
+                ? "Validation..."
+                : (count > 0 ? "✓ Valider les " + count + " carte" + (count > 1 ? "s" : "") + " sélectionnée" + (count > 1 ? "s" : "") : "✓ Valider la sélection");
+            button.onclick = (event) => {
+                event.preventDefault();
+                if (selectedCount() <= 0 || state.batchSubmitting) return;
+                state.batchSubmitting = true;
+                updateFooter();
+                setTriggerValue("batch", {
+                    id: "vinted-drop-batch-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+                    selections: Object.values(state.selected)
+                });
+            };
+            footer.appendChild(label);
+            footer.appendChild(button);
         }
 
         function applyCardVisual(card, key) {
@@ -410,13 +454,21 @@ def _get_vinted_drop_grid_component():
             }
             const button = card.querySelector(".ps-sale-add");
             if (button) {
-                button.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
+                button.textContent = isAdded ? "✓ Sélectionnée" : "Sélectionner";
             }
             const duplicate = card.querySelector(".ps-sale-duplicate");
             if (duplicate) {
-                const duplicateCount = effectiveDuplicateCount(item);
-                duplicate.textContent = duplicateCount > 1 ? "⚠ Déjà présent ×" + duplicateCount : "⚠ Déjà présent dans le drop";
-                duplicate.classList.toggle("visible", duplicateCount > 0);
+                const duplicateInfo = effectiveDuplicateInfo(item);
+                if (duplicateInfo.base > 0) {
+                    duplicate.textContent = duplicateInfo.base > 1 ? "⚠ Déjà présent ×" + duplicateInfo.base : "⚠ Déjà présent dans le drop";
+                    duplicate.classList.add("visible");
+                } else if (duplicateInfo.selected > 0) {
+                    duplicate.textContent = duplicateInfo.selected > 1 ? "⚠ Déjà sélectionné ×" + duplicateInfo.selected : "⚠ Déjà sélectionné";
+                    duplicate.classList.add("visible");
+                } else {
+                    duplicate.textContent = "";
+                    duplicate.classList.remove("visible");
+                }
             }
         }
 
@@ -429,7 +481,7 @@ def _get_vinted_drop_grid_component():
         }
 
         function clampQty(key, maxQty) {
-            const current = Number(state.qty[key] || 1);
+            const current = Number((state.selected[key] && state.selected[key].quantity) || state.qty[key] || 1);
             return Math.max(1, Math.min(Math.max(1, Number(maxQty || 1)), current || 1));
         }
 
@@ -571,12 +623,14 @@ def _get_vinted_drop_grid_component():
                 const next = Math.max(1, clampQty(key, item.stock) - 1);
                 state.qty[key] = next;
                 qty.textContent = String(next);
+                if (state.selected[key]) state.selected[key].quantity = next;
             };
             plus.onclick = (event) => {
                 event.preventDefault();
                 const next = Math.min(Number(item.stock || 1), clampQty(key, item.stock) + 1);
                 state.qty[key] = next;
                 qty.textContent = String(next);
+                if (state.selected[key]) state.selected[key].quantity = next;
             };
             stepper.appendChild(minus);
             stepper.appendChild(qty);
@@ -586,25 +640,28 @@ def _get_vinted_drop_grid_component():
             const action = doc.createElement("button");
             action.type = "button";
             action.className = "ps-sale-add";
-            action.textContent = isAdded ? "✓ Déjà ajouté" : "Ajouter au drop";
+            action.textContent = isAdded ? "✓ Sélectionnée" : "Sélectionner";
             action.onclick = (event) => {
                 event.preventDefault();
                 const currentlyAdded = effectiveAdded(key);
-                const actionType = currentlyAdded ? "remove" : "add";
-                const pendingAction = {
-                    id: "vinted-drop-" + actionType + "-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-                    type: actionType,
-                    card_key: key,
-                    card_uid: item.card_uid,
-                    lot_uid: item.lot_uid,
-                    lot_idx: item.lot_idx,
-                    card_idx: item.card_idx,
-                    duplicate_fingerprint: item.duplicate_fingerprint || "",
-                    quantity: clampQty(key, item.stock),
-                    ts: Date.now()
-                };
-                pushPendingAction(pendingAction);
+                if (currentlyAdded) {
+                    delete state.selected[key];
+                } else {
+                    state.selected[key] = {
+                        card_key: key,
+                        card_uid: item.card_uid,
+                        lot_uid: item.lot_uid,
+                        lot_idx: item.lot_idx,
+                        card_idx: item.card_idx,
+                        duplicate_fingerprint: item.duplicate_fingerprint || "",
+                        quantity: clampQty(key, item.stock),
+                        ts: Date.now()
+                    };
+                }
+                updateFooter();
                 refreshMountedCardVisuals(key);
+                state.lastRange = "";
+                schedule();
             };
             actions.appendChild(action);
             card.appendChild(actions);
@@ -700,9 +757,11 @@ def _get_vinted_drop_grid_component():
             const layout = layoutFor(colCount, rowHeight);
             const rows = layout.rows;
             const totalHeight = layout.totalHeight;
+            const footerHeight = 82;
             stage.style.height = totalHeight + "px";
-            parentElement.style.height = totalHeight + "px";
-            parentElement.style.minHeight = totalHeight + "px";
+            parentElement.style.height = (totalHeight + footerHeight) + "px";
+            parentElement.style.minHeight = (totalHeight + footerHeight) + "px";
+            updateFooter();
 
             const startY = visibleTop();
             const endY = startY + viewportHeight();
@@ -790,6 +849,7 @@ def _get_vinted_drop_grid_component():
             '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">'
             '<div class="ps-sale-lot-root" style="font-family:&quot;Plus Jakarta Sans&quot;, sans-serif;">'
             '<div class="ps-sale-lot-stage" style="font-family:&quot;Plus Jakarta Sans&quot;, sans-serif;"></div>'
+            '<div class="ps-sale-selection-footer" style="font-family:&quot;Plus Jakarta Sans&quot;, sans-serif;"></div>'
             '</div>'
         ),
         css=css,
@@ -838,7 +898,7 @@ def _estimated_grid_height(groups, *, mobile=False):
         total += header_height
         total += max(1, math.ceil(card_count / cols)) * (card_height + gap)
         total += lot_gap
-    return max(1, total)
+    return max(1, total + 82)
 
 
 def render_vinted_drop_virtual_grid(
@@ -849,7 +909,7 @@ def render_vinted_drop_virtual_grid(
     key="vinted_drop",
     mobile=False,
     scroll_top_token=0,
-    processed_action_ids=None,
+    committed_selection_token=0,
 ):
     component = _get_vinted_drop_grid_component()
     if component is None:
@@ -866,12 +926,12 @@ def render_vinted_drop_virtual_grid(
             "groups": list(groups or []),
             "addedKeys": list(added_keys or []),
             "duplicateCounts": dict(duplicate_counts or {}),
-            "processedActionIds": list(processed_action_ids or []),
+            "committedSelectionToken": str(committed_selection_token or ""),
             "scrollTopToken": str(scroll_top_token or ""),
         },
         default={},
         width="stretch",
         height=_estimated_grid_height(groups, mobile=mobile),
-        on_actions_change=_noop,
+        on_batch_change=_noop,
     )
     return result
