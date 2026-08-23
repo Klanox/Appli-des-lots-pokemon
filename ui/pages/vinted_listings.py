@@ -1193,7 +1193,18 @@ def _filter_cards_for_display(cards, query):
     return filter_cards_for_listing(cards, query, limit=len(cards or []))
 
 
-def _drop_total_value(drop):
+def _drop_total_value(drop, available_cards=None):
+    if available_cards is not None:
+        resolved_cards, missing_cards = resolve_drop_cards_from_data(drop, available_cards)
+        total = 0.0
+        for card in resolved_cards:
+            price = suggested_price(card)
+            quantity = max(1, _safe_int(card.get("drop_quantity", card.get("quantity", 1)), 1))
+            total += _safe_float(price) * quantity
+        for ref in missing_cards:
+            total += _safe_float(ref.get("price_at_add")) * max(1, _safe_int(ref.get("quantity"), 1))
+        return total
+
     total = 0.0
     for ref in drop.get("cards", []) or []:
         try:
@@ -2345,7 +2356,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
         return
 
     total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
-    total_value = _drop_total_value(active_drop)
+    total_value = _drop_total_value(active_drop, available_cards)
     channel_label = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
     channel_class = _drop_channel_class(channel_label)
     st.markdown(
@@ -2353,7 +2364,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
   <div class="ps-vinted-drop-meta">
-    <span>{total_cards} carte(s) · {fp_func(total_value) if total_value else 'Valeur à définir'}</span>
+    <span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
     <span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
   </div>
 </div>
