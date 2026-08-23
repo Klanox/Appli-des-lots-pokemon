@@ -34,6 +34,9 @@ NAV_SECTIONS = (
         "items": (
             ("Historique", "Historique", "📋"),
             ("Statistiques", "Statistiques", "📊"),
+            ("Marché", "Marché", "📈"),
+            ("Wrapped", "Wrapped", "🎁"),
+            ("Compteurs", "Compteurs", "🎰"),
         ),
     },
     {

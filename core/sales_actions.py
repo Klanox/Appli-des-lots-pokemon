@@ -12,7 +12,7 @@ def configure_sales_actions(context):
     globals().update(context)
 
 
-def _scu_in_data(cd, li, ci, q, p, canal="Main propre"):
+def _scu_in_data(cd, li, ci, q, p, canal="Main propre", transaction_id=None):
     """Vend une carte dans un data.json deja charge, sans sauvegarder tout de suite."""
     crd=cd["lots"][li]["cards"][ci]
     if card_available_qty(crd) < q:
@@ -21,8 +21,10 @@ def _scu_in_data(cd, li, ci, q, p, canal="Main propre"):
     crd["sold_quantity"]=crd.get("sold_quantity",0)+q
     prix_total = p*q
     sale_id = f"{crd.get('card_uid')}_{int(time.time()*1000)}"
+    transaction_id = transaction_id or sale_id
     sale_entry = {
         "sale_id": sale_id,
+        "sale_transaction_id": transaction_id,
         "date":datetime.now().isoformat(),
         "quantity":q,
         "price":prix_total,
@@ -78,6 +80,7 @@ def scu(li,ci,q,p,canal="Main propre"):
 def scu_many(items, canal="Main propre"):
     """Vend plusieurs cartes avec une seule lecture et une seule sauvegarde."""
     cd = ld()
+    transaction_id = f"sale_tx_{int(time.time()*1000)}"
     requested = {}
     for item in items:
         lot_idx, card_idx, lot, crd = resolve_card_ref(cd, item)
@@ -101,6 +104,7 @@ def scu_many(items, canal="Main propre"):
             item["quantity"],
             item["unit_price"],
             canal,
+            transaction_id=transaction_id,
         )
         if not ok:
             return False, msg

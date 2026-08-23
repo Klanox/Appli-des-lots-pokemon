@@ -2439,6 +2439,7 @@ elif st.session_state.current_page=="Historique":
         "page Historique",
         render_history_page,
         ld_func=ld,
+        sd_func=sd,
         calc_cout_lot_func=calc_cout_lot,
         effective_purchase_price_func=effective_purchase_price,
         normalize_name_func=normalize_name,

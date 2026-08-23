@@ -6,10 +6,12 @@ It keeps the same filters, sorting, progressive display and calculations.
 
 import json
 import os
+import re
 from html import escape
 from datetime import datetime
 
 import streamlit as st
+from core.sales_cancellation import cancel_sale_by_id
 from core.trade_economics import trade_sale_stat_rows
 from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 
@@ -376,9 +378,59 @@ def _off_stock_history_item(sale, *, lot_name="Non attribuée", cout=None):
     }
 
 
+def _sale_can_be_cancelled(item):
+    if item.get("type") == "exchange":
+        return False
+    return bool(str(item.get("sale_id") or "").strip())
+
+
+def _cancel_panel_key(sale_id):
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", str(sale_id or ""))
+    return f"history_cancel_{safe}"
+
+
+def _render_cancel_sale_action(item, *, ld_func, sd_func):
+    sale_id = str(item.get("sale_id") or "").strip()
+    if not sale_id:
+        return
+    key = _cancel_panel_key(sale_id)
+    if st.button("Annuler la vente", key=f"cancel_sale_open_{key}", type="secondary"):
+        st.session_state["history_cancel_sale_id"] = sale_id
+
+    if st.session_state.get("history_cancel_sale_id") != sale_id:
+        return
+
+    date_txt = str(item.get("date") or "Date inconnue").replace("T", " ")[:16]
+    canal_txt = str(item.get("canal") or "Canal inconnu")
+    amount_txt = _money(item.get("price", 0))
+    target_txt = str(item.get("card_name") or item.get("description") or "Vente")
+    st.warning(
+        "Confirmer l'annulation de cette vente ?\n\n"
+        f"- Date : {date_txt}\n"
+        f"- Canal : {canal_txt}\n"
+        f"- Montant : {amount_txt}\n"
+        f"- Élément : {target_txt}"
+    )
+    c1, c2 = st.columns(2)
+    if c1.button("Confirmer l'annulation", key=f"cancel_sale_confirm_{key}", type="primary"):
+        cd_cancel = ld_func()
+        ok, msg, _details = cancel_sale_by_id(cd_cancel, sale_id)
+        if ok:
+            sd_func(cd_cancel)
+            st.session_state.pop("history_cancel_sale_id", None)
+            st.success("✓ Vente annulée")
+            st.rerun()
+        else:
+            st.error(msg)
+    if c2.button("Retour", key=f"cancel_sale_back_{key}"):
+        st.session_state.pop("history_cancel_sale_id", None)
+        st.rerun()
+
+
 def render_history_page(
     *,
     ld_func,
+    sd_func,
     calc_cout_lot_func,
     effective_purchase_price_func,
     normalize_name_func,
@@ -429,6 +481,7 @@ def render_history_page(
                 cout_v = (price_v / (valeur_est_hist or 1.0)) * effective_purchase_price_func(lot)
             hist_enriched.append({
                 "date": v.get("date",""),
+                "sale_id": v.get("sale_id", ""),
                 "card_name": v.get("card_name","Vente lot"),
                 "card_set": "", "card_number": "",
                 "lot_name": lot.get("nom","?"),
@@ -449,6 +502,8 @@ def render_history_page(
                 for row in trade_sale_stat_rows(card, se, lot.get("nom", "?")):
                     hist_enriched.append({
                         "date": se.get("date",""),
+                        "sale_id": se.get("sale_id", ""),
+                        "sale_transaction_id": se.get("sale_transaction_id", ""),
                         "card_name": se.get("card_name", card.get("name","?")),
                         "card_set": se.get("card_set", card.get("set","")),
                         "card_number": se.get("card_number", card.get("number","")),
@@ -460,10 +515,14 @@ def render_history_page(
                         "type": "trade_allocation" if row.get("allocation") else "card",
                         "quantity": int(se.get("quantity",1)),
                         "canal": se.get("canal",""),
+                        "drop_id": se.get("drop_id", ""),
+                        "drop_item_id": se.get("drop_item_id", ""),
                     })
                 continue
             hist_enriched.append({
                 "date": se.get("date",""),
+                "sale_id": se.get("sale_id", ""),
+                "sale_transaction_id": se.get("sale_transaction_id", ""),
                 "card_name": se.get("card_name", card.get("name","?")),
                 "card_set": se.get("card_set", card.get("set","")),
                 "card_number": se.get("card_number", card.get("number","")),
@@ -475,6 +534,8 @@ def render_history_page(
                 "type": "card",
                 "quantity": int(se.get("quantity",1)),
                 "canal": se.get("canal",""),
+                "drop_id": se.get("drop_id", ""),
+                "drop_item_id": se.get("drop_item_id", ""),
             })
     
     for sale in cd_hist.get("ventes_hors_stock", []) or []:
@@ -679,6 +740,8 @@ def render_history_page(
                   <div style="font-size:0.85rem;font-weight:700;color:{benef_color};">Bénéf : {f'{benef:+.2f}€' if benef_known else 'N/A'}</div>
                 </div>
                 """, unsafe_allow_html=True)
+                if _sale_can_be_cancelled(h):
+                    _render_cancel_sale_action(h, ld_func=ld_func, sd_func=sd_func)
     
             st.markdown('<hr style="margin:0.4rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
     
