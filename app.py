@@ -1368,21 +1368,31 @@ def _card_quantity_floor(card):
         + int(card.get("stored_quantity", 0) or 0),
     )
 
-def set_card_quantity(li, ci, new_q):
+def set_card_quantity(li, ci, new_q, lot_uid=None, card_uid=None):
     cd = ld()
-    if li >= len(cd.get("lots", [])) or ci >= len(cd["lots"][li].get("cards", [])):
+    resolved_li, resolved_ci, _lot, card = resolve_card_ref(cd, {
+        "lot_idx": li,
+        "card_idx": ci,
+        "lot_uid": lot_uid,
+        "card_uid": card_uid,
+    })
+    if card is None or resolved_li is None or resolved_ci is None:
         return False, None
-    card = cd["lots"][li]["cards"][ci]
     min_q = _card_quantity_floor(card)
     card["quantity"] = max(int(new_q or min_q), min_q)
     sd(cd)
     return True, card["quantity"]
 
-def adjust_card_quantity(li, ci, delta):
+def adjust_card_quantity(li, ci, delta, lot_uid=None, card_uid=None):
     cd = ld()
-    if li >= len(cd.get("lots", [])) or ci >= len(cd["lots"][li].get("cards", [])):
+    resolved_li, resolved_ci, _lot, card = resolve_card_ref(cd, {
+        "lot_idx": li,
+        "card_idx": ci,
+        "lot_uid": lot_uid,
+        "card_uid": card_uid,
+    })
+    if card is None or resolved_li is None or resolved_ci is None:
         return False, None
-    card = cd["lots"][li]["cards"][ci]
     min_q = _card_quantity_floor(card)
     current_q = max(int(card.get("quantity", 1) or 1), min_q)
     card["quantity"] = max(current_q + int(delta or 0), min_q)

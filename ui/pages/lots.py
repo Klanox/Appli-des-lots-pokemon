@@ -767,9 +767,10 @@ def render_lots_page(context):
                         c for c in cards_all
                         if normalize_name(lot_card_search) in normalize_name(c.get("name", ""))
                     ]
-                # Attacher l'index original à chaque carte pour éviter le bug de mélange
+                # Attacher l'index original à chaque carte sans confondre deux dicts égaux.
+                cards_all_ids = {id(c) for c in cards_all}
                 cards_with_idx = sorted(
-                    [(i, c) for i, c in enumerate(lt.get("cards", [])) if c in cards_all],
+                    [(i, c) for i, c in enumerate(lt.get("cards", [])) if id(c) in cards_all_ids],
                     key=lot_card_order_key,
                     reverse=True,
                 )
@@ -1074,7 +1075,7 @@ def render_lots_page(context):
                                             help="Diminuer la quantité totale",
                                             disabled=current_total_quantity <= min_total_quantity,
                                             on_click=adjust_card_quantity,
-                                            args=(ix, real_cix, -1),
+                                            args=(ix, real_cix, -1, lt.get("lot_uid"), crd.get("card_uid")),
                                             width="stretch",
                                         )
                                         qty_cols[1].markdown(
@@ -1087,7 +1088,7 @@ def render_lots_page(context):
                                             help="Augmenter la quantité totale",
                                             disabled=current_total_quantity >= 9999,
                                             on_click=adjust_card_quantity,
-                                            args=(ix, real_cix, 1),
+                                            args=(ix, real_cix, 1, lt.get("lot_uid"), crd.get("card_uid")),
                                             width="stretch",
                                         )
                                         if is_trade and stock > 0:
