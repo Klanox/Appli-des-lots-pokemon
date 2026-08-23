@@ -1671,6 +1671,18 @@ def _render_launch_drop_panel(drops_data, active_drop, fp_func):
 
 
 _DROP_PREPARATION_STATUSES = {"to_photograph", "needs_review", "sorted", "to_prepare"}
+_DROP_PHOTO_DIRECTIONS = {
+    "start_to_end": {
+        "label": "📖 Photos : début des classeurs",
+        "choice": "📖 J’ai commencé par le début des classeurs",
+        "caption": "La file suit l’ordre des photos.",
+    },
+    "end_to_start": {
+        "label": "🔄 Photos : fin des classeurs",
+        "choice": "🔄 J’ai commencé par la fin des classeurs",
+        "caption": "La file inverse les cartes photographiées, sans inverser les photos internes d’une carte.",
+    },
+}
 
 
 def _drop_queue_skip_key(drop_id):
@@ -1705,18 +1717,35 @@ def _drop_photo_order_value(card):
         return None
 
 
-def _drop_creation_sort_key(item):
+def _drop_photo_direction(drop):
+    value = str((drop or {}).get("photo_capture_direction") or "").strip()
+    return value if value in _DROP_PHOTO_DIRECTIONS else ""
+
+
+def _set_drop_photo_direction(drops_data, drop_id, direction):
+    if direction not in _DROP_PHOTO_DIRECTIONS:
+        return False
+    drop = find_drop(drops_data, drop_id)
+    if not drop:
+        return False
+    drop["photo_capture_direction"] = direction
+    return True
+
+
+def _drop_creation_sort_key(item, direction="start_to_end"):
     position, card = item
     photo_order = _drop_photo_order_value(card)
+    reverse = direction == "end_to_start"
     if photo_order is not None:
-        return (0, photo_order, position)
-    return (1, position)
+        return (0, -photo_order if reverse else photo_order, position)
+    return (1, -position if reverse else position)
 
 
 def _drop_creation_cards(active_drop, available_cards):
     resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
     cards = list(resolved_cards) + list(missing_cards)
-    ordered = [card for _pos, card in sorted(enumerate(cards), key=_drop_creation_sort_key)]
+    direction = _drop_photo_direction(active_drop) or "start_to_end"
+    ordered = [card for _pos, card in sorted(enumerate(cards), key=lambda item: _drop_creation_sort_key(item, direction))]
     workflow_cards = [
         card
         for card in ordered
@@ -1738,6 +1767,82 @@ def _drop_mark_to_prepare(drops_data, drop_id, card_key):
         ref["draft_ready_at"] = ""
         ref["listing_posted"] = False
         ref["listing_posted_at"] = ""
+        return True
+    return False
+
+
+def _drop_direction_edit_key(drop_id):
+    return f"vinted_drop_photo_direction_edit_{drop_id}"
+
+
+def _drop_direction_confirm_key(drop_id):
+    return f"vinted_drop_photo_direction_confirm_{drop_id}"
+
+
+def _apply_drop_photo_direction(drops_data, active_drop, direction):
+    drop_id = active_drop.get("id")
+    if not _set_drop_photo_direction(drops_data, drop_id, direction):
+        return False
+    st.session_state.pop(_drop_direction_edit_key(drop_id), None)
+    st.session_state.pop(_drop_direction_confirm_key(drop_id), None)
+    st.session_state[_drop_queue_skip_key(drop_id)] = []
+    save_vinted_drops(drops_data)
+    return True
+
+
+def _render_drop_photo_direction_choice(drops_data, active_drop, ready_qty):
+    drop_id = active_drop.get("id")
+    direction = _drop_photo_direction(active_drop)
+    edit_key = _drop_direction_edit_key(drop_id)
+    confirm_key = _drop_direction_confirm_key(drop_id)
+
+    if direction and not st.session_state.get(edit_key):
+        info = _DROP_PHOTO_DIRECTIONS[direction]
+        col_label, col_action = st.columns([4, 1])
+        col_label.caption(info["label"])
+        if col_action.button("Modifier", key=f"edit_photo_direction_{drop_id}", width="stretch"):
+            st.session_state[edit_key] = True
+            st.rerun()
+        return True
+
+    if not direction:
+        st.markdown("**Dans quel sens as-tu pris les photos ?**")
+        if ready_qty > 0:
+            st.caption("Ce choix sera appliqué aux cartes restantes à préparer.")
+    else:
+        st.markdown("**Modifier le sens de prise de vue**")
+        if ready_qty > 0:
+            st.warning("Des brouillons existent déjà. Le changement ne modifiera pas les cartes déjà prêtes, seulement l’ordre des cartes restantes.")
+            st.checkbox("Je confirme le changement de sens pour les cartes restantes", key=confirm_key)
+
+    can_change = ready_qty <= 0 or bool(st.session_state.get(confirm_key))
+    c_start, c_end = st.columns(2)
+    with c_start:
+        if st.button(
+            _DROP_PHOTO_DIRECTIONS["start_to_end"]["choice"],
+            key=f"set_photo_direction_start_{drop_id}",
+            disabled=direction == "start_to_end" or not can_change,
+            width="stretch",
+        ):
+            if _apply_drop_photo_direction(drops_data, active_drop, "start_to_end"):
+                st.rerun()
+        st.caption(_DROP_PHOTO_DIRECTIONS["start_to_end"]["caption"])
+    with c_end:
+        if st.button(
+            _DROP_PHOTO_DIRECTIONS["end_to_start"]["choice"],
+            key=f"set_photo_direction_end_{drop_id}",
+            disabled=direction == "end_to_start" or not can_change,
+            width="stretch",
+        ):
+            if _apply_drop_photo_direction(drops_data, active_drop, "end_to_start"):
+                st.rerun()
+        st.caption(_DROP_PHOTO_DIRECTIONS["end_to_start"]["caption"])
+
+    if direction:
+        if st.button("Annuler la modification", key=f"cancel_photo_direction_{drop_id}", width="stretch"):
+            st.session_state.pop(edit_key, None)
+            st.session_state.pop(confirm_key, None)
+            st.rerun()
         return True
     return False
 
@@ -2125,6 +2230,9 @@ def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_i
     if not workflow_cards:
         st.caption("Aucune carte à préparer dans ce drop.")
         _render_launch_drop_panel(drops_data, active_drop, fp_func)
+        return
+
+    if not _render_drop_photo_direction_choice(drops_data, active_drop, ready_qty):
         return
 
     skip_key = _drop_queue_skip_key(active_drop.get("id"))
