@@ -4,9 +4,12 @@ Extracted conservatively from app.py. Dependencies are injected from app.py
 to preserve existing behavior while reducing app.py size.
 """
 
+import glob
 import json
 import os
+import time
 
+from services.card_identity import card_identity_fingerprint
 from services.custom_card_image_service import apply_custom_image_fallback, resolve_custom_card_image
 
 
@@ -160,6 +163,129 @@ def _popup_candidate_image(card_dict):
             "raw_cache_card": card_dict,
         }
     )
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _divers_purchase_total(card):
+    return max(_safe_float(card.get("purchase_price"), 0.0), 0.0) * max(_safe_int(card.get("quantity"), 1), 1)
+
+
+def _refresh_divers_lot_purchase_price(lot):
+    if lot.get("is_divers"):
+        lot["prix_achat"] = sum(_divers_purchase_total(card) for card in lot.get("cards", []))
+
+
+def _find_duplicate_card_in_lot(lot, new_card):
+    new_fingerprint = card_identity_fingerprint(new_card)
+    if not new_fingerprint:
+        return None, None, ""
+    for idx, existing in enumerate(lot.get("cards", []) or []):
+        if card_identity_fingerprint(existing) == new_fingerprint:
+            return idx, existing, new_fingerprint
+    return None, None, new_fingerprint
+
+
+def _queue_duplicate_confirmation(li, new_card, existing_card, fingerprint):
+    existing_popups = glob.glob(f"popup_{li}_*.json")
+    if existing_popups:
+        return True, "Cette carte existe déjà dans ce lot. Choisis l'action à appliquer ci-dessous."
+    payload = {
+        "type": "duplicate_confirmation",
+        "new_card": new_card,
+        "existing_card_uid": existing_card.get("card_uid", ""),
+        "existing_card_name": existing_card.get("name", ""),
+        "existing_card_number": existing_card.get("number", ""),
+        "existing_card_set": existing_card.get("set", ""),
+        "fingerprint": fingerprint,
+        "search_id": f"dup_{li}_{int(time.time() * 1000)}",
+    }
+    popup_file = f"popup_{li}_dup_{int(time.time() * 1000)}.json"
+    with open(popup_file, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    return True, "Cette carte existe déjà dans ce lot."
+
+
+def _merge_duplicate_card_into_existing(lot, new_card, *, existing_card_uid="", fingerprint=""):
+    target = None
+    for card in lot.get("cards", []) or []:
+        uid_matches = existing_card_uid and card.get("card_uid") == existing_card_uid
+        fingerprint_matches = fingerprint and card_identity_fingerprint(card) == fingerprint
+        if uid_matches or fingerprint_matches:
+            target = card
+            break
+    if target is None:
+        lot.setdefault("cards", []).append(new_card)
+        return "added"
+
+    old_qty = max(_safe_int(target.get("quantity"), 1), 1)
+    add_qty = max(_safe_int(new_card.get("quantity"), 1), 1)
+    merged_qty = old_qty + add_qty
+    old_purchase_total = _divers_purchase_total(target)
+    new_purchase_total = _divers_purchase_total(new_card)
+    target["quantity"] = merged_qty
+    if old_purchase_total or new_purchase_total:
+        target["purchase_price"] = (old_purchase_total + new_purchase_total) / merged_qty
+    if not target.get("image_url") and new_card.get("image_url"):
+        target["image_url"] = new_card.get("image_url")
+    if not target.get("image_url_en") and new_card.get("image_url_en"):
+        target["image_url_en"] = new_card.get("image_url_en")
+    for list_key in ("price_history",):
+        merged = []
+        merged.extend(target.get(list_key, []) or [])
+        merged.extend(new_card.get(list_key, []) or [])
+        if merged:
+            target[list_key] = merged
+    return "merged"
+
+
+def _add_card_to_lot_or_confirm_duplicate(cd, li, new_card, *, force_new=False):
+    lot = cd["lots"][li]
+    if lot.get("is_divers"):
+        if not force_new:
+            _idx, existing, fingerprint = _find_duplicate_card_in_lot(lot, new_card)
+            if existing is not None:
+                ok, msg = _queue_duplicate_confirmation(li, new_card, existing, fingerprint)
+                return ok, msg, False
+        lot.setdefault("cards", []).append(new_card)
+        _refresh_divers_lot_purchase_price(lot)
+        return True, "Ajoutée!", True
+
+    add_or_merge_collection_card(cd, li, new_card)
+    return True, "Ajoutée!", True
+
+
+def _apply_divers_duplicate_confirmation(cd, li, new_card, mode, *, existing_card_uid="", fingerprint=""):
+    if li >= len(cd.get("lots", [])):
+        return False, "Lot introuvable pendant l'ajout."
+    lot = cd["lots"][li]
+    if not lot.get("is_divers"):
+        add_or_merge_collection_card(cd, li, new_card)
+        return True, "Ajoutée!"
+    if mode == "merge":
+        result = _merge_duplicate_card_into_existing(
+            lot,
+            new_card,
+            existing_card_uid=existing_card_uid,
+            fingerprint=fingerprint,
+        )
+        _refresh_divers_lot_purchase_price(lot)
+        return True, "Quantité mise à jour." if result == "merged" else "Ajoutée!"
+    lot.setdefault("cards", []).append(new_card)
+    _refresh_divers_lot_purchase_price(lot)
+    return True, "Nouvelle entrée créée."
 
 
 def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_tag="", collection_keep=False):
@@ -439,11 +565,10 @@ def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_ta
                 nc["is_collection_keep"] = True
                 nc["collection_current_value"] = float(p or 0.)
                 nc["collection_purchase_price"] = float(purchase_price or 0.)
-            add_or_merge_collection_card(cd, li, nc)
-            if cd["lots"][li].get("is_divers"):
-                cd["lots"][li]["prix_achat"] = sum(c.get("purchase_price",0.) for c in cd["lots"][li]["cards"])
-            sd(cd)
-            return True, "Carte japonaise ajoutée !"
+            ok_add, msg_add, changed = _add_card_to_lot_or_confirm_duplicate(cd, li, nc)
+            if changed:
+                sd(cd)
+            return ok_add, msg_add if not changed else "Carte japonaise ajoutée !"
 
         existing = glob.glob(f"popup_{li}_*.json")
         if existing:
@@ -483,9 +608,10 @@ def acm_japanese(li, n, sn, num, q, co, p, ir, ie, purchase_price=0., special_ta
                 nc["is_collection_keep"] = True
                 nc["collection_current_value"] = float(p or 0.)
                 nc["collection_purchase_price"] = float(purchase_price or 0.)
-            add_or_merge_collection_card(cd, li, nc)
-            sd(cd)
-            return True, "Carte japonaise ajoutée !"
+            ok_add, msg_add, changed = _add_card_to_lot_or_confirm_duplicate(cd, li, nc)
+            if changed:
+                sd(cd)
+            return ok_add, msg_add if not changed else "Carte japonaise ajoutée !"
         
         existing = glob.glob(f"popup_{li}_*.json")
         if existing:
@@ -613,12 +739,11 @@ def acm(li,n,sn,num,q,co,p,ir,ie,lang="fr",purchase_price=0., special_tag="", co
         nc["is_collection_keep"] = True
         nc["collection_current_value"] = float(p or 0.)
         nc["collection_purchase_price"] = float(purchase_price or 0.)
-    add_or_merge_collection_card(cd, li, nc)
-    if cd["lots"][li].get("is_divers"):
-        cd["lots"][li]["prix_achat"] = sum(c.get("purchase_price",0.) for c in cd["lots"][li]["cards"])
-    sd(cd)
-    
-    return True,"Ajoutée!"
+    ok_add, msg_add, changed = _add_card_to_lot_or_confirm_duplicate(cd, li, nc)
+    if changed:
+        sd(cd)
+
+    return ok_add, msg_add
 
 def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
     popup_files = glob.glob(f"popup_{li}_*.json")
@@ -670,9 +795,59 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
             with open(popup_file, "r", encoding="utf-8") as f:
                 popup_data = json.load(f)
 
+            popup_key = os.path.basename(popup_file).replace(".", "_").replace("\\", "_").replace("/", "_")
+            if popup_data.get("type") == "duplicate_confirmation":
+                new_card = popup_data.get("new_card") or {}
+                existing_label = " · ".join(
+                    x
+                    for x in (
+                        popup_data.get("existing_card_name"),
+                        popup_data.get("existing_card_set"),
+                        f"#{popup_data.get('existing_card_number')}" if popup_data.get("existing_card_number") else "",
+                    )
+                    if x
+                )
+                st.warning("Cette carte existe déjà dans ce lot.")
+                if existing_label:
+                    st.caption(f"Entrée existante : {existing_label}")
+                c_merge, c_new = st.columns(2)
+                with c_merge:
+                    if st.button("Ajouter à la quantité existante", key=f"merge_duplicate_{li}_{popup_key}", type="primary", width="stretch"):
+                        os.remove(popup_file)
+                        cd_add = ld()
+                        ok_apply, msg_apply = _apply_divers_duplicate_confirmation(
+                            cd_add,
+                            li,
+                            new_card,
+                            "merge",
+                            existing_card_uid=popup_data.get("existing_card_uid", ""),
+                            fingerprint=popup_data.get("fingerprint", ""),
+                        )
+                        if ok_apply:
+                            sd(cd_add)
+                            if form_ts_key:
+                                st.session_state[form_ts_key] = time.time()
+                            st.session_state[f"lot_expanded_{li}"] = True
+                            st.success(msg_apply)
+                            st.rerun()
+                        st.error(msg_apply)
+                with c_new:
+                    if st.button("Créer une nouvelle entrée", key=f"new_duplicate_{li}_{popup_key}", width="stretch"):
+                        os.remove(popup_file)
+                        cd_add = ld()
+                        ok_apply, msg_apply = _apply_divers_duplicate_confirmation(cd_add, li, new_card, "new")
+                        if ok_apply:
+                            sd(cd_add)
+                            if form_ts_key:
+                                st.session_state[form_ts_key] = time.time()
+                            st.session_state[f"lot_expanded_{li}"] = True
+                            st.success(msg_apply)
+                            st.rerun()
+                        st.error(msg_apply)
+                continue
+
             st.warning(f"⚠️ {len(popup_data['matches'])} résultats trouvés — choisissez la bonne carte :")
             popup_lang = popup_data.get("lang", "fr")
-            popup_key = os.path.basename(popup_file).replace(".", "_")
             with st.container(key=f"search_results_grid_popup_{li}_{popup_key}", horizontal=True, gap="small"):
                 for idx_p, (card_dict, set_name) in enumerate(popup_data["matches"]):
                     with st.container(key=f"search_result_card_popup_{li}_{popup_key}_{idx_p}"):
@@ -730,13 +905,16 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
                                 nc["collection_current_value"] = float(p or 0.)
                                 nc["collection_purchase_price"] = float(pa_carte_popup or 0.)
                             apply_custom_image_fallback(nc)
-                            add_or_merge_collection_card(cd_add, li, nc)
-                            if lot_now.get("is_divers"):
-                                cd_add["lots"][li]["prix_achat"] = sum(c.get("purchase_price", 0.) for c in cd_add["lots"][li]["cards"])
-                            sd(cd_add)
+                            ok_add, msg_add, changed = _add_card_to_lot_or_confirm_duplicate(cd_add, li, nc)
+                            if changed:
+                                sd(cd_add)
                             if form_ts_key:
                                 st.session_state[form_ts_key] = time.time()
                             st.session_state[f"lot_expanded_{li}"] = True
+                            if ok_add:
+                                st.success(msg_add)
+                            else:
+                                st.error(msg_add)
                             st.rerun()
         except Exception:
             try:
