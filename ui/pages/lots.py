@@ -1069,21 +1069,42 @@ def render_lots_page(context):
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
                                     if not is_sold_card and not is_collection_card:
-                                        min_total_quantity = (
+                                        min_total_quantity = max(
+                                            1,
                                             int(crd.get("sold_quantity", 0) or 0)
                                             + int(crd.get("exchange_out_quantity", 0) or 0)
-                                            + int(crd.get("stored_quantity", 0) or 0)
+                                            + int(crd.get("stored_quantity", 0) or 0),
                                         )
-                                        qty_edit_key = f"qty_edit_{widget_key}"
-                                        st.number_input(
-                                            "Qté totale",
-                                            min_value=min_total_quantity,
-                                            max_value=9999,
-                                            value=max(int(crd.get("quantity", 1) or 1), min_total_quantity),
-                                            step=1,
-                                            key=qty_edit_key,
-                                            on_change=update_card_quantity,
-                                            args=(ix, real_cix, qty_edit_key),
+                                        current_total_quantity = max(
+                                            int(crd.get("quantity", 1) or 1),
+                                            min_total_quantity,
+                                        )
+                                        st.markdown(
+                                            "<div style='font-size:0.8rem;font-weight:800;color:#475569;margin-top:0.35rem;'>Qté totale</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        qty_cols = st.columns([0.8, 1.2, 0.8])
+                                        qty_cols[0].button(
+                                            "−",
+                                            key=f"qty_dec_{widget_key}",
+                                            help="Diminuer la quantité totale",
+                                            disabled=current_total_quantity <= min_total_quantity,
+                                            on_click=adjust_card_quantity,
+                                            args=(ix, real_cix, -1),
+                                            width="stretch",
+                                        )
+                                        qty_cols[1].markdown(
+                                            f"<div style='height:2.35rem;display:flex;align-items:center;justify-content:center;font-weight:900;color:#0f172a;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;'>{current_total_quantity}</div>",
+                                            unsafe_allow_html=True,
+                                        )
+                                        qty_cols[2].button(
+                                            "＋",
+                                            key=f"qty_inc_{widget_key}",
+                                            help="Augmenter la quantité totale",
+                                            disabled=current_total_quantity >= 9999,
+                                            on_click=adjust_card_quantity,
+                                            args=(ix, real_cix, 1),
+                                            width="stretch",
                                         )
                                         if is_trade and stock > 0:
                                             move_panel_key = f"show_trade_move_{widget_key}"
