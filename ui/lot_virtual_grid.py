@@ -193,6 +193,26 @@ def _get_lot_grid_component():
         font-weight: 800;
         padding: 0 6px;
     }
+    .ps-lot-v-qty-control {
+        display: grid;
+        grid-template-columns: 28px minmax(30px, 1fr) 28px;
+        align-items: center;
+        gap: 5px;
+        width: 100%;
+    }
+    .ps-lot-v-qty-value {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #0f172a;
+        font-size: 0.72rem;
+        font-weight: 900;
+        user-select: none;
+    }
     .ps-lot-v-btn {
         border: 1px solid #cbd5e1;
         border-radius: 8px;
@@ -235,6 +255,13 @@ def _get_lot_grid_component():
         }
         .ps-lot-v-field input,
         .ps-lot-v-field select {
+            height: 27px;
+            font-size: 0.68rem;
+        }
+        .ps-lot-v-qty-control {
+            grid-template-columns: 27px minmax(28px, 1fr) 27px;
+        }
+        .ps-lot-v-qty-value {
             height: 27px;
             font-size: 0.68rem;
         }
@@ -363,6 +390,39 @@ def _get_lot_grid_component():
                 onClick();
             };
             return btn;
+        }
+
+        function quantityFloor(item) {
+            return Math.max(
+                1,
+                Number(item.sold_quantity || 0) +
+                Number(item.exchange_out_quantity || 0) +
+                Number(item.stored_quantity || 0)
+            );
+        }
+
+        function makeQuantityStepper(item, key) {
+            const wrap = doc.createElement("div");
+            wrap.className = "ps-lot-v-field";
+            const label = doc.createElement("label");
+            label.textContent = "Qté totale";
+            const control = doc.createElement("div");
+            control.className = "ps-lot-v-qty-control";
+            const minQty = quantityFloor(item);
+            const current = Math.max(Number(item.quantity || 1), minQty);
+            const dec = makeButton("−", "", () => emit("set_quantity", item, { value: Math.max(current - 1, minQty) }));
+            dec.disabled = current <= minQty;
+            const value = doc.createElement("span");
+            value.className = "ps-lot-v-qty-value";
+            value.textContent = String(current);
+            const inc = makeButton("＋", "", () => emit("set_quantity", item, { value: Math.min(current + 1, 9999) }));
+            inc.disabled = current >= 9999;
+            control.appendChild(dec);
+            control.appendChild(value);
+            control.appendChild(inc);
+            label.appendChild(control);
+            wrap.appendChild(label);
+            return wrap;
         }
 
         function buildRows(colCount, rowHeight) {
@@ -517,18 +577,7 @@ def _get_lot_grid_component():
             if (!item.collection) {
                 const qtyRow = doc.createElement("div");
                 qtyRow.className = "ps-lot-v-input-row";
-                const qtyKey = "qty_" + key;
-                const qty = makeInput(
-                    "Qté totale",
-                    "number",
-                    valueFor(qtyKey, item.quantity),
-                    (value) => {
-                        setField(qtyKey, value);
-                        emit("set_quantity", item, { value: Number(value || 0) });
-                    },
-                    { min: item.sold_quantity || 0, max: 9999, step: 1 }
-                );
-                qtyRow.appendChild(qty.wrap);
+                qtyRow.appendChild(makeQuantityStepper(item, key));
                 card.appendChild(qtyRow);
             }
 

@@ -1266,6 +1266,7 @@ def render_lots_page(context):
                         "quantity": int(card.get("quantity", 1) or 1),
                         "sold_quantity": int(card.get("sold_quantity", 0) or 0),
                         "stored_quantity": int(card.get("stored_quantity", 0) or 0),
+                        "exchange_out_quantity": int(card.get("exchange_out_quantity", 0) or 0),
                         "available": int(stock),
                         "trade_move": bool(is_trade and stock > 0 and not is_sold_card and not is_collection_card),
                         "can_store": bool((not is_storage) and stock > 0 and not is_sold_card and not is_collection_card and not is_trade),

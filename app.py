@@ -1389,15 +1389,6 @@ def adjust_card_quantity(li, ci, delta):
     sd(cd)
     return True, card["quantity"]
 
-def update_card_quantity(li, ci, input_key=None):
-    cd = ld()
-    if li >= len(cd.get("lots", [])) or ci >= len(cd["lots"][li].get("cards", [])):
-        return
-    card = cd["lots"][li]["cards"][ci]
-    state_key = input_key or f"qty_edit_{li}_{ci}"
-    new_q = int(st.session_state.get(state_key, card.get("quantity", 1)))
-    set_card_quantity(li, ci, new_q)
-
 def transfer_card_to_storage(li, ci, qty, storage_cote=None):
     cd = ld()
     storage_idx = ensure_storage_lot(cd)
