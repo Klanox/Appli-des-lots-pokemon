@@ -340,11 +340,16 @@ def render_lots_page(context):
         sd(cd)
         # No need to reload - sd() updates the cache
 
-    # Bordures et ouverture rapide des lots sans charger tous les détails d'un coup.
+    # Bordures des en-têtes de lots. Le script ne déplace aucun nœud Streamlit :
+    # reparent un élément React peut provoquer des NotFoundError removeChild au rerun.
     run_html("""<script>
     (function(){
+        const win = parent.window || window;
         const doc = parent.document;
+        const runId = Date.now() + '-' + Math.random().toString(36).slice(2);
+        win.__pokestockLotHeaderStyleRun = runId;
         function syncLotHeaders() {
+            if (win.__pokestockLotHeaderStyleRun !== runId) return;
             const markers = doc.querySelectorAll('[data-lot-index]');
             const allExpanders = doc.querySelectorAll('[data-testid="stExpander"]');
             const lotButtons = Array.from(doc.querySelectorAll('button')).filter(function(btn) {
@@ -383,35 +388,14 @@ def render_lots_page(context):
                 target.style.setProperty('box-shadow', '0 4px 12px rgba(15, 23, 42, 0.08)', 'important');
                 target.style.setProperty('transform', 'none', 'important');
                 target.style.setProperty('margin-bottom', '0.35rem', 'important');
-                const gauge = doc.querySelector('[data-lot-gauge-for="' + marker.getAttribute('data-lot-index') + '"]');
-                if (gauge && gauge.parentElement !== target) {
-                    target.appendChild(gauge);
-                }
-                target.querySelectorAll('div, p, span').forEach(function(child) {
-                    child.style.setProperty('text-align', 'left', 'important');
-                    child.style.setProperty('justify-content', 'flex-start', 'important');
-                    child.style.setProperty('text-transform', 'none', 'important');
-                });
-            });
-
-            doc.querySelectorAll('[data-codex-add-sticky="1"]').forEach(function(part) {
-                part.removeAttribute('data-codex-add-sticky');
-                ['position','top','z-index','box-shadow'].forEach(function(prop) {
-                    part.style.removeProperty(prop);
-                });
+                target.setAttribute('data-pokestock-lot-header', '1');
+                target.setAttribute('data-pokestock-lot-status', status || 'default');
             });
         }
         syncLotHeaders();
-        [100, 250, 600, 1200, 2500, 5000, 9000].forEach(function(delay) {
+        [100, 250, 600, 1200, 2500].forEach(function(delay) {
             setTimeout(syncLotHeaders, delay);
         });
-        const observer = new MutationObserver(function() {
-            clearTimeout(window.codexLotStyleTimer);
-            window.codexLotStyleTimer = setTimeout(syncLotHeaders, 150);
-        });
-        observer.observe(doc.body, {childList: true, subtree: true});
-        const intervalId = setInterval(syncLotHeaders, 5000);
-        setTimeout(function(){ clearInterval(intervalId); }, 120000);
     })();
     </script>""", height=0)
 
