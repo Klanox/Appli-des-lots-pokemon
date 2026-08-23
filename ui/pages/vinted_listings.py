@@ -1657,16 +1657,61 @@ def _drop_value_total(drop):
     return sum(_safe_float(ref.get("price_at_add")) * max(1, _safe_int(ref.get("quantity"), 1)) for ref in drop.get("cards", []) or [])
 
 
-def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None):
+def _off_stock_cost_for_drop(sale, lot=None, valeur_est=None, effective_purchase_price_func=None):
+    if (sale or {}).get("cost_basis_known"):
+        return _safe_float((sale or {}).get("cost_basis"))
+    if not lot or not callable(effective_purchase_price_func):
+        return None
+    price = _safe_float((sale or {}).get("price"))
+    if price <= 0:
+        return 0.0
+    try:
+        if lot.get("is_mixte") and _safe_float(lot.get("valeur_totale")) > 0:
+            return (price / _safe_float(lot.get("valeur_totale"), 1.0)) * _safe_float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)))
+        return (price / (_safe_float(valeur_est) or 1.0)) * effective_purchase_price_func(lot)
+    except Exception:
+        return None
+
+
+def _off_stock_sale_row(sale, *, lot=None, lot_name="", cost=None):
+    quantity = 0
+    revenue = _safe_float((sale or {}).get("price"))
+    return {
+        "sale": sale,
+        "card": {},
+        "lot": lot or {},
+        "quantity": quantity,
+        "revenue": revenue,
+        "displayed_total": 0.0,
+        "profit": (revenue - cost) if cost is not None else None,
+        "date": _parse_dt((sale or {}).get("date")),
+        "card_name": (sale or {}).get("card_name") or (sale or {}).get("description") or (sale or {}).get("category") or "Vente hors stock",
+        "lot_name": lot_name or (sale or {}).get("source_lot_name") or "Non attribuée",
+        "is_off_stock": True,
+    }
+
+
+def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None, effective_purchase_price_func=None):
     rows = []
     for lot_idx, lot in enumerate((stock_data or {}).get("lots", []) or []):
         costs_by_sale_id = {}
+        valeur_estimee = None
         if callable(calc_cout_lot_func):
             try:
-                cost_rows, _ = calc_cout_lot_func(lot, lot_idx=lot_idx)
+                cost_rows, valeur_estimee = calc_cout_lot_func(lot, lot_idx=lot_idx)
                 costs_by_sale_id = {se.get("sale_id"): cost for _, se, cost in cost_rows if se.get("sale_id")}
             except Exception:
                 costs_by_sale_id = {}
+        for sale in lot.get("ventes", []) or []:
+            if not sale.get("is_off_stock") or str(sale.get("drop_id") or "") != str(drop_id or ""):
+                continue
+            cost = _off_stock_cost_for_drop(
+                sale,
+                lot=lot,
+                valeur_est=valeur_estimee,
+                effective_purchase_price_func=effective_purchase_price_func,
+            )
+            rows.append(_off_stock_sale_row(sale, lot=lot, lot_name=lot.get("nom", ""), cost=cost))
         for card in lot.get("cards", []) or []:
             for sale in card.get("sold_entries", []) or []:
                 if str(sale.get("drop_id") or "") != str(drop_id or ""):
@@ -1688,6 +1733,10 @@ def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None):
                     "card_name": sale.get("card_name") or card.get("name", ""),
                     "lot_name": lot.get("nom", ""),
                 })
+    for sale in (stock_data or {}).get("ventes_hors_stock", []) or []:
+        if str(sale.get("drop_id") or "") != str(drop_id or ""):
+            continue
+        rows.append(_off_stock_sale_row(sale, cost=_off_stock_cost_for_drop(sale)))
     return rows
 
 
@@ -1697,6 +1746,7 @@ def _drop_metrics(drop, sales_rows):
     revenue = sum(row["revenue"] for row in sales_rows)
     known_profits = [row["profit"] for row in sales_rows if row.get("profit") is not None]
     sold_cards = sum(row["quantity"] for row in sales_rows) or counts.get("sold", 0)
+    sold_card_revenue = sum(row["revenue"] for row in sales_rows if row.get("quantity", 0) > 0)
     transactions = {row["sale"].get("sale_id") or f"{row['date']}-{idx}" for idx, row in enumerate(sales_rows)}
     return {
         "cards": total_cards,
@@ -1707,7 +1757,7 @@ def _drop_metrics(drop, sales_rows):
         "revenue": revenue,
         "profit": sum(known_profits) if known_profits else None,
         "sell_through": (sold_cards / total_cards * 100.0) if total_cards else None,
-        "avg_sold_price": (revenue / sold_cards) if sold_cards else None,
+        "avg_sold_price": (sold_card_revenue / sold_cards) if sold_cards else None,
         "avg_basket": (revenue / len(transactions)) if transactions else None,
         "avg_cards_per_transaction": (sold_cards / len(transactions)) if transactions else None,
     }
@@ -1836,7 +1886,7 @@ def _render_drop_charts(drop, rows):
         st.line_chart(df[["Cartes vendues", "Taux écoulement"]])
 
 
-def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None):
+def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None, effective_purchase_price_func=None):
     drops = drops_data.get("drops", []) or []
     if not drops:
         st.caption("Aucun drop à analyser.")
@@ -1865,7 +1915,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         "known_profit": False,
     }
     for drop in selected:
-        rows = _sale_rows_for_drop(stock_data, drop.get("id"), calc_cout_lot_func)
+        rows = _sale_rows_for_drop(stock_data, drop.get("id"), calc_cout_lot_func, effective_purchase_price_func)
         all_rows.extend(rows)
         metrics = _drop_metrics(drop, rows)
         for key in ("cards", "draft_ready", "online", "sold", "published_value", "revenue"):
@@ -1876,7 +1926,8 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     aggregate["profit"] = aggregate["profit"] if aggregate.pop("known_profit") else None
     aggregate["sell_through"] = aggregate["sold"] / aggregate["cards"] * 100.0 if aggregate["cards"] else None
     tx_count = len({row["sale"].get("sale_id") for row in all_rows if row["sale"].get("sale_id")})
-    aggregate["avg_sold_price"] = aggregate["revenue"] / aggregate["sold"] if aggregate["sold"] else None
+    card_revenue = sum(row["revenue"] for row in all_rows if row.get("quantity", 0) > 0)
+    aggregate["avg_sold_price"] = card_revenue / aggregate["sold"] if aggregate["sold"] else None
     aggregate["avg_basket"] = aggregate["revenue"] / tx_count if tx_count else None
     aggregate["avg_cards_per_transaction"] = aggregate["sold"] / tx_count if tx_count else None
     _render_kpis(aggregate, fp_func)
@@ -1941,7 +1992,7 @@ def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_i
     _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
 
-def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None):
+def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
     with st.expander("+ Nouveau drop", expanded=not bool(drops_data.get("drops"))):
         new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
         new_channel = st.selectbox("Canal Vinted", list(VINTED_CHANNELS), key="new_vinted_drop_channel")
@@ -2029,7 +2080,13 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
     elif step == "Création des annonces":
         _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile)
     elif step == "Analyse des drops":
-        _render_drop_analytics(drops_data, ld_func() if callable(ld_func) else {}, fp_func, calc_cout_lot_func)
+        _render_drop_analytics(
+            drops_data,
+            ld_func() if callable(ld_func) else {},
+            fp_func,
+            calc_cout_lot_func,
+            effective_purchase_price_func,
+        )
 
 
 def _render_classic_listing_section(cards, drops_data, proxy_img_func, fp_func, run_html_func, mobile, *, allow_drop_add=False):
@@ -2104,6 +2161,7 @@ def render_vinted_listings_page(
     run_html_func=None,
     page_mode="drop",
     calc_cout_lot_func=None,
+    effective_purchase_price_func=None,
 ):
     if page_mode == "individual":
         st.markdown(
@@ -2143,4 +2201,5 @@ def render_vinted_listings_page(
         run_html_func=run_html_func,
         ld_func=ld_func,
         calc_cout_lot_func=calc_cout_lot_func,
+        effective_purchase_price_func=effective_purchase_price_func,
     )

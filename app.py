@@ -2431,6 +2431,7 @@ elif st.session_state.current_page=="Annonces Vinted":
         run_html_func=run_html,
         page_mode="drop",
         calc_cout_lot_func=calc_cout_lot,
+        effective_purchase_price_func=effective_purchase_price,
     )
 elif st.session_state.current_page=="Historique":
     render_with_perf(

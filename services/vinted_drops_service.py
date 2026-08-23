@@ -372,6 +372,7 @@ def link_sale_entry_to_drop(data, sale_entry, canal):
         method = "channel_latest"
 
     sale_entry["drop_id"] = chosen_drop.get("id", "")
+    sale_entry["drop_name"] = chosen_drop.get("name", "")
     sale_entry["drop_channel"] = channel
     sale_entry["drop_link_method"] = method
     if chosen_ref is not None:

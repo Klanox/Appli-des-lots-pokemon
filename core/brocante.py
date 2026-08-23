@@ -11,7 +11,7 @@ from datetime import date, datetime
 import uuid
 
 
-BRO_CATEGORIES = ("Co / Unco", "Reverse", "Holo", "Lot mixte", "Autre")
+BRO_CATEGORIES = ("Co / Unco", "Reverse / Holo", "Boîte / classeur vide", "Lot mixte")
 PAYMENT_METHODS = ("Espèces", "PayPal", "Autre", "Non renseigné")
 
 
@@ -182,6 +182,7 @@ def append_off_stock_sale(
     quantity: int,
     amount: float,
     payment_method: str = "Non renseigné",
+    canal: str | None = None,
     description: str = "",
     source_lot_idx=None,
     cost_basis=None,
@@ -204,7 +205,7 @@ def append_off_stock_sale(
         "quantity": quantity,
         "price": amount,
         "payment_method": str(payment_method or "Non renseigné").strip(),
-        "canal": "Brocante" if brocante_id else "Vente",
+        "canal": str(canal or ("Brocante" if brocante_id else "Vente")).strip(),
         "sale_origin": "off_stock",
         "inventory_impact": "none",
         "cost_basis_known": cost_known,
@@ -215,6 +216,13 @@ def append_off_stock_sale(
         "notes": str(notes or "").strip(),
         "is_off_stock": True,
     }
+    sale["sold_at"] = sale["date"]
+    try:
+        from services.vinted_drops_service import link_sale_to_vinted_drop_if_applicable
+
+        link_sale_to_vinted_drop_if_applicable(sale, sale.get("canal", ""))
+    except Exception:
+        pass
     lots = cd.setdefault("lots", [])
     if source_lot_idx is not None:
         try:

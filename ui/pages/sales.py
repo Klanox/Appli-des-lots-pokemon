@@ -6,8 +6,9 @@ globals as context to preserve behavior while moving the large page out of app.p
 
 import html
 import os
+from copy import deepcopy
 
-from core.brocante import BRO_CATEGORIES, PAYMENT_METHODS, append_off_stock_sale
+from core.brocante import BRO_CATEGORIES, append_off_stock_sale
 from services.brocante_data import load_brocantes, save_brocantes
 from core.brocante import active_session, record_transaction
 from core.trade_economics import (
@@ -23,6 +24,7 @@ from core.trade_economics import (
 )
 from services.custom_card_image_service import resolve_custom_card_image
 from services.vinted_channels import SALE_CHANNELS
+from services.vinted_drops_service import find_drop, link_sale_entry_to_drop, load_vinted_drops
 from ui.badges import card_stamp_label
 from ui.infinite_scroll import (
     render_virtual_scroll_sensor,
@@ -304,6 +306,17 @@ def _request_sale_scroll_top():
     st.session_state["sale_scroll_top_token"] = int(st.session_state.get("sale_scroll_top_token", 0) or 0) + 1
 
 
+def _off_stock_drop_preview(canal):
+    try:
+        drops_data = deepcopy(load_vinted_drops())
+        preview_sale = {"sale_id": "preview_off_stock", "date": "", "price": 0.0, "quantity": 0}
+        if not link_sale_entry_to_drop(drops_data, preview_sale, canal):
+            return None
+        return find_drop(drops_data, preview_sale.get("drop_id"))
+    except Exception:
+        return None
+
+
 def _allocate_final_sale_price(cart_items, final_price):
     """Return cart items with unit prices that sum exactly to the buyer-paid total."""
     rows = list(cart_items or [])
@@ -378,21 +391,32 @@ def render_sales_page(context):
                 st.session_state.bulk_cart = []
 
             with st.expander("Vente hors stock", expanded=False):
-                st.caption("Pour co/unco, reverses, holos ou petits lots non suivis. Le stock n'est pas diminué.")
-                hs1, hs2 = st.columns([2, 1])
+                st.caption("Pour petites cartes, accessoires ou lots non suivis. Le stock n'est pas diminué.")
+                if st.session_state.get("classic_offstock_category") not in BRO_CATEGORIES:
+                    st.session_state["classic_offstock_category"] = BRO_CATEGORIES[0]
+                if st.session_state.get("classic_offstock_channel") not in SALE_CHANNELS:
+                    st.session_state["classic_offstock_channel"] = SALE_CHANNELS[0]
+                hs1, hs2 = st.columns(2)
                 hs_category = hs1.selectbox("Catégorie", list(BRO_CATEGORIES), key="classic_offstock_category")
-                hs_qty = hs2.number_input("Quantité", 1, 9999, 1, 1, key="classic_offstock_qty")
-                hs_desc = st.text_input("Description facultative", key="classic_offstock_desc")
-                hs_amount = st.number_input("Prix total encaissé (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
-                hs_payment = st.selectbox("Paiement", list(PAYMENT_METHODS), key="classic_offstock_payment")
+                hs_channel = hs2.selectbox("Canal de vente", list(SALE_CHANNELS), key="classic_offstock_channel")
                 lot_choices = [("Non attribuée", None)] + [
                     (f"{idx + 1}. {lot.get('nom', f'Lot {idx + 1}')}", idx)
                     for idx, lot in enumerate(cd.get("lots", []) or [])
                 ]
-                hs_lot_label = st.selectbox("Lot source facultatif", [label for label, _ in lot_choices], key="classic_offstock_lot")
+                hs3, hs4 = st.columns([2, 1])
+                hs_lot_label = hs3.selectbox("Lot source", [label for label, _ in lot_choices], key="classic_offstock_lot")
                 hs_source_lot_idx = next(value for label, value in lot_choices if label == hs_lot_label)
-                hs_cost = st.number_input("Coût d'achat attribué facultatif (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_cost")
-                hs_notes = st.text_area("Notes facultatives", key="classic_offstock_notes")
+                hs_amount = hs4.number_input("Prix final encaissé (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
+                hs_desc = st.text_input(
+                    "Description facultative",
+                    key="classic_offstock_desc",
+                    placeholder="Ex : Petit lot de promos + holo",
+                )
+                linked_drop = _off_stock_drop_preview(hs_channel)
+                if linked_drop:
+                    st.caption(f"🔗 Drop associé automatiquement : {linked_drop.get('name', 'Drop sans nom')}")
+                else:
+                    st.caption("Aucun drop actif associé")
                 if st.button("Enregistrer la vente hors stock", type="primary", width="stretch", key="classic_offstock_save"):
                     if hs_amount <= 0:
                         st.error("Saisis un prix encaissé supérieur à 0 €.")
@@ -404,12 +428,13 @@ def render_sales_page(context):
                             cdd,
                             category=hs_category,
                             description=hs_desc,
-                            quantity=hs_qty,
+                            quantity=1,
                             amount=hs_amount,
-                            payment_method=hs_payment,
+                            payment_method="Non renseigné",
+                            canal=hs_channel,
                             source_lot_idx=hs_source_lot_idx,
-                            cost_basis=hs_cost if hs_cost > 0 else None,
-                            notes=hs_notes,
+                            cost_basis=None,
+                            notes="",
                             brocante_id=active_bro.get("id") if active_bro else None,
                         )
                         if active_bro:
@@ -421,15 +446,15 @@ def render_sales_page(context):
                                     "label": sale.get("card_name"),
                                     "category": hs_category,
                                     "description": hs_desc,
-                                    "quantity": int(hs_qty or 1),
+                                    "quantity": 1,
                                     "amount": float(hs_amount or 0),
-                                    "payment_method": hs_payment,
+                                    "payment_method": "Non renseigné",
                                     "inventory_impact": "none",
                                     "source_lot_id": sale.get("source_lot_id"),
                                     "source_lot_name": sale.get("source_lot_name"),
                                     "cost_basis_known": bool(sale.get("cost_basis_known")),
                                     "cost_basis": sale.get("cost_basis"),
-                                    "notes": hs_notes,
+                                    "notes": hs_desc,
                                 },
                             )
                             save_brocantes(brocante_data)

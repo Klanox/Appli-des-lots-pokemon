@@ -322,6 +322,60 @@ def _build_trade_history_items(cd_hist):
     return items
 
 
+def _off_stock_cost_for_history(sale, lot=None, valeur_est_hist=None, effective_purchase_price_func=None):
+    if sale.get("cost_basis_known"):
+        try:
+            return float(sale.get("cost_basis", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+    if not lot or not callable(effective_purchase_price_func):
+        return None
+    try:
+        price = float(sale.get("price", 0) or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    if price <= 0:
+        return 0.0
+    try:
+        if lot.get("is_mixte") and float(lot.get("valeur_totale", 0) or 0) > 0:
+            return (price / float(lot.get("valeur_totale", 1) or 1)) * float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)) or 0)
+        return (price / (float(valeur_est_hist or 0) or 1.0)) * effective_purchase_price_func(lot)
+    except Exception:
+        return None
+
+
+def _off_stock_history_item(sale, *, lot_name="Non attribuée", cout=None):
+    try:
+        price = float(sale.get("price", 0) or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    description = str(sale.get("description") or "").strip()
+    category = str(sale.get("category") or "Vente hors stock").strip()
+    card_name = str(sale.get("card_name") or description or category or "Vente hors stock").strip()
+    benef = (price - cout) if cout is not None else None
+    return {
+        "date": sale.get("date", ""),
+        "sale_id": sale.get("sale_id", ""),
+        "card_name": card_name,
+        "card_set": "",
+        "card_number": "",
+        "lot_name": lot_name or sale.get("source_lot_name") or "Non attribuée",
+        "price": price,
+        "cout": cout,
+        "benef": benef,
+        "image_url": "",
+        "type": "off_stock",
+        "quantity": int(sale.get("quantity", 1) or 1),
+        "canal": sale.get("canal", ""),
+        "category": category,
+        "description": description,
+        "drop_id": sale.get("drop_id", ""),
+        "drop_name": sale.get("drop_name", ""),
+        "drop_channel": sale.get("drop_channel", ""),
+        "drop_link_method": sale.get("drop_link_method", ""),
+    }
+
+
 def render_history_page(
     *,
     ld_func,
@@ -360,6 +414,15 @@ def render_history_page(
             if v.get("is_lot_sale") or v.get("is_exchange_benefit"):
                 continue
             price_v = float(v.get("price",0))
+            if v.get("is_off_stock"):
+                cout_v = _off_stock_cost_for_history(
+                    v,
+                    lot=lot,
+                    valeur_est_hist=valeur_est_hist,
+                    effective_purchase_price_func=effective_purchase_price_func,
+                )
+                hist_enriched.append(_off_stock_history_item(v, lot_name=lot.get("nom", "?"), cout=cout_v))
+                continue
             if lot.get("is_mixte") and float(lot.get("valeur_totale", 0.) or 0.) > 0:
                 cout_v = (price_v / float(lot.get("valeur_totale", 1.) or 1.)) * float(lot.get("prix_achat_reel", lot.get("prix_achat", 0.)) or 0.)
             else:
@@ -414,6 +477,9 @@ def render_history_page(
                 "canal": se.get("canal",""),
             })
     
+    for sale in cd_hist.get("ventes_hors_stock", []) or []:
+        hist_enriched.append(_off_stock_history_item(sale, cout=_off_stock_cost_for_history(sale)))
+
     hist_enriched.extend(_build_trade_history_items(cd_hist))
     hist_enriched = sorted(hist_enriched, key=lambda x: x.get("date",""), reverse=True)
     
@@ -463,14 +529,14 @@ def render_history_page(
         elif sort_opt == "Prix (↑)":
             filtered = sorted(filtered, key=lambda h: h.get("price", 0))
         elif sort_opt == "Bénéf (↓)":
-            filtered = sorted(filtered, key=lambda h: h.get("benef", 0), reverse=True)
+            filtered = sorted(filtered, key=lambda h: h.get("benef") if h.get("benef") is not None else float("-inf"), reverse=True)
         elif sort_opt == "Bénéf (↑)":
-            filtered = sorted(filtered, key=lambda h: h.get("benef", 0))
+            filtered = sorted(filtered, key=lambda h: h.get("benef") if h.get("benef") is not None else float("inf"))
     
         # ── Résumé ──
         filtered_sales = [h for h in filtered if h.get("type") != "exchange"]
         total_ca_h = sum(h["price"] for h in filtered_sales)
-        total_benef_h = sum(h.get("benef", h["price"]) for h in filtered_sales)
+        total_benef_h = sum(h.get("benef") for h in filtered_sales if h.get("benef") is not None)
         total_nb_h = sum(int(h.get("quantity", 1)) for h in filtered_sales)
     
         s1,s2,s3 = st.columns(3)
@@ -567,7 +633,9 @@ def render_history_page(
 
             benef = h.get("benef", h["price"])
             cout = h.get("cout", 0.)
-            benef_color = "#10b981" if benef >= 0 else "#ef4444"
+            benef_known = benef is not None
+            cout_known = cout is not None
+            benef_color = "#10b981" if (benef or 0) >= 0 else "#ef4444"
             date_str = h.get("date","")[:10] if h.get("date") else "—"
     
             img_col, info_col, prix_col = st.columns([1, 4, 2])
@@ -584,12 +652,21 @@ def render_history_page(
                 qty_h = int(h.get("quantity", 1))
                 qty_badge = f' <span style="background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:1px 7px;font-size:0.72rem;font-weight:800;">x{qty_h}</span>' if qty_h > 1 else ""
                 canal_h = h.get("canal", "")
-                canal_icons = {"Main propre":"🤝","Brocante":"🎪","Dexify_TCG":"⚡","Pokédeal":"🎴","Échange":"🔄"}
+                canal_icons = {"Main propre":"🤝","Brocante":"🎪","Dexify":"⚡","Dexify_TCG":"⚡","Pokédeal":"🎴","ChoppeTaCarte":"🛍️","Échange":"🔄"}
                 canal_badge = f' <span style="background:#f1f5f9;border-radius:6px;padding:1px 6px;font-size:0.72rem;color:#64748b;">{canal_icons.get(canal_h,"📦")} {canal_h}</span>' if canal_h else ""
+                category_line = ""
+                if h.get("type") == "off_stock":
+                    desc = escape(str(h.get("description") or ""))
+                    category = escape(str(h.get("category") or "Vente hors stock"))
+                    drop_name = escape(str(h.get("drop_name") or h.get("drop_id") or ""))
+                    drop_line = f" · Drop : {drop_name}" if drop_name else ""
+                    desc_line = f" · {desc}" if desc else ""
+                    category_line = f'<div style="font-size:0.78rem;color:#7c3aed;margin-top:2px;">{category}{desc_line}{drop_line}</div>'
                 st.markdown(f"""
                 <div style="padding:0.2rem 0;">
                   <div style="font-weight:700;font-size:0.98rem;color:#1e293b;">{h['card_name']}{qty_badge}{canal_badge}</div>
                   <div style="font-size:0.8rem;color:#64748b;margin-top:2px;">{h['lot_name']}{set_num}</div>
+                  {category_line}
                   <div style="font-size:0.78rem;color:#94a3b8;margin-top:2px;">📅 {date_str}</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -598,8 +675,8 @@ def render_history_page(
                 st.markdown(f"""
                 <div style="text-align:right;padding:0.2rem 0;">
                   <div style="font-size:1.1rem;font-weight:800;color:#1e293b;">{h['price']:.2f}€</div>
-                  <div style="font-size:0.78rem;color:#94a3b8;">Acheté ~{cout:.2f}€</div>
-                  <div style="font-size:0.85rem;font-weight:700;color:{benef_color};">Bénéf : {benef:+.2f}€</div>
+                  <div style="font-size:0.78rem;color:#94a3b8;">Acheté {'~' + _money(cout) if cout_known else 'N/A'}</div>
+                  <div style="font-size:0.85rem;font-weight:700;color:{benef_color};">Bénéf : {f'{benef:+.2f}€' if benef_known else 'N/A'}</div>
                 </div>
                 """, unsafe_allow_html=True)
     
