@@ -19,8 +19,7 @@ from services.vinted_channels import SALE_CHANNELS, normalize_vinted_channel
 
 
 MOIS_FR = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"}
-STATS_SECTIONS = ("Vue globale", "Lots", "Canaux", "Records & objectifs")
-PERIOD_OPTIONS = ("Ce mois", "3 mois", "6 mois", "1 an", "Tout")
+STATS_SECTIONS = ("Vue globale", "Records & objectifs")
 
 
 def _safe_float(value, default=0.0):
@@ -312,16 +311,33 @@ def _month_profile(month, monthly_stats, months_sorted):
     return "⚖️ Mois équilibré", "Activité proche de la tendance historique"
 
 
+def _short_profile_label(profile_label):
+    if not profile_label:
+        return "N/A"
+    parts = str(profile_label).split(maxsplit=1)
+    if len(parts) == 1:
+        return parts[0]
+    label = parts[1].replace("Mois ", "").strip()
+    return f"{parts[0]} {label}".strip()
+
+
+def _blank_month_stats():
+    return {"ca": 0.0, "benef": 0.0, "benef_known": True, "qty": 0.0, "transactions": set(), "purchases": 0.0}
+
+
 def _inject_stats_css():
     st.markdown(
         """
         <style>
         .ps-stats-hero{background:linear-gradient(135deg,rgba(109,93,252,.14),rgba(14,165,233,.08));border:1px solid rgba(109,93,252,.18);border-radius:18px;padding:1rem 1.15rem;margin-bottom:.9rem}
         .ps-stats-hero h2{margin:0;color:#111827;font-size:1.45rem;font-weight:850}.ps-stats-hero p{margin:.2rem 0 0;color:#64748b;font-size:.92rem}
+        .ps-stats-month-summary{background:linear-gradient(135deg,#f7f5ff,#ffffff);border:1px solid #ded8ff;border-radius:16px;padding:.9rem 1rem;margin-bottom:.85rem;box-shadow:0 8px 24px rgba(109,93,252,.08)}
+        .ps-stats-month-summary .month{font-size:1.15rem;color:#111827;font-weight:900}.ps-stats-month-summary .profile{font-size:1rem;color:#4c1d95;font-weight:850;margin-top:.1rem}.ps-stats-month-summary .why{font-size:.84rem;color:#64748b;margin-top:.2rem}
         .ps-stats-kpi{background:#fff;border:1px solid #e8e5ff;border-radius:16px;padding:.95rem 1rem;box-shadow:0 6px 20px rgba(15,23,42,.06);min-height:112px}
         .ps-stats-kpi .label{color:#64748b;font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.02em}.ps-stats-kpi .value{color:#111827;font-size:1.45rem;font-weight:900;margin-top:.2rem}.ps-stats-kpi .delta{color:#6d5dfc;font-size:.78rem;font-weight:750;margin-top:.35rem}
         .ps-stats-card{background:#fff;border:1px solid #ece9ff;border-radius:16px;padding:.9rem 1rem;box-shadow:0 6px 18px rgba(15,23,42,.045);margin-bottom:.65rem}
-        .ps-stats-month{background:linear-gradient(135deg,#fff,#f7f5ff);border:1px solid #e9d5ff;border-radius:14px;padding:.85rem .95rem;min-height:126px}.ps-stats-month .month{font-size:.82rem;color:#64748b;font-weight:800}.ps-stats-month .profile{font-size:1rem;color:#1e1b4b;font-weight:850;margin:.28rem 0}.ps-stats-month .numbers{font-size:.82rem;color:#334155;font-weight:700}.ps-stats-month .why{font-size:.76rem;color:#64748b;margin-top:.35rem}
+        .ps-stats-month-strip{display:flex;flex-wrap:wrap;gap:.45rem;margin:.35rem 0 .8rem}.ps-stats-month-chip{background:#fff;border:1px solid #ece9ff;border-radius:999px;padding:.42rem .62rem;color:#1e1b4b;font-size:.8rem;font-weight:850;box-shadow:0 4px 12px rgba(15,23,42,.04)}.ps-stats-month-chip small{color:#64748b;font-weight:750;margin-left:.25rem}
+        .ps-stats-secondary-line{display:flex;flex-wrap:wrap;gap:.55rem;margin:.1rem 0 .9rem}.ps-stats-secondary-pill{background:#f8f7ff;border:1px solid #e5ddff;border-radius:999px;padding:.5rem .75rem;color:#4338ca;font-size:.82rem;font-weight:850}
         .ps-stats-note{border-left:4px solid #6d5dfc;background:#f8f7ff;border-radius:12px;padding:.8rem 1rem;color:#4338ca;font-weight:700;margin:.5rem 0}
         div[data-testid="stPills"] button[aria-checked="true"],div[data-testid="stSegmentedControl"] button[aria-checked="true"]{background:#6d5dfc!important;color:#fff!important;border-color:#6d5dfc!important;box-shadow:0 8px 18px rgba(109,93,252,.22)}
         div[data-testid="stPills"] button,div[data-testid="stSegmentedControl"] button{border-radius:999px!important;font-weight:800!important}
@@ -356,54 +372,79 @@ def _render_horizontal_bar(rows, x_key, y_key, title, key, color="#6d5dfc", suff
 
 
 def _render_global_view(all_sales, monthly_stats, months_sorted, current_month):
-    period = st.segmented_control("Période", PERIOD_OPTIONS, default=st.session_state.get("stats_period", "6 mois"), key="stats_period", label_visibility="collapsed", width="stretch") or "6 mois"
-    months = _period_months(months_sorted, current_month, period)
-    prev_months = _previous_period(months, months_sorted) if period != "Tout" else []
-    rows = [row for row in all_sales if row["month"] in months]
-    prev_rows = [row for row in all_sales if row["month"] in prev_months]
-    metrics = _aggregate_sales(rows)
-    prev = _aggregate_sales(prev_rows) if prev_rows else None
+    current_start = _month_start(current_month) or datetime.now().replace(day=1)
+    prev_month = _add_months(current_start, -1).strftime("%Y-%m")
+    current_metrics = monthly_stats.get(current_month, _blank_month_stats())
+    prev_metrics = monthly_stats.get(prev_month)
+    current_rows = [row for row in all_sales if row["month"] == current_month]
+    prev_rows = [row for row in all_sales if row["month"] == prev_month]
+    metrics = _aggregate_sales(current_rows) if current_rows else {
+        "ca": _safe_float(current_metrics.get("ca")),
+        "benef": _safe_float(current_metrics.get("benef")),
+        "qty": _safe_float(current_metrics.get("qty")),
+        "transactions": 0,
+        "basket": 0.0,
+        "avg_card": 0.0,
+        "margin": (_safe_float(current_metrics.get("benef")) / _safe_float(current_metrics.get("ca")) * 100.0) if _safe_float(current_metrics.get("ca")) else None,
+    }
+    prev = _aggregate_sales(prev_rows) if prev_rows else ({
+        "ca": _safe_float(prev_metrics.get("ca")),
+        "benef": _safe_float(prev_metrics.get("benef")),
+        "qty": _safe_float(prev_metrics.get("qty")),
+        "margin": (_safe_float(prev_metrics.get("benef")) / _safe_float(prev_metrics.get("ca")) * 100.0) if _safe_float(prev_metrics.get("ca")) else None,
+    } if prev_metrics else None)
+    current_profile = _month_profile(current_month, monthly_stats, months_sorted)
+    if current_profile is None:
+        if metrics["ca"] <= 0 and metrics["qty"] <= 0:
+            current_profile = ("🌿 Mois calme", "Aucune vente enregistrée ce mois-ci pour l'instant.")
+        else:
+            current_profile = ("⚖️ Mois équilibré", "Activité en cours, historique encore trop court pour une qualification fine.")
+    st.markdown(
+        '<div class="ps-stats-month-summary">'
+        f'<div class="month">{html.escape(_month_label(current_month))}</div>'
+        f'<div class="profile">{html.escape(current_profile[0])}</div>'
+        f'<div class="why">{html.escape(current_profile[1])}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     _render_kpi_cards([
         {"label": "CA", "value": _fmt_eur(metrics["ca"]), "delta": _delta_text(metrics["ca"], prev["ca"]) if prev else None},
         {"label": "Bénéfice", "value": _fmt_eur(metrics["benef"]), "delta": _delta_text(metrics["benef"], prev["benef"]) if prev and metrics["benef"] is not None and prev["benef"] is not None else None},
         {"label": "Marge", "value": _fmt_pct(metrics["margin"]), "delta": _delta_text(metrics["margin"], prev["margin"]) if prev and metrics["margin"] is not None and prev["margin"] is not None else None},
         {"label": "Cartes vendues", "value": f"{metrics['qty']:.0f}", "delta": _delta_text(metrics["qty"], prev["qty"]) if prev else None},
-        {"label": "Panier moyen", "value": _fmt_eur(metrics["basket"]), "delta": _delta_text(metrics["basket"], prev["basket"]) if prev else None},
     ])
 
+    months = sorted(set(months_sorted + [current_month]))
+    months = months[-12:]
     labels = [_month_label(m) for m in months]
-    ca_values = [monthly_stats[m]["ca"] for m in months]
-    benef_values = [monthly_stats[m]["benef"] for m in months]
-    qty_values = [monthly_stats[m]["qty"] for m in months]
+    ca_values = [_safe_float(monthly_stats.get(m, _blank_month_stats()).get("ca")) for m in months]
+    benef_values = [_safe_float(monthly_stats.get(m, _blank_month_stats()).get("benef")) for m in months]
+    qty_values = [_safe_float(monthly_stats.get(m, _blank_month_stats()).get("qty")) for m in months]
     profiles = [_month_profile(m, monthly_stats, months_sorted) for m in months]
     custom = [[ca_values[idx], benef_values[idx], (benef_values[idx] / ca_values[idx] * 100.0) if ca_values[idx] else 0.0, qty_values[idx], profiles[idx][0] if profiles[idx] else "N/A"] for idx in range(len(months))]
     st.markdown("### Évolution CA & bénéfice")
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=labels, y=ca_values, mode="lines+markers", name="CA", line=dict(color="#6d5dfc", width=3), marker=dict(size=9), customdata=custom, hovertemplate="%{x}<br>CA : %{y:.2f}€<br>Bénéfice : %{customdata[1]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
     fig.add_trace(go.Scatter(x=labels, y=benef_values, mode="lines+markers", name="Bénéfice", line=dict(color="#16a34a", width=3), marker=dict(size=9), customdata=custom, hovertemplate="%{x}<br>Bénéfice : %{y:.2f}€<br>CA : %{customdata[0]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
-    fig.update_layout(height=390, margin=dict(t=16, b=8, l=8, r=8), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(title="€", gridcolor="#f1f5f9"), xaxis=dict(showgrid=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    fig.update_layout(height=330, margin=dict(t=12, b=8, l=8, r=8), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(title="€", gridcolor="#f1f5f9"), xaxis=dict(showgrid=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, width="stretch", key="stats_v2_global_ca_benef")
 
     st.markdown("### Profil des mois")
-    month_cards = []
-    for m in reversed(months[-8:]):
+    month_chips = []
+    for m in months[-8:]:
         profile = _month_profile(m, monthly_stats, months_sorted)
         if not profile:
             continue
-        stat = monthly_stats[m]
-        month_cards.append(f'<div class="ps-stats-month"><div class="month">{html.escape(_month_label(m))}</div><div class="profile">{html.escape(profile[0])}</div><div class="numbers">{_fmt_eur(stat["ca"])} CA · {_fmt_eur(stat["benef"])} bénéfice · {stat["qty"]:.0f} cartes</div><div class="why">{html.escape(profile[1])}</div></div>')
-    if month_cards:
-        cols = st.columns(min(4, len(month_cards)))
-        for idx, card in enumerate(month_cards):
-            with cols[idx % len(cols)]:
-                st.markdown(card, unsafe_allow_html=True)
+        stat = monthly_stats.get(m, _blank_month_stats())
+        month_name = _month_label(m).split()[0][:4].rstrip(".")
+        month_chips.append(
+            f'<span class="ps-stats-month-chip">{html.escape(month_name)} · {html.escape(_short_profile_label(profile[0]))}'
+            f'<small>{_fmt_eur(stat["ca"])} · {_fmt_eur(stat["benef"])}</small></span>'
+        )
+    if month_chips:
+        st.markdown(f'<div class="ps-stats-month-strip">{"".join(month_chips)}</div>', unsafe_allow_html=True)
     else:
         st.info("Pas encore assez d'historique pour qualifier les mois proprement.")
-
-    st.markdown("### Cartes vendues par mois")
-    qty_fig = go.Figure(go.Bar(x=labels, y=qty_values, marker_color="#8b5cf6", text=[f"{v:.0f}" for v in qty_values], textposition="outside", hovertemplate="%{x}<br>Cartes vendues : %{y:.0f}<extra></extra>"))
-    qty_fig.update_layout(height=240, margin=dict(t=14, b=8, l=8, r=8), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(gridcolor="#f1f5f9"), xaxis=dict(showgrid=False), showlegend=False)
-    st.plotly_chart(qty_fig, width="stretch", key="stats_v2_cards_sold_by_month")
 
 
 def _render_lots_view(all_sales, cd):
@@ -524,21 +565,24 @@ def _render_records_view(all_sales, monthly_stats, months_sorted, current_month,
         label = row.get("card_name") or "Vente"
         transactions[key]["label"] = label if not transactions[key]["label"] else transactions[key]["label"] + ", " + label
     biggest_tx = max(transactions.values(), key=lambda row: row["price"]) if transactions else None
-    best_card = max(all_sales, key=lambda row: row.get("unit_price") or 0) if all_sales else None
     records = [
         ("Meilleur mois CA", _month_label(best_ca) if best_ca else "N/A", _fmt_eur(monthly_stats[best_ca]["ca"]) if best_ca else ""),
         ("Meilleur mois bénéfice", _month_label(best_benef) if best_benef else "N/A", _fmt_eur(monthly_stats[best_benef]["benef"]) if best_benef else ""),
-        ("Plus de cartes vendues", _month_label(best_qty) if best_qty else "N/A", f"{monthly_stats[best_qty]['qty']:.0f} cartes" if best_qty else ""),
-        ("CA historique", _fmt_eur(total["ca"]), f"{len(transactions)} ventes"),
-        ("Bénéfice historique", _fmt_eur(total["benef"]), _fmt_pct(total["margin"])),
+        ("Record de cartes vendues", _month_label(best_qty) if best_qty else "N/A", f"{monthly_stats[best_qty]['qty']:.0f} cartes" if best_qty else ""),
         ("Plus grosse transaction", _fmt_eur(biggest_tx["price"]) if biggest_tx else "N/A", biggest_tx["label"][:70] if biggest_tx else ""),
-        ("Carte la plus chère", _fmt_eur(best_card["unit_price"]) if best_card else "N/A", best_card.get("card_name", "") if best_card else ""),
-        ("Panier moyen historique", _fmt_eur(total["basket"]), f"{total['qty']:.0f} cartes"),
     ]
     cols = st.columns(4)
     for idx, (label, value, detail) in enumerate(records):
         with cols[idx % 4]:
             st.markdown(f'<div class="ps-stats-card"><div style="font-size:.75rem;color:#64748b;font-weight:800;text-transform:uppercase;">{html.escape(label)}</div><div style="font-size:1.15rem;color:#111827;font-weight:900;margin-top:.25rem;">{html.escape(str(value))}</div><div style="font-size:.78rem;color:#64748b;margin-top:.25rem;">{html.escape(str(detail or " "))}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ps-stats-secondary-line">'
+        f'<span class="ps-stats-secondary-pill">CA historique · {_fmt_eur(total["ca"])}</span>'
+        f'<span class="ps-stats-secondary-pill">Bénéfice historique · {_fmt_eur(total["benef"])}</span>'
+        f'<span class="ps-stats-secondary-pill">Panier moyen · {_fmt_eur(total["basket"])}</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### Défis du mois")
     current_start = _month_start(current_month) or datetime.now().replace(day=1)
@@ -577,7 +621,7 @@ def render_statistics_page(
     monthly_goals_path="monthly_goals.json",
 ):
     _inject_stats_css()
-    st.markdown('<div class="ps-stats-hero"><h2>Statistiques</h2><p>Lecture compacte de l’activité PokéStock : CA, bénéfice, lots, canaux et objectifs.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="ps-stats-hero"><h2>Statistiques</h2><p>Vue quotidienne légère : activité du mois, évolution CA/bénéfice, records et objectifs.</p></div>', unsafe_allow_html=True)
 
     with perf_timer("stats ld"):
         cd = ld_func()
@@ -593,12 +637,12 @@ def render_statistics_page(
         st.info("Aucune vente enregistrée pour le moment.")
         return
 
-    active = st.pills("Section", STATS_SECTIONS, default=st.session_state.get("stats_active_section", "Vue globale"), key="stats_active_section", label_visibility="collapsed", width="stretch") or "Vue globale"
+    active_default = st.session_state.get("stats_active_section", "Vue globale")
+    if active_default not in STATS_SECTIONS:
+        active_default = "Vue globale"
+        st.session_state["stats_active_section"] = active_default
+    active = st.pills("Section", STATS_SECTIONS, default=active_default, key="stats_active_section", label_visibility="collapsed", width="stretch") or "Vue globale"
     if active == "Vue globale":
         _render_global_view(all_sales, monthly_stats, months_sorted, current_month)
-    elif active == "Lots":
-        _render_lots_view(all_sales, cd)
-    elif active == "Canaux":
-        _render_channels_view(all_sales)
     else:
         _render_records_view(all_sales, monthly_stats, months_sorted, current_month, monthly_goals_path, safe_write_json_func)
