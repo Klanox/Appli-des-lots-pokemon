@@ -430,7 +430,6 @@ div[class*="st-key-vinted_drop_step_"] button p {
 }
 div[class*="st-key-create_vinted_drop"] button,
 div[class*="st-key-vinted_add"] button,
-div[class*="st-key-prepare_drop_card"] button,
 div[class*="st-key-draft_ready_drop_card"] button,
 div[class*="st-key-launch_drop"] button {
     background:#6d5dfc !important;
@@ -439,7 +438,6 @@ div[class*="st-key-launch_drop"] button {
 }
 div[class*="st-key-create_vinted_drop"] button:hover,
 div[class*="st-key-vinted_add"] button:hover,
-div[class*="st-key-prepare_drop_card"] button:hover,
 div[class*="st-key-draft_ready_drop_card"] button:hover,
 div[class*="st-key-launch_drop"] button:hover {
     background:#5b4bea !important;
@@ -466,6 +464,45 @@ div[class*="st-key-vinted_drop_drawer_header_"] button:hover {
 }
 div[class*="st-key-vinted_drop_drawer_header_"] {
     margin:.35rem 0 .28rem !important;
+}
+.ps-vinted-progress-panel {
+    border:1px solid rgba(129,140,248,.24);
+    border-radius:14px;
+    background:linear-gradient(135deg, rgba(255,255,255,.98), rgba(245,243,255,.78));
+    padding:.82rem .95rem;
+    margin:.45rem 0 .75rem;
+    box-shadow:0 8px 24px rgba(79,70,229,.07);
+}
+.ps-vinted-progress-main {
+    color:#0f172a;
+    font-size:1.05rem;
+    font-weight:950;
+    line-height:1.2;
+}
+.ps-vinted-progress-sub {
+    color:#64748b;
+    font-size:.82rem;
+    font-weight:800;
+    margin-top:.18rem;
+}
+.ps-vinted-current-card {
+    border:1px solid rgba(129,140,248,.22);
+    border-radius:14px;
+    background:#fff;
+    padding:.8rem;
+    box-shadow:0 8px 22px rgba(15,23,42,.055);
+}
+.ps-vinted-current-title {
+    color:#0f172a;
+    font-size:1.05rem;
+    font-weight:950;
+    line-height:1.2;
+}
+.ps-vinted-current-meta {
+    color:#64748b;
+    font-size:.84rem;
+    font-weight:760;
+    margin-top:.2rem;
 }
 @media (max-width:768px) {
     .ps-vinted-drop-head {
@@ -1580,23 +1617,7 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
             unsafe_allow_html=True,
         )
         if not unavailable:
-            if st.button("Préparer", key=f"prepare_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                drop_qty = max(1, int(card.get("drop_quantity", card.get("quantity", 1)) or 1))
-                selected = [_card_with_drop_quantity(card, drop_qty)]
-                _select_cards(selected)
-                st.session_state["vinted_drop_step"] = "Création des annonces"
-                st.rerun()
-            if status in ("draft_ready", "online", "sold"):
-                st.caption(f"Statut : {drop_item_status_label(status)}")
-            else:
-                if st.button("✓ Brouillon créé", key=f"draft_ready_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                    if set_drop_card_status(drops_data, active_drop.get("id"), card_ref_key, "draft_ready"):
-                        save_vinted_drops(drops_data)
-                        st.rerun()
-            if status == "draft_ready" and st.button("Modifier le brouillon", key=f"reopen_draft_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-                if set_drop_card_status(drops_data, active_drop.get("id"), card_ref_key, "to_prepare"):
-                    save_vinted_drops(drops_data)
-                    st.rerun()
+            st.caption(f"Statut : {drop_item_status_label(status)}")
         if st.button("Retirer du drop", key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
             if remove_card_from_drop(drops_data, active_drop.get("id"), card_ref_key):
                 save_vinted_drops(drops_data)
@@ -1647,6 +1668,115 @@ def _render_launch_drop_panel(drops_data, active_drop, fp_func):
                 save_vinted_drops(drops_data)
                 st.success("Drop lancé.")
                 st.rerun()
+
+
+_DROP_PREPARATION_STATUSES = {"to_photograph", "needs_review", "sorted", "to_prepare"}
+
+
+def _drop_queue_skip_key(drop_id):
+    return f"vinted_drop_creation_skipped_{drop_id}"
+
+
+def _drop_card_ref_key(card):
+    return card.get("_drop_ref_key") or drop_card_key(
+        {
+            "lot_uid": card.get("lot_uid", ""),
+            "card_uid": card.get("card_uid", ""),
+            "lot_idx": card.get("lot_idx", 0),
+            "card_idx": card.get("card_idx", 0),
+            "name": card.get("name", ""),
+            "number": card.get("number", ""),
+            "set": card.get("set", ""),
+        }
+    )
+
+
+def _drop_workflow_quantity(card):
+    return max(1, _safe_int(card.get("drop_quantity", card.get("quantity", 1)), 1))
+
+
+def _drop_photo_order_value(card):
+    value = card.get("photo_order")
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _drop_creation_sort_key(item):
+    position, card = item
+    photo_order = _drop_photo_order_value(card)
+    if photo_order is not None:
+        return (0, photo_order, position)
+    return (1, position)
+
+
+def _drop_creation_cards(active_drop, available_cards):
+    resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
+    cards = list(resolved_cards) + list(missing_cards)
+    ordered = [card for _pos, card in sorted(enumerate(cards), key=_drop_creation_sort_key)]
+    workflow_cards = [
+        card
+        for card in ordered
+        if str(card.get("status") or drop_item_status(card)) in _DROP_PREPARATION_STATUSES | {"draft_ready"}
+    ]
+    ready_cards = [card for card in workflow_cards if str(card.get("status") or drop_item_status(card)) == "draft_ready"]
+    pending_cards = [card for card in workflow_cards if str(card.get("status") or drop_item_status(card)) in _DROP_PREPARATION_STATUSES]
+    return workflow_cards, pending_cards, ready_cards
+
+
+def _drop_mark_to_prepare(drops_data, drop_id, card_key):
+    drop = find_drop(drops_data, drop_id)
+    if not drop:
+        return False
+    for ref in drop.get("cards", []) or []:
+        if drop_card_key(ref) != card_key:
+            continue
+        ref["status"] = "to_prepare"
+        ref["draft_ready_at"] = ""
+        ref["listing_posted"] = False
+        ref["listing_posted_at"] = ""
+        return True
+    return False
+
+
+def _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_img_func, fp_func, mobile):
+    ready_qty = sum(_drop_workflow_quantity(card) for card in ready_cards)
+    if not _render_drop_drawer_header("created_drafts", f"Brouillons créés ({ready_qty})", default_open=False):
+        return
+    if not ready_cards:
+        st.caption("Aucun brouillon créé pour l'instant.")
+        return
+    cols_count = 2 if mobile else 4
+    for row_index, row in _chunked(ready_cards, cols_count):
+        with st.container(horizontal=True, key=f"vinted_created_drafts_{active_drop.get('id')}_{row_index}"):
+            for card in row:
+                card_key = _drop_card_ref_key(card)
+                with st.container(key=f"vinted_created_draft_{active_drop.get('id')}_{_safe_js_id(card_key)}"):
+                    st.markdown(
+                        _card_static_html(
+                            card,
+                            proxy_img_func,
+                            fp_func,
+                            badge=drop_item_status_label("draft_ready"),
+                            badge_class=_drop_status_badge_class("draft_ready"),
+                            drop_card=True,
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    photo_order = _drop_photo_order_value(card)
+                    if photo_order is not None:
+                        st.caption(f"Ordre photo : {photo_order}")
+                    if st.button("Remettre à préparer", key=f"reopen_draft_drop_card_{active_drop.get('id')}_{card_key}", width="stretch"):
+                        if _drop_mark_to_prepare(drops_data, active_drop.get("id"), card_key):
+                            skipped = st.session_state.get(_drop_queue_skip_key(active_drop.get("id")), [])
+                            st.session_state[_drop_queue_skip_key(active_drop.get("id"))] = [
+                                key for key in skipped if key != card_key
+                            ]
+                            save_vinted_drops(drops_data)
+                            st.rerun()
 
 
 def _drop_card_total(drop):
@@ -1977,19 +2107,89 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
 
 
 def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile):
-    resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
-    card_by_key = {card.get("_listing_key"): card for card in resolved_cards if card.get("_listing_key")}
-    selected_keys = st.session_state.setdefault("vinted_selected_keys", [])
-    selected_cards = [card_by_key[key] for key in selected_keys if key in card_by_key]
-    listing_type = "Plusieurs cartes" if len(selected_cards) > 1 else "Carte seule"
-    if selected_cards:
-        _sync_listing_text(selected_cards, listing_type, fp_func)
-        _render_listing_preview(selected_cards, proxy_img_func, run_html_func, mobile)
+    workflow_cards, pending_cards, ready_cards = _drop_creation_cards(active_drop, available_cards)
+    total_qty = sum(_drop_workflow_quantity(card) for card in workflow_cards)
+    ready_qty = sum(_drop_workflow_quantity(card) for card in ready_cards)
+    pct = (ready_qty / total_qty) if total_qty else 0.0
+    st.markdown(
+        f"""
+<div class="ps-vinted-progress-panel">
+  <div class="ps-vinted-progress-main">{ready_qty} / {total_qty} brouillons créés</div>
+  <div class="ps-vinted-progress-sub">{pct * 100:.0f} % · Création des annonces</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    st.progress(pct)
+
+    if not workflow_cards:
+        st.caption("Aucune carte à préparer dans ce drop.")
+        _render_launch_drop_panel(drops_data, active_drop, fp_func)
+        return
+
+    skip_key = _drop_queue_skip_key(active_drop.get("id"))
+    skipped_keys = list(st.session_state.get(skip_key, []) or [])
+    pending_unskipped = [card for card in pending_cards if _drop_card_ref_key(card) not in skipped_keys]
+    if not pending_unskipped and pending_cards:
+        skipped_keys = []
+        st.session_state[skip_key] = []
+        pending_unskipped = list(pending_cards)
+
+    if pending_unskipped:
+        current_card = pending_unskipped[0]
+        current_key = _drop_card_ref_key(current_card)
+        current_qty = _drop_workflow_quantity(current_card)
+        listing_card = _card_with_drop_quantity(current_card, current_qty)
+        listing_type = "Carte seule"
+        _sync_listing_text([listing_card], listing_type, fp_func)
+        current_number = min(total_qty, ready_qty + 1)
+        st.markdown(f"**Carte #{current_number} sur {total_qty}**")
+        with st.container():
+            left, right = st.columns([1, 2]) if not mobile else [st.container(), st.container()]
+            with left:
+                _render_thumb(current_card, proxy_img_func, width=180 if mobile else 210)
+            with right:
+                st.markdown(
+                    f"""
+<div class="ps-vinted-current-card">
+  <div class="ps-vinted-current-title">{_html_escape(_card_display_title(current_card))}</div>
+  <div class="ps-vinted-current-meta">
+    {_html_escape(_card_number(current_card) or "Numéro N/A")} ·
+    {_html_escape(_card_set(current_card) or "Extension N/A")} ·
+    Prix : {_html_escape(fp_func(suggested_price(current_card)) if suggested_price(current_card) else "à définir")} ·
+    Quantité : x{current_qty}
+  </div>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+
+        st.text_input("Titre généré", key="vinted_listing_title")
+        _copy_button("Copier titre", st.session_state.get("vinted_listing_title", ""), "copy_vinted_queue_title", run_html_func, ["Titre généré"])
+        st.text_input("Prix", key="vinted_listing_price")
+        _copy_button("Copier prix", st.session_state.get("vinted_listing_price", ""), "copy_vinted_queue_price", run_html_func, ["Prix"])
+        st.text_area("Description générée", key="vinted_listing_description", height=220 if mobile else 260)
+        _copy_button("Copier description", st.session_state.get("vinted_listing_description", ""), "copy_vinted_queue_description", run_html_func, ["Description générée"])
+        st.link_button("Ouvrir Vinted", "https://www.vinted.fr/items/new", width="stretch")
+
+        done_col, skip_col = st.columns([2, 1]) if not mobile else (st.container(), st.container())
+        with done_col:
+            if st.button("✓ Brouillon créé", key=f"draft_ready_drop_card_{active_drop.get('id')}_{current_key}", type="primary", width="stretch"):
+                if set_drop_card_status(drops_data, active_drop.get("id"), current_key, "draft_ready"):
+                    st.session_state[skip_key] = [key for key in skipped_keys if key != current_key]
+                    save_vinted_drops(drops_data)
+                    st.rerun()
+        with skip_col:
+            if st.button("Passer pour l'instant", key=f"skip_drop_card_{active_drop.get('id')}_{current_key}", width="stretch"):
+                if current_key not in skipped_keys:
+                    skipped_keys.append(current_key)
+                st.session_state[skip_key] = skipped_keys
+                st.rerun()
     else:
-        st.caption("Clique sur Préparer sur une carte du drop pour générer son annonce.")
+        st.success("✅ Tous les brouillons sont prêts")
+
+    _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_img_func, fp_func, mobile)
     _render_launch_drop_panel(drops_data, active_drop, fp_func)
-    st.divider()
-    _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
 
 def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):

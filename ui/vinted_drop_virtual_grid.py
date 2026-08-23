@@ -365,11 +365,11 @@ def _get_vinted_drop_grid_component():
         win[stateKey] = state;
 
         function columns() {
-            return win.matchMedia("(max-width: 768px)").matches ? 2 : 6;
+            return win.matchMedia("(max-width: 768px)").matches ? 2 : 8;
         }
 
         function cardHeight() {
-            return win.matchMedia("(max-width: 768px)").matches ? 410 : 470;
+            return win.matchMedia("(max-width: 768px)").matches ? 410 : 360;
         }
 
         function overscanRows() {
@@ -885,8 +885,8 @@ def grouped_payload_signature(groups, added_keys=None, duplicate_counts=None):
 
 
 def _estimated_grid_height(groups, *, mobile=False):
-    cols = 2 if mobile else 6
-    card_height = 410 if mobile else 470
+    cols = 2 if mobile else 8
+    card_height = 410 if mobile else 360
     gap = 10
     header_height = 42
     lot_gap = 14

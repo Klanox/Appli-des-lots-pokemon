@@ -290,6 +290,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
             enriched["draft_ready_at"] = ref.get("draft_ready_at", "")
             enriched["online_at"] = ref.get("online_at", "")
             enriched["sold_at"] = ref.get("sold_at", "")
+            enriched["photo_order"] = ref.get("photo_order", "")
             enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
             enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
             enriched["identity_fingerprint"] = ref.get("identity_fingerprint") or card_identity_fingerprint(enriched)
