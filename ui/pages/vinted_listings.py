@@ -785,6 +785,7 @@ def _card_static_html(
     duplicate_badge="",
     unavailable=False,
     drop_card=False,
+    drop_price_display="added",
 ):
     img = _card_image(card, proxy_img_func)
     if img:
@@ -805,10 +806,14 @@ def _card_static_html(
     if drop_card:
         qty = max(1, int(card.get("drop_quantity", card.get("quantity", 1)) or 1))
         added_price = float(card.get("price_at_add", 0) or 0)
-        price_label = f"Ajout {fp_func(added_price)} × {qty}"
         current = suggested_price(card)
-        if current and abs(current - added_price) >= 0.01:
-            price_label += f" · Actuel {fp_func(current)}"
+        if drop_price_display == "current":
+            display_price = current if current else added_price
+            price_label = f"{fp_func(display_price)} × {qty}"
+        else:
+            price_label = f"Ajout {fp_func(added_price)} × {qty}"
+            if current and abs(current - added_price) >= 0.01:
+                price_label += f" · Actuel {fp_func(current)}"
         stock_label = "Disponible" if not unavailable else "Indisponible"
     badge_html = ""
     if badge:
@@ -1621,6 +1626,7 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
                 duplicate_badge=duplicate_badge,
                 unavailable=unavailable,
                 drop_card=True,
+                drop_price_display="current",
             ),
             unsafe_allow_html=True,
         )
