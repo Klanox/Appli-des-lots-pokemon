@@ -1360,14 +1360,19 @@ def dc(li,ci):
     sd(cd)
     return True,""
 
-def update_card_quantity(li, ci):
+def update_card_quantity(li, ci, input_key=None):
     cd = ld()
     if li >= len(cd.get("lots", [])) or ci >= len(cd["lots"][li].get("cards", [])):
         return
     card = cd["lots"][li]["cards"][ci]
-    new_q = int(st.session_state.get(f"qty_edit_{li}_{ci}", card.get("quantity", 1)))
-    sold_q = int(card.get("sold_quantity", 0))
-    card["quantity"] = max(new_q, sold_q)
+    state_key = input_key or f"qty_edit_{li}_{ci}"
+    new_q = int(st.session_state.get(state_key, card.get("quantity", 1)))
+    min_q = (
+        int(card.get("sold_quantity", 0) or 0)
+        + int(card.get("exchange_out_quantity", 0) or 0)
+        + int(card.get("stored_quantity", 0) or 0)
+    )
+    card["quantity"] = max(new_q, min_q)
     sd(cd)
 
 def transfer_card_to_storage(li, ci, qty, storage_cote=None):

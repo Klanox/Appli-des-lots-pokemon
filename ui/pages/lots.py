@@ -1069,15 +1069,21 @@ def render_lots_page(context):
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
                                     if not is_sold_card and not is_collection_card:
+                                        min_total_quantity = (
+                                            int(crd.get("sold_quantity", 0) or 0)
+                                            + int(crd.get("exchange_out_quantity", 0) or 0)
+                                            + int(crd.get("stored_quantity", 0) or 0)
+                                        )
+                                        qty_edit_key = f"qty_edit_{widget_key}"
                                         st.number_input(
                                             "Qté totale",
-                                            min_value=int(crd.get("sold_quantity", 0)),
+                                            min_value=min_total_quantity,
                                             max_value=9999,
-                                            value=int(crd.get("quantity", 1)),
+                                            value=max(int(crd.get("quantity", 1) or 1), min_total_quantity),
                                             step=1,
-                                            key=f"qty_edit_{widget_key}",
+                                            key=qty_edit_key,
                                             on_change=update_card_quantity,
-                                            args=(ix, real_cix),
+                                            args=(ix, real_cix, qty_edit_key),
                                         )
                                         if is_trade and stock > 0:
                                             move_panel_key = f"show_trade_move_{widget_key}"
@@ -1342,8 +1348,12 @@ def render_lots_page(context):
                         if ix < len(cdd.get("lots", [])) and real_cix < len(cdd["lots"][ix].get("cards", [])):
                             card_data = cdd["lots"][ix]["cards"][real_cix]
                             new_q = int(action.get("value") or card_data.get("quantity", 1))
-                            sold_q = int(card_data.get("sold_quantity", 0))
-                            card_data["quantity"] = max(new_q, sold_q)
+                            min_q = (
+                                int(card_data.get("sold_quantity", 0) or 0)
+                                + int(card_data.get("exchange_out_quantity", 0) or 0)
+                                + int(card_data.get("stored_quantity", 0) or 0)
+                            )
+                            card_data["quantity"] = max(new_q, min_q)
                             sd(cdd)
                             st.rerun()
                     elif action_type == "delete":
