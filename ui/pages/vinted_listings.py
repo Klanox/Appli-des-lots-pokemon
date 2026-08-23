@@ -405,6 +405,10 @@ def _inject_vinted_styles():
     max-width:calc((100% - 50px) / 6) !important;
     min-width:0 !important;
 }
+[data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_drop_cards_"] > [data-testid="stLayoutWrapper"] {
+    flex:0 0 calc((100% - 70px) / 8) !important;
+    max-width:calc((100% - 70px) / 8) !important;
+}
 div[class*="st-key-vinted_grid_"] button {
     min-height:30px !important;
     padding:.2rem .4rem !important;
@@ -546,6 +550,10 @@ def _html_escape(value):
 
 def _grid_columns(mobile):
     return 2 if mobile else 6
+
+
+def _drop_cards_grid_columns(mobile):
+    return 2 if mobile else 8
 
 
 DROP_WORKFLOW_STEPS = (
@@ -1569,7 +1577,7 @@ def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, 
             unsafe_allow_html=True,
         )
 
-    cols_count = _grid_columns(mobile)
+    cols_count = _drop_cards_grid_columns(mobile)
     all_cards = []
     for card in list(filtered_cards) + list(filtered_missing):
         item = dict(card)
