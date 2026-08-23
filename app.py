@@ -2131,6 +2131,7 @@ if not wrapped_story_active:
             selected_native_nav_page = st.navigation(
                 build_native_navigation_pages(),
                 position="sidebar",
+                expanded=True,
             )
             with st.container(key="ps_sidebar_bottom_block"):
                 st.markdown("---")

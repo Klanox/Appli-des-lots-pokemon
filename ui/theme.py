@@ -34,9 +34,6 @@ NAV_SECTIONS = (
         "items": (
             ("Historique", "Historique", "📋"),
             ("Statistiques", "Statistiques", "📊"),
-            ("Marché", "Marché", "📈"),
-            ("Wrapped", "Wrapped", "🎁"),
-            ("Compteurs", "Compteurs", "🎰"),
         ),
     },
     {
@@ -559,6 +556,8 @@ h2 {{
     padding: 0.2rem 0.25rem 0.7rem !important;
     margin: 0 0 0.65rem 0 !important;
     border-bottom: 1px solid var(--ps-sidebar-border) !important;
+    max-height: none !important;
+    overflow: visible !important;
 }}
 [data-testid="stSidebar"] [data-testid="stSidebarNavItems"] {{
     gap: 0.05rem !important;
