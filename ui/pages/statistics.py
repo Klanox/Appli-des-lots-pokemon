@@ -333,50 +333,66 @@ def _inject_stats_css():
         <style>
         .ps-stats-v3{font-family:"Plus Jakarta Sans",sans-serif;color:#0f172a}
         .ps-stats-v3 *{box-sizing:border-box}
-        .ps-stats-hero-v3{position:relative;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(260px,.75fr);gap:1rem;overflow:hidden;border:1px solid rgba(124,58,237,.18);border-radius:22px;padding:1.15rem;background:radial-gradient(circle at 8% 12%,rgba(124,58,237,.22),transparent 34%),linear-gradient(135deg,#fbfaff 0%,#eef6ff 56%,#f5fff9 100%);box-shadow:0 18px 42px rgba(79,70,229,.11);margin:.15rem 0 1rem}
-        .ps-stats-hero-v3:after{content:"";position:absolute;right:-70px;top:-90px;width:220px;height:220px;border-radius:999px;background:rgba(14,165,233,.12);pointer-events:none}
-        .ps-stats-month-eyebrow{color:#6d28d9;font-size:.78rem;font-weight:950;letter-spacing:.12em;text-transform:uppercase}
-        .ps-stats-month-title{font-size:clamp(2rem,5vw,4.4rem);line-height:.92;font-weight:950;letter-spacing:0;margin:.2rem 0;color:#111827}
-        .ps-stats-profile{display:inline-flex;align-items:center;gap:.35rem;background:#fff;border:1px solid rgba(124,58,237,.2);border-radius:999px;padding:.42rem .7rem;color:#4c1d95;font-weight:950;box-shadow:0 8px 18px rgba(79,70,229,.08)}
-        .ps-stats-why{margin:.55rem 0 .85rem;color:#64748b;font-size:.95rem;font-weight:750}
-        .ps-stats-hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem;margin-top:.75rem}
-        .ps-stats-hero-metric{border:1px solid rgba(148,163,184,.22);background:rgba(255,255,255,.72);backdrop-filter:blur(8px);border-radius:15px;padding:.72rem .78rem;min-width:0}
-        .ps-stats-hero-metric .label{color:#64748b;font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
-        .ps-stats-hero-metric .value{color:#0f172a;font-size:1.25rem;font-weight:950;line-height:1.1;margin-top:.18rem}
-        .ps-stats-hero-metric .delta{font-size:.72rem;font-weight:850;margin-top:.28rem;color:#6d28d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .ps-stats-card-month{position:relative;background:rgba(255,255,255,.82);border:1px solid rgba(124,58,237,.18);border-radius:18px;padding:.85rem;box-shadow:0 12px 26px rgba(15,23,42,.08)}
-        .ps-stats-card-month .tag{font-size:.74rem;font-weight:950;color:#6d28d9;text-transform:uppercase;letter-spacing:.06em}
-        .ps-stats-card-month .sub{font-size:.76rem;color:#64748b;font-weight:800;margin:.12rem 0 .58rem}
-        .ps-stats-card-month .body{display:grid;grid-template-columns:92px minmax(0,1fr);gap:.7rem;align-items:center}
-        .ps-stats-card-month .img{width:92px;aspect-ratio:.72;border-radius:13px;background:linear-gradient(135deg,#eef2ff,#f8fafc);border:1px solid #e2e8f0;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#64748b;font-size:.72rem;text-align:center;font-weight:850}
+        .ps-stats-hero-v3{position:relative;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.85fr);gap:1rem;overflow:hidden;border:1px solid rgba(91,33,182,.26);border-radius:24px;padding:1.05rem;background:radial-gradient(circle at 11% 0%,rgba(34,211,238,.24),transparent 31%),radial-gradient(circle at 88% 12%,rgba(245,158,11,.20),transparent 26%),linear-gradient(135deg,#241255 0%,#3b168f 43%,#0f172a 100%);box-shadow:0 18px 44px rgba(30,27,75,.22);margin:.05rem 0 .78rem;color:#fff}
+        .ps-stats-hero-v3:after{content:"";position:absolute;right:-88px;bottom:-110px;width:250px;height:250px;border-radius:999px;background:rgba(14,165,233,.16);pointer-events:none}
+        .ps-stats-hero-v3>div{position:relative;z-index:1}
+        .ps-stats-month-eyebrow{color:#a5f3fc;font-size:.72rem;font-weight:950;letter-spacing:.14em;text-transform:uppercase}
+        .ps-stats-month-title{font-size:clamp(2.25rem,5vw,4.7rem);line-height:.88;font-weight:950;letter-spacing:0;margin:.16rem 0 .35rem;color:#fff;text-shadow:0 10px 24px rgba(0,0,0,.20)}
+        .ps-stats-profile{display:inline-flex;align-items:center;gap:.38rem;background:linear-gradient(135deg,#7c3aed,#06b6d4);border:1px solid rgba(255,255,255,.26);border-radius:999px;padding:.44rem .78rem;color:#fff;font-weight:950;box-shadow:0 12px 26px rgba(6,182,212,.20)}
+        .ps-stats-why{margin:.52rem 0 .78rem;color:#cbd5e1;font-size:.9rem;font-weight:780}
+        .ps-stats-hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:.65rem;border:1px solid rgba(255,255,255,.14);border-radius:18px;background:rgba(15,23,42,.28);backdrop-filter:blur(10px);overflow:hidden}
+        .ps-stats-hero-metric{padding:.74rem .78rem;min-width:0;border-right:1px solid rgba(255,255,255,.12)}
+        .ps-stats-hero-metric:last-child{border-right:0}
+        .ps-stats-hero-metric .label{color:#cbd5e1;font-size:.62rem;font-weight:950;text-transform:uppercase;letter-spacing:.08em}
+        .ps-stats-hero-metric .value{color:#fff;font-size:clamp(1.05rem,2.2vw,1.45rem);font-weight:950;line-height:1.04;margin-top:.16rem}
+        .ps-stats-hero-metric .delta{font-size:.72rem;font-weight:950;margin-top:.22rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .ps-stats-delta-up{color:#34d399}
+        .ps-stats-delta-down{color:#fb7185}
+        .ps-stats-delta-na{color:#94a3b8}
+        .ps-stats-card-month{position:relative;background:linear-gradient(155deg,rgba(255,251,235,.96),rgba(255,255,255,.90));border:1px solid rgba(245,158,11,.45);border-radius:22px;padding:.95rem;box-shadow:0 16px 34px rgba(245,158,11,.14);overflow:hidden;color:#111827}
+        .ps-stats-card-month:before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,#f59e0b,#facc15,#22d3ee)}
+        .ps-stats-card-month .tag{font-size:.7rem;font-weight:950;color:#92400e;text-transform:uppercase;letter-spacing:.09em}
+        .ps-stats-card-month .sub{font-size:.76rem;color:#78716c;font-weight:850;margin:.14rem 0 .68rem}
+        .ps-stats-card-month .body{display:grid;grid-template-columns:122px minmax(0,1fr);gap:.78rem;align-items:center}
+        .ps-stats-card-month .img{width:122px;aspect-ratio:.72;border-radius:16px;background:linear-gradient(135deg,#1e1b4b,#f8fafc);border:1px solid rgba(245,158,11,.28);display:flex;align-items:center;justify-content:center;overflow:hidden;color:#64748b;font-size:.72rem;text-align:center;font-weight:850;box-shadow:0 12px 24px rgba(15,23,42,.18)}
         .ps-stats-card-month img{width:100%;height:100%;object-fit:cover;display:block}
-        .ps-stats-card-month .name{font-size:1rem;font-weight:950;line-height:1.16;color:#111827}
-        .ps-stats-card-month .number{font-size:.78rem;color:#64748b;font-weight:800;margin-top:.18rem}
-        .ps-stats-card-month .price{font-size:1.35rem;color:#16a34a;font-weight:950;margin-top:.45rem}
-        .ps-stats-section-title{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin:1rem 0 .45rem;color:#111827;font-size:1.05rem;font-weight:950}
-        .ps-stats-panel{border:1px solid rgba(148,163,184,.2);background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(248,250,252,.82));border-radius:18px;padding:.78rem .85rem;box-shadow:0 10px 25px rgba(15,23,42,.045);margin-bottom:.85rem}
-        .ps-stats-chart-note{color:#64748b;font-size:.83rem;font-weight:760;margin:.2rem 0 .35rem}
+        .ps-stats-card-month .name{font-size:1.08rem;font-weight:950;line-height:1.13;color:#111827}
+        .ps-stats-card-month .number{font-size:.78rem;color:#64748b;font-weight:850;margin-top:.2rem}
+        .ps-stats-card-month .price{font-size:1.65rem;color:#15803d;font-weight:950;margin-top:.48rem}
+        .ps-stats-section-title{display:flex;align-items:flex-end;justify-content:space-between;gap:.75rem;margin:.82rem 0 .38rem;color:#111827;font-size:1rem;font-weight:950}
+        .ps-stats-section-title span{display:inline-flex;align-items:center;gap:.45rem}
+        .ps-stats-section-title span:before{content:"";width:4px;height:18px;border-radius:999px;background:linear-gradient(180deg,#6d28d9,#22d3ee)}
+        .ps-stats-chart-note{color:#475569;font-size:.82rem;font-weight:800;margin:-.1rem 0 .2rem}
         .ps-stats-timeline{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.48rem}
-        .ps-stats-month-node{background:#fff;border:1px solid rgba(124,58,237,.16);border-radius:16px;padding:.72rem .68rem;min-height:104px;box-shadow:0 8px 18px rgba(15,23,42,.04)}
-        .ps-stats-month-node .month{font-size:.78rem;color:#64748b;font-weight:900;text-transform:uppercase}
-        .ps-stats-month-node .profile{font-size:.92rem;color:#312e81;font-weight:950;margin:.26rem 0;line-height:1.08}
+        .ps-stats-month-node{--profile-accent:#6d28d9;position:relative;background:#fff;border:1px solid color-mix(in srgb,var(--profile-accent) 25%,#e2e8f0);border-radius:16px;padding:.72rem .68rem .66rem;min-height:100px;box-shadow:0 8px 18px rgba(15,23,42,.055);overflow:hidden;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+        .ps-stats-month-node:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(15,23,42,.09);border-color:color-mix(in srgb,var(--profile-accent) 50%,#fff)}
+        .ps-stats-month-node:before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:var(--profile-accent)}
+        .ps-stats-month-node .month{font-size:.75rem;color:#64748b;font-weight:950;text-transform:uppercase}
+        .ps-stats-month-node .profile{font-size:.9rem;color:#111827;font-weight:950;margin:.3rem 0 .24rem;line-height:1.05}
         .ps-stats-month-node .money{font-size:.76rem;color:#475569;font-weight:850;line-height:1.25}
-        .ps-stats-goals{display:grid;gap:.45rem}
-        .ps-stats-goal-row{display:grid;grid-template-columns:150px minmax(110px,160px) minmax(0,1fr);gap:.7rem;align-items:center;padding:.5rem .58rem;border:1px solid rgba(148,163,184,.18);border-radius:13px;background:rgba(255,255,255,.78)}
-        .ps-stats-goal-name{font-size:.82rem;font-weight:950;color:#1e293b}
-        .ps-stats-goal-value{font-size:.82rem;font-weight:950;color:#4338ca;text-align:right}
-        .ps-stats-progress{height:9px;border-radius:999px;background:#e2e8f0;overflow:hidden}
-        .ps-stats-progress span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#6d5dfc,#0ea5e9)}
+        .ps-stats-goals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem}
+        .ps-stats-goal-card{--goal-accent:#6d28d9;background:#fff;border:1px solid color-mix(in srgb,var(--goal-accent) 28%,#e2e8f0);border-radius:17px;padding:.78rem .76rem;box-shadow:0 10px 22px rgba(15,23,42,.055);transition:transform .16s ease,box-shadow .16s ease}
+        .ps-stats-goal-card:hover{transform:translateY(-2px);box-shadow:0 14px 26px rgba(15,23,42,.09)}
+        .ps-stats-goal-top{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.42rem}
+        .ps-stats-goal-name{font-size:.78rem;font-weight:950;color:#1e293b;text-transform:uppercase;letter-spacing:.04em}
+        .ps-stats-goal-icon{width:32px;height:32px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--goal-accent) 13%,#fff);color:var(--goal-accent);font-size:1rem}
+        .ps-stats-goal-value{font-size:1rem;font-weight:950;color:#111827}
+        .ps-stats-goal-pct{font-size:.78rem;font-weight:950;color:var(--goal-accent);margin:.16rem 0 .4rem}
+        .ps-stats-progress{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
+        .ps-stats-progress span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--goal-accent),#22d3ee)}
         .ps-stats-progress.done span{background:linear-gradient(90deg,#10b981,#22c55e)}
+        .ps-stats-goal-done{font-size:.73rem;font-weight:950;color:#15803d;margin-top:.36rem}
         .ps-stats-record-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem}
-        .ps-stats-record{background:#fff;border:1px solid rgba(124,58,237,.15);border-radius:16px;padding:.75rem .78rem;box-shadow:0 8px 18px rgba(15,23,42,.04)}
-        .ps-stats-record .label{font-size:.68rem;color:#64748b;font-weight:950;text-transform:uppercase;letter-spacing:.05em}
-        .ps-stats-record .value{font-size:1rem;color:#111827;font-weight:950;margin-top:.28rem;line-height:1.15}
-        .ps-stats-record .detail{font-size:.74rem;color:#64748b;font-weight:760;margin-top:.2rem;line-height:1.18}
-        .ps-stats-history-line{margin:.55rem 0 0;color:#475569;font-weight:850;font-size:.86rem;background:#f8f7ff;border:1px solid #e5ddff;border-radius:999px;padding:.5rem .75rem;width:max-content;max-width:100%}
-        div[class*="st-key-stats_goal_edit_toggle"] button,div[class*="st-key-stats_save_goals"] button{border-radius:999px!important;font-weight:900!important}
-        @media (max-width:980px){.ps-stats-hero-v3{grid-template-columns:1fr}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-timeline{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:768px){.ps-stats-hero-v3{padding:.85rem;border-radius:18px}.ps-stats-hero-metrics{gap:.4rem}.ps-stats-hero-metric{padding:.62rem}.ps-stats-card-month .body{grid-template-columns:78px minmax(0,1fr)}.ps-stats-card-month .img{width:78px}.ps-stats-timeline{grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem}.ps-stats-goal-row{grid-template-columns:1fr;gap:.28rem}.ps-stats-goal-value{text-align:left}.ps-stats-record-grid{grid-template-columns:1fr}.ps-stats-history-line{border-radius:14px;width:100%}}
+        .ps-stats-record{--record-accent:#f59e0b;background:linear-gradient(155deg,#fff,color-mix(in srgb,var(--record-accent) 8%,#fff));border:1px solid color-mix(in srgb,var(--record-accent) 32%,#e2e8f0);border-radius:17px;padding:.76rem .78rem;box-shadow:0 10px 22px rgba(15,23,42,.055);transition:transform .16s ease,box-shadow .16s ease}
+        .ps-stats-record:hover{transform:translateY(-2px);box-shadow:0 14px 26px rgba(15,23,42,.09)}
+        .ps-stats-record .icon{font-size:1.15rem;margin-bottom:.28rem}
+        .ps-stats-record .label{font-size:.66rem;color:#64748b;font-weight:950;text-transform:uppercase;letter-spacing:.055em}
+        .ps-stats-record .value{font-size:1.05rem;color:#111827;font-weight:950;margin-top:.28rem;line-height:1.12}
+        .ps-stats-record .detail{font-size:.74rem;color:#64748b;font-weight:790;margin-top:.22rem;line-height:1.18}
+        .ps-stats-history-line{margin:.5rem 0 0;color:#475569;font-weight:850;font-size:.84rem}
+        div[class*="st-key-stats_goal_edit_toggle"] button,div[class*="st-key-stats_save_goals"] button{border-radius:999px!important;font-weight:900!important;padding:.36rem .72rem!important;min-height:2rem!important}
+        @media (max-width:980px){.ps-stats-hero-v3{grid-template-columns:1fr}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric:nth-child(2){border-right:0}.ps-stats-timeline{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-goals{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media (max-width:768px){.ps-stats-hero-v3{padding:.85rem;border-radius:18px}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric{padding:.66rem}.ps-stats-hero-metric:nth-child(odd){border-right:1px solid rgba(255,255,255,.12)}.ps-stats-hero-metric:nth-child(even){border-right:0}.ps-stats-card-month .body{grid-template-columns:96px minmax(0,1fr)}.ps-stats-card-month .img{width:96px}.ps-stats-timeline{grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem}.ps-stats-goals{grid-template-columns:1fr}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-history-line{width:100%;line-height:1.35}}
         </style>
         """,
         unsafe_allow_html=True,
@@ -672,10 +688,10 @@ def _fallback_current_profile(metrics):
 def _metric_delta_html(current, previous, *, unit=""):
     pct = _pct_change(current, previous)
     if pct is None:
-        return "N/A"
+        return '<span class="ps-stats-delta-na">N/A</span>'
     sign = "+" if pct >= 0 else ""
-    tone = "#16a34a" if pct >= 0 else "#dc2626"
-    return f'<span style="color:{tone};">{sign}{pct:.1f}%</span> vs mois préc.'.replace(".", ",")
+    css_class = "ps-stats-delta-up" if pct >= 0 else "ps-stats-delta-down"
+    return f'<span class="{css_class}">{sign}{pct:.1f}%</span>'.replace(".", ",")
 
 
 def _hero_metric(label, value, delta):
@@ -711,7 +727,6 @@ def _best_card_of_month(rows):
 
 
 def _card_month_html(card, current_month, proxy_img_func):
-    month_name = _month_label(current_month).split()[0].lower()
     if not card:
         img_html = '<div class="img">Image<br>absente</div>'
         name = "Aucune carte vendue"
@@ -733,7 +748,7 @@ def _card_month_html(card, current_month, proxy_img_func):
     return (
         '<div class="ps-stats-card-month">'
         '<div class="tag">⭐ Carte du mois</div>'
-        f'<div class="sub">Plus grosse carte vendue en {html.escape(month_name)}</div>'
+        '<div class="sub">Plus grosse carte vendue ce mois</div>'
         '<div class="body">'
         f'{img_html}'
         '<div>'
@@ -742,6 +757,25 @@ def _card_month_html(card, current_month, proxy_img_func):
         f'<div class="price">{html.escape(price)}</div>'
         '</div></div></div>'
     )
+
+
+def _profile_accent(label):
+    text = str(label or "").lower()
+    if "record" in text or "explosif" in text or "🏆" in text or "🚀" in text:
+        return "#f59e0b"
+    if "rentable" in text or "vendue" in text or "vendeur" in text or "💎" in text or "🔥" in text:
+        return "#16a34a"
+    if "acheteur" in text or "🛒" in text:
+        return "#0ea5e9"
+    if "volume" in text or "📦" in text:
+        return "#06b6d4"
+    if "investissement" in text or "🌱" in text:
+        return "#7c3aed"
+    if "calme" in text or "🌿" in text:
+        return "#22c55e"
+    if "retrait" in text or "📉" in text:
+        return "#f43f5e"
+    return "#6d28d9"
 
 
 def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month, proxy_img_func):
@@ -810,12 +844,12 @@ def _render_stats_v3_chart(monthly_stats, months_sorted, current_month):
     custom = [[ca_values[idx], benef_values[idx], (benef_values[idx] / ca_values[idx] * 100.0) if ca_values[idx] else 0.0, qty_values[idx], profiles[idx][0] if profiles[idx] else "N/A"] for idx in range(len(months))]
     note = _chart_sentence(current_month, monthly_stats, months)
     note_html = f'<div class="ps-stats-chart-note">{html.escape(note)}</div>' if note else ""
-    st.markdown(f'<div class="ps-stats-section-title"><span>Évolution CA & bénéfice</span></div>{note_html}', unsafe_allow_html=True)
+    st.markdown(f'<div class="ps-stats-section-title"><span>Évolution</span></div>{note_html}', unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=labels, y=ca_values, mode="lines+markers", name="CA", line=dict(color="#6d5dfc", width=3), marker=dict(size=7), customdata=custom, hovertemplate="%{x}<br>CA : %{y:.2f}€<br>Bénéfice : %{customdata[1]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
     fig.add_trace(go.Scatter(x=labels, y=benef_values, mode="lines+markers", name="Bénéfice", line=dict(color="#16a34a", width=3), marker=dict(size=7), customdata=custom, hovertemplate="%{x}<br>Bénéfice : %{y:.2f}€<br>CA : %{customdata[0]:.2f}€<br>Marge : %{customdata[2]:.1f}%<br>Cartes : %{customdata[3]:.0f}<br>%{customdata[4]}<extra></extra>"))
-    fig.update_layout(height=255, margin=dict(t=4, b=4, l=4, r=4), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font=dict(family="Plus Jakarta Sans", color="#0f172a", size=11), yaxis=dict(title="", gridcolor="#eef2ff", zerolinecolor="#e2e8f0", ticksuffix="€"), xaxis=dict(showgrid=False), legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1, font=dict(size=11)))
-    st.plotly_chart(fig, width="stretch", key="stats_v3_ca_benef_chart")
+    fig.update_layout(height=178, margin=dict(t=2, b=2, l=2, r=2), plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font=dict(family="Plus Jakarta Sans", color="#0f172a", size=10), yaxis=dict(title="", gridcolor="rgba(148,163,184,.18)", zerolinecolor="rgba(148,163,184,.24)", ticksuffix="€"), xaxis=dict(showgrid=False), legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1, font=dict(size=10)))
+    st.plotly_chart(fig, width="stretch", key="stats_v3_ca_benef_chart", config={"displayModeBar": False, "responsive": True})
 
 
 def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month):
@@ -827,8 +861,9 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month):
             profile = _fallback_current_profile(_month_metrics([], monthly_stats, month))
         stat = monthly_stats.get(month, _blank_month_stats())
         month_short = _month_label(month).split()[0][:4].rstrip(".")
+        accent = _profile_accent(profile[0])
         nodes.append(
-            '<div class="ps-stats-month-node">'
+            f'<div class="ps-stats-month-node" style="--profile-accent:{accent};">'
             f'<div class="month">{html.escape(month_short)}</div>'
             f'<div class="profile">{html.escape(_short_profile_label(profile[0]))}</div>'
             f'<div class="money">{_fmt_eur(stat["ca"])}<br>{_fmt_eur(stat["benef"])}</div>'
@@ -838,19 +873,24 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month):
         st.markdown('<div class="ps-stats-section-title"><span>Profil des mois</span></div><div class="ps-stats-timeline">' + "".join(nodes) + "</div>", unsafe_allow_html=True)
 
 
-def _goal_row(label, current, target, unit="€"):
+def _goal_row(label, current, target, unit="€", icon="🎯", accent="#6d28d9"):
     current = _safe_float(current)
     target = _safe_float(target)
     pct = min((current / target * 100.0) if target > 0 else 0.0, 100.0)
     done = pct >= 100
     current_label = _fmt_eur(current) if unit == "€" else f"{current:.0f}"
     target_label = _fmt_eur(target) if unit == "€" else f"{target:.0f}"
-    check = " ✓" if done else ""
+    status = '<div class="ps-stats-goal-done">✓ Atteint</div>' if done else ""
     return (
-        '<div class="ps-stats-goal-row">'
+        f'<div class="ps-stats-goal-card" style="--goal-accent:{accent};">'
+        '<div class="ps-stats-goal-top">'
+        f'<div class="ps-stats-goal-icon">{html.escape(icon)}</div>'
         f'<div class="ps-stats-goal-name">{html.escape(label)}</div>'
-        f'<div class="ps-stats-goal-value">{html.escape(current_label)} / {html.escape(target_label)}{check}</div>'
+        '</div>'
+        f'<div class="ps-stats-goal-value">{html.escape(current_label)} / {html.escape(target_label)}</div>'
+        f'<div class="ps-stats-goal-pct">{pct:.0f}%</div>'
         f'<div class="ps-stats-progress {"done" if done else ""}"><span style="width:{pct:.1f}%"></span></div>'
+        f'{status}'
         '</div>'
     )
 
@@ -862,18 +902,19 @@ def _render_stats_v3_goals(monthly_stats, months_sorted, current_month, monthly_
     current = monthly_stats.get(current_month, _blank_month_stats())
     month_name = _month_label(current_month).split()[0].lower()
     month_prefix = "d'" if month_name[:1] in "aeiouyàâéèêëîïôùûü" else "de "
-    st.markdown(
-        f'<div class="ps-stats-section-title"><span>Objectifs {month_prefix}{html.escape(month_name)}</span></div>'
-        '<div class="ps-stats-panel"><div class="ps-stats-goals">'
-        + _goal_row("CA", current.get("ca"), month_goals.get("ca_target"), "€")
-        + _goal_row("Cartes vendues", current.get("qty"), month_goals.get("qty_target"), "")
-        + _goal_row("Bénéfice", current.get("benef"), month_goals.get("benef_target"), "€")
-        + '</div></div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("Modifier", key="stats_goal_edit_toggle"):
+    title_col, action_col = st.columns([1, 0.18], vertical_alignment="center")
+    title_col.markdown(f'<div class="ps-stats-section-title"><span>Objectifs {month_prefix}{html.escape(month_name)}</span></div>', unsafe_allow_html=True)
+    if action_col.button("Modifier", key="stats_goal_edit_toggle", width="stretch"):
         st.session_state["stats_goal_edit_open"] = not st.session_state.get("stats_goal_edit_open", False)
         st.rerun()
+    st.markdown(
+        '<div class="ps-stats-goals">'
+        + _goal_row("CA", current.get("ca"), month_goals.get("ca_target"), "€", "💰", "#6d28d9")
+        + _goal_row("Cartes vendues", current.get("qty"), month_goals.get("qty_target"), "", "🃏", "#0ea5e9")
+        + _goal_row("Bénéfice", current.get("benef"), month_goals.get("benef_target"), "€", "💎", "#16a34a")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
     if st.session_state.get("stats_goal_edit_open", False):
         gc1, gc2, gc3 = st.columns(3)
         new_ca_t = gc1.number_input("Objectif CA (€)", 0.0, 99999.0, value=float(month_goals.get("ca_target", 100.0)), step=10.0, key="stats_goal_ca")
@@ -910,10 +951,18 @@ def _record_values(all_sales, monthly_stats, months_sorted):
 
 def _render_stats_v3_records(all_sales, monthly_stats, months_sorted):
     records, total = _record_values(all_sales, monthly_stats, months_sorted)
+    record_visuals = [
+        ("🏆", "#f59e0b"),
+        ("💎", "#16a34a"),
+        ("📦", "#06b6d4"),
+        ("🔥", "#ef4444"),
+    ]
     cards = []
-    for label, value, detail in records:
+    for idx, (label, value, detail) in enumerate(records):
+        icon, accent = record_visuals[idx] if idx < len(record_visuals) else ("🏆", "#f59e0b")
         cards.append(
-            '<div class="ps-stats-record">'
+            f'<div class="ps-stats-record" style="--record-accent:{accent};">'
+            f'<div class="icon">{html.escape(icon)}</div>'
             f'<div class="label">{html.escape(label)}</div>'
             f'<div class="value">{html.escape(str(value))}</div>'
             f'<div class="detail">{html.escape(str(detail or " "))}</div>'
@@ -923,7 +972,7 @@ def _render_stats_v3_records(all_sales, monthly_stats, months_sorted):
         '<div class="ps-stats-section-title"><span>🏆 Tes records</span></div>'
         f'<div class="ps-stats-record-grid">{"".join(cards)}</div>'
         '<div class="ps-stats-history-line">'
-        f'{_fmt_eur(total["ca"])} CA · {_fmt_eur(total["benef"])} bénéfice · panier moyen {_fmt_eur(total["basket"])}'
+        f'{_fmt_eur(total["ca"])} de CA • {_fmt_eur(total["benef"])} de bénéfice • panier moyen {_fmt_eur(total["basket"])}'
         '</div>',
         unsafe_allow_html=True,
     )
