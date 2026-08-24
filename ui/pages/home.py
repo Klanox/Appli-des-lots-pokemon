@@ -74,6 +74,66 @@ def _home_result_key(lot_idx, card_idx, lot_uid="", card_uid=""):
     return f"home_search_{digest}"
 
 
+def _chunked(items, size):
+    for start in range(0, len(items), size):
+        yield start // size, items[start:start + size]
+
+
+def _inject_home_search_grid_styles():
+    st.markdown(
+        """
+        <style>
+        [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"],
+        [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] {
+            display:flex !important;
+            flex-direction:row !important;
+            flex-wrap:wrap !important;
+            justify-content:flex-start !important;
+            align-items:flex-start !important;
+            gap:.46rem !important;
+            width:100% !important;
+            max-width:100% !important;
+            overflow-x:hidden !important;
+        }
+        [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"] > [data-testid="stLayoutWrapper"],
+        [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"] > [data-testid="column"],
+        [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] > [data-testid="stLayoutWrapper"],
+        [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+            flex:0 0 calc((100% - 2.3rem) / 6) !important;
+            max-width:calc((100% - 2.3rem) / 6) !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+        }
+        [class*="st-key-search_result_card_home_"] {
+            width:100% !important;
+            max-width:100% !important;
+            min-width:0 !important;
+            box-sizing:border-box !important;
+        }
+        [class*="st-key-search_result_card_home_"] img {
+            width:100% !important;
+            max-width:100% !important;
+            height:auto !important;
+        }
+        @media (max-width:768px) {
+            [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"],
+            [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] {
+                gap:.3rem !important;
+            }
+            [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"] > [data-testid="stLayoutWrapper"],
+            [data-testid="stHorizontalBlock"][class*="st-key-search_results_grid_home_row_"] > [data-testid="column"],
+            [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] > [data-testid="stLayoutWrapper"],
+            [class*="st-key-search_results_grid_home_row_"] > [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                flex:0 0 calc((100% - .3rem) / 2) !important;
+                max-width:calc((100% - .3rem) / 2) !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _find_home_search_card(cd, result):
     lots = cd.get("lots", []) or []
     lot_uid = result.get("lot_uid")
@@ -352,104 +412,106 @@ def render_home_page(
                     })
 
         if results_found:
+            _inject_home_search_grid_styles()
             st.caption(f"{len(results_found)} résultat(s) pour « {search_global} »")
-            with st.container(key="search_results_grid_home", horizontal=True, gap="small"):
-                for res in results_found:
-                    with st.container(key=f"search_result_card_home_{res['result_key']}"):
-                        if res["card"].get("image_url"):
-                            st.image(proxy_img_func(res["card"]["image_url"]), width="stretch")
-                        st.markdown(f"**{res['card']['name']}**")
-                        st.caption(f"{res['card']['set']} · #{res['card']['number']}")
-                        st.caption(f"📦 {res['lot_name']} ({res['lot_type']})")
-                        stock_color = "#22c55e" if res["stock"] > 0 else "#94a3b8"
-                        st.markdown(f'<span style="color:{stock_color};font-weight:700;font-size:0.85rem;">{"✅ Stock : "+str(res["stock"]) if res["stock"] > 0 else "❌ Épuisé"}</span>', unsafe_allow_html=True)
-                        st.caption(f"💰 {fp_func(res['card'].get('suggested_price', 0))}")
-                        edit_key = f"{res['result_key']}_edit_price"
-                        value_key = f"{res['result_key']}_price_value"
-                        save_key = f"{res['result_key']}_save_price"
-                        cancel_key = f"{res['result_key']}_cancel_price"
-                        open_key = f"{res['result_key']}_open_price"
-                        delete_confirm_key = f"{res['result_key']}_confirm_delete"
-                        delete_open_key = f"{res['result_key']}_open_delete"
-                        delete_yes_key = f"{res['result_key']}_yes_delete"
-                        delete_no_key = f"{res['result_key']}_no_delete"
+            for row_index, row in _chunked(results_found, 6):
+                with st.container(key=f"search_results_grid_home_row_{row_index}", horizontal=True, gap="small"):
+                    for res in row:
+                        with st.container(key=f"search_result_card_home_{res['result_key']}"):
+                            if res["card"].get("image_url"):
+                                st.image(proxy_img_func(res["card"]["image_url"]), width="stretch")
+                            st.markdown(f"**{res['card']['name']}**")
+                            st.caption(f"{res['card']['set']} · #{res['card']['number']}")
+                            st.caption(f"📦 {res['lot_name']} ({res['lot_type']})")
+                            stock_color = "#22c55e" if res["stock"] > 0 else "#94a3b8"
+                            st.markdown(f'<span style="color:{stock_color};font-weight:700;font-size:0.85rem;">{"✅ Stock : "+str(res["stock"]) if res["stock"] > 0 else "❌ Épuisé"}</span>', unsafe_allow_html=True)
+                            st.caption(f"💰 {fp_func(res['card'].get('suggested_price', 0))}")
+                            edit_key = f"{res['result_key']}_edit_price"
+                            value_key = f"{res['result_key']}_price_value"
+                            save_key = f"{res['result_key']}_save_price"
+                            cancel_key = f"{res['result_key']}_cancel_price"
+                            open_key = f"{res['result_key']}_open_price"
+                            delete_confirm_key = f"{res['result_key']}_confirm_delete"
+                            delete_open_key = f"{res['result_key']}_open_delete"
+                            delete_yes_key = f"{res['result_key']}_yes_delete"
+                            delete_no_key = f"{res['result_key']}_no_delete"
 
-                        if st.session_state.get(edit_key):
-                            current_price = float(res["card"].get("suggested_price", 0) or 0)
-                            st.number_input(
-                                "Nouveau prix (€)",
-                                min_value=0.0,
-                                value=current_price,
-                                step=0.5,
-                                format="%.2f",
-                                key=value_key,
-                            )
-                            btn_save, btn_cancel = st.columns(2)
-                            if btn_save.button("Enregistrer", key=save_key, width="stretch"):
-                                if sd_func is None:
-                                    st.error("Sauvegarde indisponible depuis cette vue.")
-                                else:
-                                    cd_update = ld_func()
-                                    _, _, target_card = _find_home_search_card(cd_update, res)
-                                    if target_card is None:
-                                        st.error("Carte introuvable dans son lot.")
+                            if st.session_state.get(edit_key):
+                                current_price = float(res["card"].get("suggested_price", 0) or 0)
+                                st.number_input(
+                                    "Nouveau prix (€)",
+                                    min_value=0.0,
+                                    value=current_price,
+                                    step=0.5,
+                                    format="%.2f",
+                                    key=value_key,
+                                )
+                                btn_save, btn_cancel = st.columns(2)
+                                if btn_save.button("Enregistrer", key=save_key, width="stretch"):
+                                    if sd_func is None:
+                                        st.error("Sauvegarde indisponible depuis cette vue.")
                                     else:
-                                        new_price = round(float(st.session_state.get(value_key) or 0), 2)
-                                        old_price = round(float(target_card.get("suggested_price", 0) or 0), 2)
-                                        target_card["suggested_price"] = new_price
-                                        if new_price != old_price:
-                                            target_card.setdefault("price_history", []).append({
-                                                "date": datetime.now().isoformat()[:10],
-                                                "price": new_price,
-                                            })
-                                        sd_func(cd_update)
-                                        if clear_stats_cache_func is not None:
-                                            clear_stats_cache_func()
-                                        st.session_state[edit_key] = False
-                                        st.success("Prix mis à jour.")
-                                        st.rerun()
-                            if btn_cancel.button("Annuler", key=cancel_key, width="stretch"):
+                                        cd_update = ld_func()
+                                        _, _, target_card = _find_home_search_card(cd_update, res)
+                                        if target_card is None:
+                                            st.error("Carte introuvable dans son lot.")
+                                        else:
+                                            new_price = round(float(st.session_state.get(value_key) or 0), 2)
+                                            old_price = round(float(target_card.get("suggested_price", 0) or 0), 2)
+                                            target_card["suggested_price"] = new_price
+                                            if new_price != old_price:
+                                                target_card.setdefault("price_history", []).append({
+                                                    "date": datetime.now().isoformat()[:10],
+                                                    "price": new_price,
+                                                })
+                                            sd_func(cd_update)
+                                            if clear_stats_cache_func is not None:
+                                                clear_stats_cache_func()
+                                            st.session_state[edit_key] = False
+                                            st.success("Prix mis à jour.")
+                                            st.rerun()
+                                if btn_cancel.button("Annuler", key=cancel_key, width="stretch"):
+                                    st.session_state[edit_key] = False
+                                    st.rerun()
+                            elif st.button("Modifier le prix", key=open_key, width="stretch"):
+                                st.session_state[edit_key] = True
+                                st.rerun()
+
+                            if st.session_state.get(delete_confirm_key):
+                                card_name = res["card"].get("name") or "Carte"
+                                card_number = res["card"].get("number") or "N/A"
+                                total_qty = int(res["card"].get("quantity", 0) or 0)
+                                st.warning("Supprimer cette carte ?")
+                                st.caption(
+                                    f"{card_name} · #{card_number} · {res['lot_name']} · "
+                                    f"Qté actuelle : {total_qty}"
+                                )
+                                delete_cols = st.columns(2)
+                                if delete_cols[0].button("Annuler", key=delete_no_key, width="stretch"):
+                                    st.session_state[delete_confirm_key] = False
+                                    st.rerun()
+                                if delete_cols[1].button("Supprimer", key=delete_yes_key, type="primary", width="stretch"):
+                                    if delete_card_func is None:
+                                        st.error("Suppression indisponible depuis cette vue.")
+                                    else:
+                                        ok, msg = delete_card_func(
+                                            res["lot_idx"],
+                                            res["card_idx"],
+                                            lot_uid=res.get("lot_uid"),
+                                            card_uid=res.get("card_uid"),
+                                        )
+                                        if ok:
+                                            if clear_stats_cache_func is not None:
+                                                clear_stats_cache_func()
+                                            st.session_state[delete_confirm_key] = False
+                                            st.session_state["home_card_deleted_toast"] = True
+                                            st.rerun()
+                                        else:
+                                            st.error(msg or "Suppression impossible.")
+                            elif st.button("🗑️ Supprimer", key=delete_open_key, width="stretch"):
+                                st.session_state[delete_confirm_key] = True
                                 st.session_state[edit_key] = False
                                 st.rerun()
-                        elif st.button("Modifier le prix", key=open_key, width="stretch"):
-                            st.session_state[edit_key] = True
-                            st.rerun()
-
-                        if st.session_state.get(delete_confirm_key):
-                            card_name = res["card"].get("name") or "Carte"
-                            card_number = res["card"].get("number") or "N/A"
-                            total_qty = int(res["card"].get("quantity", 0) or 0)
-                            st.warning("Supprimer cette carte ?")
-                            st.caption(
-                                f"{card_name} · #{card_number} · {res['lot_name']} · "
-                                f"Qté actuelle : {total_qty}"
-                            )
-                            delete_cols = st.columns(2)
-                            if delete_cols[0].button("Annuler", key=delete_no_key, width="stretch"):
-                                st.session_state[delete_confirm_key] = False
-                                st.rerun()
-                            if delete_cols[1].button("Supprimer", key=delete_yes_key, type="primary", width="stretch"):
-                                if delete_card_func is None:
-                                    st.error("Suppression indisponible depuis cette vue.")
-                                else:
-                                    ok, msg = delete_card_func(
-                                        res["lot_idx"],
-                                        res["card_idx"],
-                                        lot_uid=res.get("lot_uid"),
-                                        card_uid=res.get("card_uid"),
-                                    )
-                                    if ok:
-                                        if clear_stats_cache_func is not None:
-                                            clear_stats_cache_func()
-                                        st.session_state[delete_confirm_key] = False
-                                        st.session_state["home_card_deleted_toast"] = True
-                                        st.rerun()
-                                    else:
-                                        st.error(msg or "Suppression impossible.")
-                        elif st.button("🗑️ Supprimer", key=delete_open_key, width="stretch"):
-                            st.session_state[delete_confirm_key] = True
-                            st.session_state[edit_key] = False
-                            st.rerun()
         else:
             st.info(f"Aucune carte trouvée pour « {search_global} »")
     elif not search_global:
