@@ -66,6 +66,9 @@ node_modules/
 # Gemini local cache
 .gemini/
 
+# Local photo recognition POC inputs/cache
+photo_recognition_poc/
+
 # VSCode history
 .history/
 
