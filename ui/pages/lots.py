@@ -12,7 +12,7 @@ import re
 
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
-from ui.badges import status_badge
+from ui.badges import card_variant_badges, status_badge
 from ui.lot_image_upload_bridge import render_lot_image_upload_bridge
 from ui.mobile_scan import render_assisted_scan
 
@@ -143,13 +143,11 @@ def render_lots_page(context):
         return "stock"
 
     def lot_card_status_badges(card, display_status):
-        badges = card_status_badges(card, include_storage=False)
-        badge_text = badges.upper()
-        if display_status == "collection" and "COLLECTION" not in badge_text:
-            badges += " " + status_badge("Collection")
-        elif display_status == "stored" and "STOCKAGE" not in badge_text:
-            badges += " " + status_badge("Stockage")
-        return badges
+        if display_status == "collection":
+            return status_badge("Collection")
+        if display_status == "stored":
+            return status_badge("Stockage")
+        return ""
 
     st.markdown(
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
@@ -263,6 +261,13 @@ def render_lots_page(context):
         .ps-lot-inline-image-btn:hover {
             background: rgba(124,58,237,0.12);
             border-color: rgba(124,58,237,0.32);
+        }
+        .ps-lot-variant-badges {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.18rem;
+            flex-wrap: wrap;
+            min-width: 0;
         }
         @media (max-width: 768px) {
             .lot-detail-reimbursement-row {
@@ -971,7 +976,8 @@ def render_lots_page(context):
                                             '</div>'
                                         )
 
-                                    badges = lot_card_status_badges(crd, display_status)
+                                    status_badges = lot_card_status_badges(crd, display_status)
+                                    variant_badges = card_variant_badges(crd)
                                     stock_txt = "🧾 Collection" if is_collection_card else ("📈 Stockage" if is_storage_card else ("✅" if is_sold_card else f"{stock}/{crd['quantity']}"))
                                     image_button = (
                                         '<button type="button" class="ps-lot-inline-image-btn" '
@@ -980,9 +986,10 @@ def render_lots_page(context):
                                     )
                                     static_parts.append(
                                         '<div class="ps-lot-name-row">'
-                                        f'<span class="ps-lot-name-text">{html.escape(str(crd.get("name", "")))}{badges} '
+                                        f'<span class="ps-lot-name-text">{html.escape(str(crd.get("name", "")))}{status_badges} '
                                         f'<span style="color:#64748b;font-weight:500;">· {stock_txt}</span></span>'
                                         f'{image_button}'
+                                        f'<span class="ps-lot-variant-badges">{variant_badges}</span>'
                                         '</div>'
                                     )
                                     ph = crd.get("price_history", [])
