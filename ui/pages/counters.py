@@ -135,7 +135,7 @@ def _counter_card_html(*, key, label, icon, total_ca, nb_sales, period_label):
       </div>
       <div class="ps-counter-amount">{html.escape(_fmt_eur(total_ca))}</div>
       <div class="ps-counter-sales">{int(nb_sales)} vente(s) comptabilisée(s)</div>
-      <div class="ps-counter-period">Depuis le {html.escape(period_label)}</div>
+      <div class="ps-counter-period">{html.escape(period_label)}</div>
     </div>
     """
 
@@ -175,6 +175,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
         "label": "Main propre & Brocante",
         "reset_mode": "manual",
     })
+    counters["main_brocante"].setdefault("year", year_str)
     vinted_defs = _vinted_counter_defs()
     for channel_def in vinted_defs:
         counters.setdefault(channel_def["key"], {
@@ -197,8 +198,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
         with open("lots_archives.json", "r", encoding="utf-8") as f:
             archives_cnt = json.load(f)
 
-    start_date_mb = counters["main_brocante"]["start_date"]
-    start_dt_mb = counters["main_brocante"].get("start_datetime", start_date_mb)
+    main_brocante_year = counters["main_brocante"].get("year", year_str)
     vinted_counter_state = {}
     for channel_def in vinted_defs:
         channel_key = channel_def["key"]
@@ -216,15 +216,17 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             return sale_date >= str(start_datetime)
         return sale_date[:10] >= str(start_date)
 
+    def sale_in_year(sale_date, year):
+        return str(sale_date or "")[:4] == str(year)
+
     with st.expander("⚙️ Données de départ", expanded=False):
         st.markdown(
-            '<div class="ps-counter-init-note">À saisir une seule fois : ces valeurs sont ajoutées aux ventes calculées par PokéStock.</div>',
+            '<div class="ps-counter-init-note">Ces valeurs restent disponibles pour les canaux Vinted. Main propre & Brocante est calculé automatiquement sur toute l’année affichée.</div>',
             unsafe_allow_html=True,
         )
-        init_columns = st.columns(1 + len(vinted_defs))
-        mb_init_ca = init_columns[0].number_input("🤝 Main propre & Brocante — CA (€)", 0., 999999., float(counters["main_brocante"].get("init_ca", 0.)), key="counter_mb_init")
+        init_columns = st.columns(len(vinted_defs))
         vinted_init_values = {}
-        for idx, channel_def in enumerate(vinted_defs, start=1):
+        for idx, channel_def in enumerate(vinted_defs):
             channel_key = channel_def["key"]
             vinted_init_values[channel_key] = init_columns[idx].number_input(
                 f"{channel_def['icon']} {channel_def['label']} — CA (€)",
@@ -234,9 +236,6 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
                 key=f"counter_{channel_key}_init",
             )
         if st.button("💾 Sauvegarder les données de départ", type="primary", key="save_counter_inits"):
-            counters["main_brocante"]["init_ca"] = float(mb_init_ca)
-            counters["main_brocante"]["start_date"] = today_str
-            counters["main_brocante"]["start_datetime"] = now.isoformat()
             for channel_def in vinted_defs:
                 channel_key = channel_def["key"]
                 counters[channel_key]["init_ca"] = float(vinted_init_values[channel_key])
@@ -247,7 +246,6 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             st.success("✅ Valeurs initiales sauvegardées ! Les compteurs repartent d'aujourd'hui.")
             st.rerun()
 
-    init_mb_display = float(mb_init_ca)
     vinted_init_display = {channel_key: float(value) for channel_key, value in vinted_init_values.items()}
 
     # Compteurs calculés
@@ -271,7 +269,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             price = float(v.get("price", 0))
             qty = int(v.get("quantity", 1) or 1)
             if canal in ("main", "brocante"):
-                if sale_after_start(raw_date, start_date_mb, start_dt_mb):
+                if sale_in_year(raw_date, main_brocante_year):
                     cnt_main_brocante["ca"] += price
                     cnt_main_brocante["nb"] += qty
             elif canal in cnt_vinted:
@@ -289,7 +287,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
                 qty = int(se.get("quantity", 1))
 
                 if canal in ("main", "brocante"):
-                    if sale_after_start(raw_date, start_date_mb, start_dt_mb):
+                    if sale_in_year(raw_date, main_brocante_year):
                         cnt_main_brocante["ca"] += price
                         cnt_main_brocante["nb"] += qty
 
@@ -303,8 +301,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
     counter_columns = st.columns(1 + len(vinted_defs))
 
     with counter_columns[0]:
-        days_since = (now.date() - dt_module.date.fromisoformat(start_date_mb)).days
-        total_mb_ca = cnt_main_brocante["ca"] + init_mb_display
+        total_mb_ca = cnt_main_brocante["ca"]
         with st.container(key="counter_card_main_brocante"):
             st.markdown(
                 _counter_card_html(
@@ -313,25 +310,22 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
                     icon=COUNTER_VISUALS["main_brocante"]["icon"],
                     total_ca=total_mb_ca,
                     nb_sales=cnt_main_brocante["nb"],
-                    period_label=f"{_fmt_date(start_date_mb)} · {days_since}j",
+                    period_label=f"Année {main_brocante_year}",
                 ),
                 unsafe_allow_html=True,
             )
-            if st.button("🔄 Remettre à zéro", key="reset_mb", width="stretch"):
-                st.session_state["confirm_reset_mb"] = True
-            if st.session_state.get("confirm_reset_mb"):
-                st.warning("Confirmer la remise à zéro ?")
-                r1, r2 = st.columns(2)
-                if r1.button("✅ Oui", key="reset_mb_ok"):
-                    counters["main_brocante"]["start_date"] = today_str
-                    counters["main_brocante"]["init_ca"] = 0.
-                    st.session_state["init_mb_ca_input"] = 0.
-                    safe_write_json_func(COUNTERS_FILE, counters)
-                    st.session_state["confirm_reset_mb"] = False
-                    st.success(f"✅ Compteur remis à zéro depuis aujourd'hui ({today_str})")
-                    st.rerun()
-                if r2.button("❌ Non", key="reset_mb_no"):
-                    st.session_state["confirm_reset_mb"] = False
+            year_options = [str(y) for y in range(2023, now.year+2)]
+            selected_main_year = main_brocante_year if main_brocante_year in year_options else year_str
+            new_main_year = st.selectbox(
+                "Année affichée",
+                year_options,
+                index=year_options.index(selected_main_year),
+                key="sel_year_main_brocante",
+            )
+            if new_main_year != main_brocante_year:
+                counters["main_brocante"]["year"] = new_main_year
+                safe_write_json_func(COUNTERS_FILE, counters)
+                st.rerun()
 
     total_vinted_ca = {}
     for col, channel_def in zip(counter_columns[1:], vinted_defs):
@@ -347,7 +341,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
                         icon=channel_def["icon"],
                         total_ca=total_vinted_ca[channel_key],
                         nb_sales=cnt_vinted[channel_key]["nb"],
-                        period_label=_fmt_date(channel_state["start_date"]),
+                        period_label=f"Depuis le {_fmt_date(channel_state['start_date'])}",
                     ),
                     unsafe_allow_html=True,
                 )
@@ -368,7 +362,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
     total_display_ca = total_mb_ca + sum(total_vinted_ca.values())
     total_display_sales = cnt_main_brocante["nb"] + sum(row["nb"] for row in cnt_vinted.values())
     st.markdown(
-        f'<div class="ps-counter-mini-summary">{html.escape(_fmt_eur(total_display_ca))} suivis · {int(total_display_sales)} vente(s) depuis les références actives</div>',
+        f'<div class="ps-counter-mini-summary">{html.escape(_fmt_eur(total_display_ca))} suivis · {int(total_display_sales)} vente(s) sur les périodes affichées</div>',
         unsafe_allow_html=True,
     )
 
