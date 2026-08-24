@@ -127,6 +127,12 @@ k6.metric("Temps", f"{metrics['duration_seconds']} s")
 
 st.caption(metrics["ocr_note"])
 
+b1, b2, b3, b4 = st.columns(4)
+b1.metric("Dos occidentaux", metrics.get("back_western", 0))
+b2.metric("Dos japonais", metrics.get("back_japanese", 0))
+b3.metric("Backs inférés", metrics.get("back_inferred_by_sequence", 0))
+b4.metric("Grouping à vérifier", metrics.get("grouping_to_review", 0))
+
 m1, m2, m3 = st.columns(3)
 m1.metric("Reconnu", metrics["auto_recognized"])
 m2.metric("À vérifier", metrics["to_review"])
@@ -149,6 +155,8 @@ for group in result["groups"]:
         unsafe_allow_html=True,
     )
     photo_entries = group.get("photos", [])
+    if group.get("grouping_reasons"):
+        st.caption("Grouping : " + " · ".join(group.get("grouping_reasons") or []))
     if photo_entries:
         cols = st.columns(min(4, len(photo_entries)))
         for idx, entry in enumerate(photo_entries):
@@ -158,6 +166,16 @@ for group in result["groups"]:
                 st.image(photo.path, use_container_width=True)
                 st.caption(f"#{photo.capture_index} · {klass.get('class')} · {klass.get('confidence')}")
                 st.caption(photo.filename)
+
+    detail_cards = group.get("detail_cards") or []
+    if detail_cards:
+        st.markdown("**Sous-groupes cartes détectés**")
+        for idx_detail, detail in enumerate(detail_cards, start=1):
+            front = detail.get("front", {}).get("photo")
+            back = detail.get("back", {}).get("photo")
+            front_label = f"front #{front.capture_index}" if front else "front manquant"
+            back_label = f"back #{back.capture_index}" if back else "back manquant"
+            st.caption(f"Carte {idx_detail} : {front_label} · {back_label}")
 
     matches = group.get("matches") or []
     if matches:
@@ -174,6 +192,7 @@ for group in result["groups"]:
                         "set": candidate["set"],
                         "lot": candidate["lot_name"],
                         "card_uid": candidate["card_uid"],
+                        "JAP": "oui" if candidate.get("japanese") else "non",
                     }
                 )
             st.dataframe(rows, width="stretch", hide_index=True)

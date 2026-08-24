@@ -12,7 +12,7 @@ import re
 
 from core.brocante import lot_reimbursement
 from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
-from ui.badges import card_variant_badges, status_badge
+from ui.badges import card_is_japanese, card_variant_badges, status_badge
 from ui.lot_image_upload_bridge import render_lot_image_upload_bridge
 from ui.mobile_scan import render_assisted_scan
 
@@ -1038,7 +1038,7 @@ def render_lots_page(context):
 
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
-                                        def save_japanese_flag(ix=ix, real_cix=real_cix, widget_key=widget_key, lot_uid=lt.get("lot_uid"), card_uid=crd.get("card_uid")):
+                                        def save_japanese_flag(new_value, ix=ix, real_cix=real_cix, lot_uid=lt.get("lot_uid"), card_uid=crd.get("card_uid")):
                                             cdd = ld()
                                             resolved = resolve_card_ref(cdd, {
                                                 "lot_idx": ix,
@@ -1049,18 +1049,18 @@ def render_lots_page(context):
                                             _resolved_li, _resolved_ci, _lot, target_card = resolved
                                             if target_card is None:
                                                 return
-                                            target_card["japanese"] = bool(st.session_state.get(f"jp{widget_key}", False))
+                                            target_card["japanese"] = bool(new_value)
                                             sd(cdd)
 
-                                        if "japanese" in crd:
-                                            japanese_value = bool(crd.get("japanese"))
-                                        else:
-                                            japanese_value = str(crd.get("lang") or crd.get("language") or "").strip().lower() in {"ja", "jp", "jpn", "japanese"} or bool(crd.get("is_japanese"))
-                                        st.checkbox(
-                                            "Japonais",
-                                            value=japanese_value,
-                                            key=f"jp{widget_key}",
-                                            on_change=save_japanese_flag,
+                                        japanese_value = card_is_japanese(crd)
+                                        jp_label = "JAP actif" if japanese_value else "JAP inactif"
+                                        jp_type = "primary" if japanese_value else "secondary"
+                                        st.button(
+                                            jp_label,
+                                            key=f"jp_toggle_{widget_key}",
+                                            type=jp_type,
+                                            on_click=save_japanese_flag,
+                                            args=(not japanese_value,),
                                             help="Indique uniquement que la carte physique est japonaise. Ne change pas la recherche, l'image, le nom, le numéro ou le prix.",
                                         )
 

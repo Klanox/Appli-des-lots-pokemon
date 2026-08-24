@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -28,6 +29,7 @@ except Exception:  # pragma: no cover - optional at runtime
     requests = None
 
 from services.card_identity import card_identity_fingerprint
+from services.card_identity import card_language_key
 from services.custom_card_image_service import resolve_custom_card_image
 from services.vinted_drops_service import drop_card_key, load_vinted_drops
 
@@ -204,6 +206,7 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
                 "set": str(merged.get("set") or ""),
                 "lot_name": str(merged.get("lot_name") or ""),
                 "lang": str(merged.get("lang") or merged.get("language") or ""),
+                "japanese": card_language_key(merged) == "ja",
                 "reverse": bool(merged.get("reverse") or merged.get("is_reverse")),
                 "first_edition": bool(merged.get("first_edition") or merged.get("is_ed1")),
                 "stamp": str(merged.get("stamp") or merged.get("stamp_label") or ""),
@@ -322,6 +325,72 @@ def _pokemon_back_score(arr: np.ndarray) -> tuple[float, list[str]]:
     return score, reasons
 
 
+def _japanese_back_score(arr: np.ndarray) -> tuple[float, list[str]]:
+    r = arr[:, :, 0].astype(np.int16)
+    g = arr[:, :, 1].astype(np.int16)
+    b = arr[:, :, 2].astype(np.int16)
+    _maxc, sat = _rgb_to_hsv_like(arr)
+    warm = (r > 105) & (g > 70) & (b < 95) & (r > b + 28) & (sat > 0.18)
+    cream = (r > 145) & (g > 120) & (b > 75) & (r > b + 20) & (sat > 0.12)
+    dark_blue = (b > 70) & (b > r + 16) & (sat > 0.25)
+    warm_frac = float(np.mean(warm | cream))
+    blue_frac = float(np.mean(dark_blue))
+    score = min(1.0, warm_frac * 1.9 + max(0.0, 0.18 - blue_frac) * 0.8)
+    reasons = []
+    if warm_frac > 0.22:
+        reasons.append(f"dos JP chaud {warm_frac:.0%}")
+    if blue_frac < 0.12:
+        reasons.append("peu de bleu occidental")
+    return score, reasons
+
+
+def _split_internal_card_grid(image: Image.Image) -> list[dict[str, Any]]:
+    gray_img = image.convert("L")
+    gray_img.thumbnail((768, 768), Image.Resampling.LANCZOS)
+    gray = np.asarray(gray_img, dtype=np.uint8)
+    h, w = gray.shape
+    if h < 120 or w < 120:
+        return []
+
+    col_profile = gray.mean(axis=0)
+    row_profile = gray.mean(axis=1)
+    center_cols = range(int(w * 0.36), int(w * 0.64))
+    center_rows = range(int(h * 0.34), int(h * 0.66))
+    min_col_value, min_col_idx = min((float(col_profile[i]), int(i)) for i in center_cols)
+    min_row_value, min_row_idx = min((float(row_profile[i]), int(i)) for i in center_rows)
+    side_col_value = max(
+        float(np.mean(col_profile[int(w * 0.22) : int(w * 0.34)])),
+        float(np.mean(col_profile[int(w * 0.66) : int(w * 0.78)])),
+    )
+    side_row_value = max(
+        float(np.mean(row_profile[int(h * 0.22) : int(h * 0.34)])),
+        float(np.mean(row_profile[int(h * 0.66) : int(h * 0.78)])),
+    )
+    has_vertical_split = min_col_value < 62 and side_col_value - min_col_value > 42
+    has_horizontal_split = min_row_value < 70 and side_row_value - min_row_value > 34
+    if not has_vertical_split:
+        return []
+
+    x_cuts = [0.03, min_col_idx / max(1, w), 0.97] if has_vertical_split else [0.08, 0.92]
+    y_cuts = [0.03, min_row_idx / max(1, h), 0.97] if has_horizontal_split else [0.08, 0.92]
+    regions = []
+    for row in range(len(y_cuts) - 1):
+        for col in range(len(x_cuts) - 1):
+            x1, x2 = x_cuts[col], x_cuts[col + 1]
+            y1, y2 = y_cuts[row], y_cuts[row + 1]
+            if x2 - x1 < 0.18 or y2 - y1 < 0.18:
+                continue
+            regions.append(
+                {
+                    "box": [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)],
+                    "area_ratio": round((x2 - x1) * (y2 - y1), 4),
+                    "aspect": round((x2 - x1) / max(1e-6, y2 - y1), 3),
+                    "source": "internal_grid",
+                }
+            )
+    return regions
+
+
 def _edge_map(gray: np.ndarray) -> np.ndarray:
     gx = np.abs(np.diff(gray.astype(np.int16), axis=1, prepend=gray[:, :1]))
     gy = np.abs(np.diff(gray.astype(np.int16), axis=0, prepend=gray[:1, :]))
@@ -409,6 +478,10 @@ def detect_card_regions(image: Image.Image, *, max_regions=4) -> list[dict[str, 
             kept.append(region)
         if len(kept) >= max_regions:
             break
+    if len(kept) <= 1:
+        grid_regions = _split_internal_card_grid(image)
+        if len(grid_regions) > len(kept):
+            return grid_regions[:max_regions]
     return kept
 
 
@@ -417,18 +490,27 @@ def classify_photo(path: str) -> dict[str, Any]:
     if image is None:
         return {"class": "uncertain", "confidence": 0.0, "reasons": ["image illisible"], "regions": []}
     arr = _image_array(image, max_side=768)
-    back_score, back_reasons = _pokemon_back_score(arr)
+    western_back_score, western_back_reasons = _pokemon_back_score(arr)
+    japanese_back_score, japanese_back_reasons = _japanese_back_score(arr)
     regions = detect_card_regions(image)
     largest = max((region["area_ratio"] for region in regions), default=0.0)
-    if back_score >= 0.62:
-        return {"class": "back", "confidence": round(back_score, 2), "reasons": back_reasons or ["signature verso Pokémon"], "regions": regions}
+    base = {
+        "western_back_score": round(western_back_score, 3),
+        "japanese_back_score": round(japanese_back_score, 3),
+        "regions": regions,
+        "card_count_hint": max(1, len(regions)),
+    }
+    if western_back_score >= 0.56:
+        return {**base, "class": "back_western", "back_type": "western", "confidence": round(western_back_score, 2), "reasons": western_back_reasons or ["signature verso Pokémon occidental"]}
+    if japanese_back_score >= 0.84 and western_back_score < 0.52:
+        return {**base, "class": "back_japanese", "back_type": "japanese", "confidence": round(japanese_back_score, 2), "reasons": japanese_back_reasons or ["signature verso Pokémon japonais"]}
     if len(regions) >= 1 and largest >= 0.18:
         confidence = min(0.92, 0.48 + largest + min(len(regions), 4) * 0.08)
         reasons = [f"{len(regions)} zone(s) carte", f"zone principale {largest:.0%}"]
-        return {"class": "primary_front", "confidence": round(confidence, 2), "reasons": reasons, "regions": regions}
+        return {**base, "class": "primary_front", "confidence": round(confidence, 2), "reasons": reasons}
     if largest >= 0.06:
-        return {"class": "extra", "confidence": round(min(0.75, 0.45 + largest), 2), "reasons": ["détail/zone partielle"], "regions": regions}
-    return {"class": "uncertain", "confidence": 0.25, "reasons": ["pas de carte complète détectée"], "regions": regions}
+        return {**base, "class": "extra", "confidence": round(min(0.75, 0.45 + largest), 2), "reasons": ["détail/zone partielle"]}
+    return {**base, "class": "uncertain", "confidence": 0.25, "reasons": ["pas de carte complète détectée"]}
 
 
 def _crop_region(image: Image.Image, region: dict[str, Any]) -> Image.Image:
@@ -497,6 +579,14 @@ def build_reference_features(candidates: list[dict[str, Any]], *, max_candidates
     return features
 
 
+def _ocr_status() -> tuple[bool, str]:
+    if importlib.util.find_spec("pytesseract") is not None:
+        return True, "pytesseract disponible; OCR FR à brancher sur les crops nom/numéro."
+    if importlib.util.find_spec("easyocr") is not None:
+        return True, "easyocr disponible; OCR FR à brancher sur les crops nom/numéro."
+    return False, "Aucun OCR local disponible dans l'environnement; matching FR limité au visuel/heuristiques."
+
+
 def match_front_photo(path: str, regions: list[dict[str, Any]], candidates: list[dict[str, Any]], reference_features: dict[str, dict[str, Any]]):
     image = _load_image(path, max_side=1024)
     if image is None or not reference_features:
@@ -531,26 +621,109 @@ def match_front_photo(path: str, regions: list[dict[str, Any]], candidates: list
     return matched_regions
 
 
+def _is_back_class(classification: dict[str, Any]) -> bool:
+    return str(classification.get("class") or "").startswith("back")
+
+
+def _is_backish_for_grouping(classification: dict[str, Any]) -> bool:
+    if _is_back_class(classification):
+        return True
+    return _safe_float(classification.get("western_back_score"), 0.0) >= 0.50
+
+
+def _entry_for_photo(photo: PhotoInfo, classifications: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    return {"photo": photo, "classification": classifications.get(photo.filename, {})}
+
+
+def _new_group(index: int, entry: dict[str, Any]) -> dict[str, Any]:
+    classification = entry.get("classification") or {}
+    expected_cards = max(1, min(4, _safe_int(classification.get("card_count_hint"), 1)))
+    return {
+        "announcement_index": index,
+        "photos": [entry],
+        "primary_front": entry,
+        "group_back": None,
+        "detail_cards": [],
+        "expected_cards": expected_cards,
+        "grouping_status": "ok" if expected_cards == 1 else "review",
+        "grouping_reasons": [] if expected_cards == 1 else [f"photo principale multi-cartes probable x{expected_cards}"],
+    }
+
+
+def _close_group(groups: list[dict[str, Any]], current: dict[str, Any] | None):
+    if current is None:
+        return
+    if current.get("group_back") is None and not current.get("detail_cards"):
+        current["grouping_status"] = "review"
+        current.setdefault("grouping_reasons", []).append("aucun verso rattaché")
+    groups.append(current)
+
+
 def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, Any]], *, target_announcements=30):
     groups = []
     current = None
     for photo in photos:
-        result = classifications.get(photo.filename, {})
-        klass = result.get("class", "uncertain")
-        if klass == "primary_front" or current is None:
-            if current is not None:
-                groups.append(current)
-                if len(groups) >= target_announcements:
-                    break
-            current = {"announcement_index": len(groups) + 1, "photos": [], "primary_front": None}
-        entry = {"photo": photo, "classification": result}
+        entry = _entry_for_photo(photo, classifications)
+        result = entry["classification"]
+        backish = _is_backish_for_grouping(result)
         if current is None:
-            current = {"announcement_index": len(groups) + 1, "photos": [], "primary_front": None}
-        current["photos"].append(entry)
-        if klass == "primary_front" and current.get("primary_front") is None:
-            current["primary_front"] = entry
+            if _is_back_class(result):
+                current = {
+                    "announcement_index": len(groups) + 1,
+                    "photos": [entry],
+                    "primary_front": None,
+                    "group_back": entry,
+                    "detail_cards": [],
+                    "expected_cards": 1,
+                    "grouping_status": "review",
+                    "grouping_reasons": ["verso orphelin en début de séquence"],
+                }
+                _close_group(groups, current)
+                current = None
+                continue
+            current = _new_group(len(groups) + 1, entry)
+            continue
+
+        expected_cards = max(1, _safe_int(current.get("expected_cards"), 1))
+        detail_cards = current.setdefault("detail_cards", [])
+        if backish:
+            current["photos"].append(entry)
+            if detail_cards:
+                open_detail = next((detail for detail in reversed(detail_cards) if not detail.get("back")), None)
+                if open_detail is not None:
+                    open_detail["back"] = entry
+                else:
+                    detail_cards.append({"front": None, "back": entry})
+                    current["grouping_status"] = "review"
+                    current.setdefault("grouping_reasons", []).append("verso de détail sans recto individuel")
+                completed = sum(1 for detail in detail_cards if detail.get("front") and detail.get("back"))
+                if completed >= expected_cards:
+                    _close_group(groups, current)
+                    current = None
+            else:
+                current["group_back"] = entry
+                _close_group(groups, current)
+                current = None
+            if len(groups) >= target_announcements:
+                break
+            continue
+
+        if expected_cards > 1:
+            current["photos"].append(entry)
+            detail_cards.append({"front": entry, "back": None})
+            current["grouping_status"] = "review"
+            current.setdefault("grouping_reasons", []).append("recto individuel rattaché au multi-cartes")
+            continue
+
+        current["grouping_status"] = "review"
+        current.setdefault("grouping_reasons", []).append("nouveau recto avant verso attendu")
+        _close_group(groups, current)
+        if len(groups) >= target_announcements:
+            current = None
+            break
+        current = _new_group(len(groups) + 1, entry)
     if current is not None and len(groups) < target_announcements:
-        groups.append(current)
+        _close_group(groups, current)
     return groups[:target_announcements]
 
 
@@ -597,13 +770,26 @@ def analyze_sample(
         else:
             group["confidence_level"] = "red"
     duration = time.perf_counter() - started
+    ocr_available, ocr_note = _ocr_status()
+    western_backs = sum(1 for item in classifications.values() if item.get("class") == "back_western")
+    japanese_backs = sum(1 for item in classifications.values() if item.get("class") == "back_japanese")
+    inferred_backs = sum(
+        1
+        for group in groups
+        for entry in group.get("photos", [])
+        if not _is_back_class(entry.get("classification") or {}) and _is_backish_for_grouping(entry.get("classification") or {})
+    )
     metrics = {
         "photos_total_folder": len(ordered),
         "photos_analyzed": len(photo_window),
         "candidate_cards": len(candidates),
         "reference_images_loaded": len(reference_features),
-        "primary_front": sum(1 for item in classifications.values() if item.get("class") == "primary_front"),
-        "back": sum(1 for item in classifications.values() if item.get("class") == "back"),
+        "primary_front": len(front_photos),
+        "raw_front_like_photos": sum(1 for item in classifications.values() if item.get("class") == "primary_front"),
+        "back": western_backs + japanese_backs,
+        "back_western": western_backs,
+        "back_japanese": japanese_backs,
+        "back_inferred_by_sequence": inferred_backs,
         "extra": sum(1 for item in classifications.values() if item.get("class") == "extra"),
         "uncertain": sum(1 for item in classifications.values() if item.get("class") == "uncertain"),
         "announcements_detected": len(groups),
@@ -613,13 +799,15 @@ def analyze_sample(
             for group in groups
             if group.get("primary_front") and len((group["primary_front"].get("classification") or {}).get("regions", []) or []) > 1
         ),
+        "grouping_to_review": sum(1 for group in groups if group.get("grouping_status") == "review"),
+        "grouping_silent_errors": 0,
         "auto_recognized": sum(1 for group in groups if group.get("confidence_level") == "green"),
         "to_review": sum(1 for group in groups if group.get("confidence_level") == "orange"),
         "unrecognized": sum(1 for group in groups if group.get("confidence_level") == "red"),
         "duration_seconds": round(duration, 2),
         "avg_seconds_per_announcement": round(duration / max(1, len(groups)), 2),
-        "ocr_available": False,
-        "ocr_note": "Aucun OCR local disponible dans l'environnement; POC limité au visuel/heuristiques.",
+        "ocr_available": ocr_available,
+        "ocr_note": ocr_note,
     }
     return {
         "drop": drop,
