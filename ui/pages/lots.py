@@ -1031,6 +1031,32 @@ def render_lots_page(context):
 
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
 
+                                        def save_japanese_flag(ix=ix, real_cix=real_cix, widget_key=widget_key, lot_uid=lt.get("lot_uid"), card_uid=crd.get("card_uid")):
+                                            cdd = ld()
+                                            resolved = resolve_card_ref(cdd, {
+                                                "lot_idx": ix,
+                                                "card_idx": real_cix,
+                                                "lot_uid": lot_uid,
+                                                "card_uid": card_uid,
+                                            })
+                                            _resolved_li, _resolved_ci, _lot, target_card = resolved
+                                            if target_card is None:
+                                                return
+                                            target_card["japanese"] = bool(st.session_state.get(f"jp{widget_key}", False))
+                                            sd(cdd)
+
+                                        if "japanese" in crd:
+                                            japanese_value = bool(crd.get("japanese"))
+                                        else:
+                                            japanese_value = str(crd.get("lang") or crd.get("language") or "").strip().lower() in {"ja", "jp", "jpn", "japanese"} or bool(crd.get("is_japanese"))
+                                        st.checkbox(
+                                            "Japonais",
+                                            value=japanese_value,
+                                            key=f"jp{widget_key}",
+                                            on_change=save_japanese_flag,
+                                            help="Indique uniquement que la carte physique est japonaise. Ne change pas la recherche, l'image, le nom, le numéro ou le prix.",
+                                        )
+
                                     if not is_sold_card and not is_collection_card:
                                         min_total_quantity = max(
                                             1,

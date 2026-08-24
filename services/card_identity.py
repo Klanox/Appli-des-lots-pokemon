@@ -22,6 +22,8 @@ def _normalize_number(value):
 def card_language_key(card):
     if not isinstance(card, dict):
         return "fr"
+    if "japanese" in card:
+        return "ja" if card.get("japanese") else "fr"
     raw = str(card.get("lang") or card.get("language") or "").strip().casefold()
     special = str(card.get("special") or card.get("special_tag") or "").casefold()
     if raw in {"ja", "jp", "jpn", "japanese"} or card.get("is_japanese") or "japon" in special or "japan" in special:
