@@ -1360,6 +1360,16 @@ def render_with_perf(label, render_func, *args, **kwargs):
     if page != "Historique":
         st.session_state["history_visible_count"] = 40
 
+def accepted_renderer_kwargs(render_func, kwargs):
+    try:
+        params = inspect.signature(render_func).parameters
+        accepts_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
+    except (TypeError, ValueError):
+        return dict(kwargs)
+    if accepts_kwargs:
+        return dict(kwargs)
+    return {key: value for key, value in kwargs.items() if key in params}
+
 def dc(li, ci, lot_uid=None, card_uid=None):
     """Delete card"""
     cd = ld()
@@ -2480,18 +2490,21 @@ elif st.session_state.current_page=="Annonces Vinted":
         effective_purchase_price_func=effective_purchase_price,
     )
 elif st.session_state.current_page=="Historique":
+    history_kwargs = {
+        "ld_func": ld,
+        "sd_func": sd,
+        "calc_cout_lot_func": calc_cout_lot,
+        "effective_purchase_price_func": effective_purchase_price,
+        "normalize_name_func": normalize_name,
+        "proxy_img_func": proxy_img,
+        "render_page_header_func": render_page_header,
+        "run_html_func": run_html,
+        "lots_archives_path": "lots_archives.json",
+    }
     render_with_perf(
         "page Historique",
         render_history_page,
-        ld_func=ld,
-        sd_func=sd,
-        calc_cout_lot_func=calc_cout_lot,
-        effective_purchase_price_func=effective_purchase_price,
-        normalize_name_func=normalize_name,
-        proxy_img_func=proxy_img,
-        render_page_header_func=render_page_header,
-        run_html_func=run_html,
-        lots_archives_path="lots_archives.json",
+        **accepted_renderer_kwargs(render_history_page, history_kwargs),
     )
 
 
