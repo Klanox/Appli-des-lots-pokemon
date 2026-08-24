@@ -133,6 +133,12 @@ b2.metric("Dos japonais", metrics.get("back_japanese", 0))
 b3.metric("Backs inférés", metrics.get("back_inferred_by_sequence", 0))
 b4.metric("Grouping à vérifier", metrics.get("grouping_to_review", 0))
 
+o1, o2, o3, o4 = st.columns(4)
+o1.metric("OCR nom", metrics.get("ocr_name_detected", 0))
+o2.metric("OCR numéro", metrics.get("ocr_number_detected", 0))
+o3.metric("OCR nom + numéro", metrics.get("ocr_both_detected", 0))
+o4.metric("OCR inutilisable", metrics.get("ocr_unusable", 0))
+
 m1, m2, m3 = st.columns(3)
 m1.metric("Reconnu", metrics["auto_recognized"])
 m2.metric("À vérifier", metrics["to_review"])
@@ -180,13 +186,25 @@ for group in result["groups"]:
     matches = group.get("matches") or []
     if matches:
         for idx, match in enumerate(matches, start=1):
-            st.markdown(f"**Zone carte {idx} · méthode {match.get('method')} · {match.get('status')}**")
+            st.markdown(
+                f"**Zone carte {idx} · méthode {match.get('method')} · {match.get('status')} · "
+                f"score {match.get('score', 0)} · marge {match.get('margin', 0)}**"
+            )
+            ocr_payload = match.get("ocr") or {}
+            if ocr_payload:
+                st.caption(
+                    "OCR nom : "
+                    + " / ".join(ocr_payload.get("name_texts") or ["—"])
+                    + " · OCR numéro : "
+                    + " / ".join(ocr_payload.get("number_texts") or ["—"])
+                )
             rows = []
             for candidate_row in match.get("candidates", []):
                 candidate = candidate_row["candidate"]
                 rows.append(
                     {
                         "score": candidate_row["score"],
+                        "raisons": " · ".join(candidate_row.get("reasons") or []),
                         "nom": candidate["name"],
                         "numéro": candidate["number"],
                         "set": candidate["set"],
