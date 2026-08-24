@@ -24,30 +24,22 @@ VINTED_COUNTER_ICONS = {
 COUNTER_VISUALS = {
     "main_brocante": {
         "icon": "🤝",
-        "accent": "#f59e0b",
-        "soft": "#fff7ed",
-        "glow": "rgba(245,158,11,.20)",
+        "accent": "#F97316",
         "label": "Main propre & Brocante",
     },
     "dexify": {
         "icon": "⚡",
-        "accent": "#7c3aed",
-        "soft": "#f5f3ff",
-        "glow": "rgba(124,58,237,.20)",
+        "accent": "#6D28D9",
         "label": "Dexify_TCG",
     },
     "pokedeal": {
         "icon": "🎴",
-        "accent": "#db2777",
-        "soft": "#fdf2f8",
-        "glow": "rgba(219,39,119,.18)",
+        "accent": "#E11D48",
         "label": "Pokédeal",
     },
     "choppetacarte": {
         "icon": "🛍️",
-        "accent": "#0891b2",
-        "soft": "#ecfeff",
-        "glow": "rgba(8,145,178,.18)",
+        "accent": "#06B6D4",
         "label": "ChoppeTaCarte",
     },
 }
@@ -68,33 +60,33 @@ def _inject_counters_css():
     st.markdown(
         """
         <style>
-        .ps-counters-page{font-family:"Plus Jakarta Sans",sans-serif;color:#0f172a}
-        .ps-counters-hero{position:relative;overflow:hidden;border:1px solid rgba(124,58,237,.16);border-radius:24px;padding:1.05rem 1.15rem;margin:.1rem 0 .9rem;background:radial-gradient(circle at 7% 8%,rgba(124,58,237,.24),transparent 33%),linear-gradient(135deg,#fbfaff 0%,#f1f7ff 62%,#f8fffb 100%);box-shadow:0 16px 38px rgba(79,70,229,.10)}
-        .ps-counters-hero:after{content:"";position:absolute;right:-66px;top:-86px;width:210px;height:210px;border-radius:999px;background:rgba(14,165,233,.14);pointer-events:none}
-        .ps-counters-kicker{color:#6d28d9;font-size:.75rem;font-weight:950;letter-spacing:.11em;text-transform:uppercase}
+        .ps-counters-page{font-family:"Plus Jakarta Sans",sans-serif;color:#111827}
+        .ps-counters-hero{position:relative;overflow:hidden;border:1px solid #D1D5DB;border-top:5px solid #6D28D9;border-radius:20px;padding:1.05rem 1.15rem;margin:.1rem 0 .9rem;background:#FFFFFF;box-shadow:0 10px 24px rgba(17,24,39,.08)}
+        .ps-counters-kicker{color:#6D28D9;font-size:.75rem;font-weight:950;letter-spacing:.11em;text-transform:uppercase}
         .ps-counters-title{font-size:clamp(1.65rem,4vw,2.65rem);font-weight:950;line-height:1;margin:.18rem 0;color:#111827;letter-spacing:0}
-        .ps-counters-sub{color:#64748b;font-size:.9rem;font-weight:760;max-width:720px;margin:.35rem 0 0}
-        .ps-counters-modern-expander div[data-testid="stExpander"]{border:1px solid rgba(124,58,237,.16);border-radius:18px;background:linear-gradient(135deg,#ffffff,#fbfaff);box-shadow:0 8px 22px rgba(15,23,42,.045)}
+        .ps-counters-sub{color:#374151;font-size:.9rem;font-weight:760;max-width:720px;margin:.35rem 0 0}
+        .ps-counters-modern-expander div[data-testid="stExpander"]{border:1px solid #D1D5DB;border-radius:18px;background:#FFFFFF;box-shadow:0 8px 18px rgba(17,24,39,.06)}
         .ps-counter-init-note{color:#64748b;font-size:.84rem;font-weight:750;margin:.1rem 0 .55rem}
         div[class*="st-key-counter_card_"]{height:100%}
-        div[class*="st-key-counter_card_"]>div{height:100%;border:1px solid rgba(148,163,184,.20);border-radius:22px;padding:.82rem .85rem .9rem;background:#fff;box-shadow:0 14px 32px rgba(15,23,42,.075)}
+        div[class*="st-key-counter_card_"]>div{height:100%;border:1px solid #D1D5DB;border-left:6px solid var(--counter-accent);border-radius:20px;padding:.82rem .85rem .9rem;background:#FFFFFF;box-shadow:0 10px 22px rgba(17,24,39,.08);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+        div[class*="st-key-counter_card_"]>div:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(17,24,39,.13);border-color:#9CA3AF;border-left-color:var(--counter-accent)}
         .ps-counter-card-head{display:flex;align-items:center;gap:.7rem;margin-bottom:.7rem}
-        .ps-counter-icon{width:42px;height:42px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;box-shadow:0 10px 22px var(--counter-glow)}
+        .ps-counter-icon{width:42px;height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;background:var(--counter-accent);color:#FFFFFF}
         .ps-counter-name{font-size:.92rem;font-weight:950;color:#111827;line-height:1.12}
-        .ps-counter-badge{display:inline-flex;align-items:center;border-radius:999px;padding:.22rem .48rem;margin-top:.28rem;font-size:.68rem;font-weight:950;color:var(--counter-accent);background:var(--counter-soft);border:1px solid color-mix(in srgb,var(--counter-accent) 20%,#fff)}
-        .ps-counter-amount{font-size:clamp(1.9rem,3.7vw,2.7rem);font-weight:950;color:#0f172a;line-height:.98;margin:.25rem 0 .2rem;overflow-wrap:anywhere}
-        .ps-counter-sales{font-size:.82rem;color:#475569;font-weight:850;margin-bottom:.55rem}
-        .ps-counter-period{display:inline-flex;align-items:center;gap:.28rem;max-width:100%;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;color:#64748b;font-size:.72rem;font-weight:850;padding:.34rem .52rem;margin-bottom:.65rem}
-        div[class*="st-key-counter_card_"] label{font-size:.76rem!important;font-weight:900!important;color:#475569!important}
+        .ps-counter-badge{display:inline-flex;align-items:center;border-radius:999px;padding:.22rem .5rem;margin-top:.28rem;font-size:.68rem;font-weight:950;color:#FFFFFF;background:var(--counter-accent);border:1px solid var(--counter-accent)}
+        .ps-counter-amount{font-size:clamp(1.9rem,3.7vw,2.7rem);font-weight:950;color:#111827;line-height:.98;margin:.25rem 0 .2rem;overflow-wrap:anywhere}
+        .ps-counter-sales{font-size:.82rem;color:#374151;font-weight:850;margin-bottom:.55rem}
+        .ps-counter-period{display:inline-flex;align-items:center;gap:.28rem;max-width:100%;border-radius:999px;background:#F8FAFC;border:1px solid #CBD5E1;color:#111827;font-size:.72rem;font-weight:900;padding:.34rem .52rem;margin-bottom:.65rem}
+        div[class*="st-key-counter_card_"] label{font-size:.76rem!important;font-weight:900!important;color:#111827!important}
         div[class*="st-key-counter_card_"] button{border-radius:999px!important;font-weight:900!important}
         div[class*="st-key-save_counter_inits"] button{border-radius:999px!important;font-weight:900!important}
-        .ps-counter-mini-summary{margin:.8rem 0 0;color:#475569;font-size:.84rem;font-weight:850;background:#f8f7ff;border:1px solid #e5ddff;border-radius:999px;padding:.52rem .75rem;width:max-content;max-width:100%}
+        .ps-counter-mini-summary{margin:.8rem 0 0;color:#111827;font-size:.84rem;font-weight:900;background:#FFFFFF;border:1px solid #D1D5DB;border-left:5px solid #6D28D9;border-radius:14px;padding:.52rem .75rem;width:max-content;max-width:100%;box-shadow:0 6px 14px rgba(17,24,39,.06)}
         @media (max-width:768px){
             .ps-counters-hero{border-radius:18px;padding:.9rem}
             div[class*="st-key-counter_card_"]>div{border-radius:18px;padding:.78rem}
             .ps-counter-card-head{gap:.58rem}
             .ps-counter-icon{width:38px;height:38px;border-radius:13px}
-            .ps-counter-mini-summary{border-radius:14px;width:100%}
+            .ps-counter-mini-summary{width:100%}
         }
         </style>
         """,
@@ -119,15 +111,11 @@ def _render_counter_hero():
 
 def _counter_card_html(*, key, label, icon, total_ca, nb_sales, period_label):
     visual = COUNTER_VISUALS.get(key, COUNTER_VISUALS["main_brocante"])
-    style = (
-        f"--counter-accent:{visual['accent']};"
-        f"--counter-soft:{visual['soft']};"
-        f"--counter-glow:{visual['glow']};"
-    )
+    style = f"--counter-accent:{visual['accent']};"
     return f"""
     <div class="ps-counter-card-shell" style="{style}">
       <div class="ps-counter-card-head">
-        <div class="ps-counter-icon" style="background:{visual['soft']};color:{visual['accent']};">{html.escape(icon)}</div>
+        <div class="ps-counter-icon">{html.escape(icon)}</div>
         <div>
           <div class="ps-counter-name">{html.escape(label)}</div>
           <div class="ps-counter-badge">Canal suivi</div>
