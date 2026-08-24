@@ -1340,9 +1340,16 @@ def navigate_to_native_page(page):
     st.rerun()
 
 def render_with_perf(label, render_func, *args, **kwargs):
-    with rerun_phase(label):
-        with perf_timer(label):
-            return render_func(*args, **kwargs)
+    try:
+        with rerun_phase(label):
+            with perf_timer(label):
+                return render_func(*args, **kwargs)
+    except TypeError as exc:
+        print(
+            f"[Render TypeError] label={label} renderer={getattr(render_func, '__name__', render_func)} error={exc}",
+            flush=True,
+        )
+        raise
     if page == "Vente":
         st.session_state["sale_scroll_top_pending"] = True
     if page != "Lots":

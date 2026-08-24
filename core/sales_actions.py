@@ -179,7 +179,13 @@ def bulk_cart_clear():
     st.session_state.bulk_cart = []
     save_activity_state()
 
-def bulk_sale_prepare(sale_type, price):
+def bulk_sale_prepare(sale_type, price=None):
+    if sale_type == "negociated":
+        price = st.session_state.get("negociated_price", price)
+    try:
+        price = round(max(float(price or 0.0), 0.0), 2)
+    except (TypeError, ValueError):
+        price = 0.0
     st.session_state["pending_bulk_sale"] = {"type": sale_type, "price": price}
     st.session_state["show_canal_dialog_bulk"] = True
 
