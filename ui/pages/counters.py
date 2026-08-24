@@ -11,6 +11,27 @@ from datetime import datetime
 
 import streamlit as st
 
+from services.vinted_channels import VINTED_CHANNELS, normalize_vinted_channel, vinted_channel_key
+
+
+VINTED_COUNTER_ICONS = {
+    "Dexify": "⚡",
+    "Pokédeal": "🎴",
+    "ChoppeTaCarte": "🛍️",
+}
+
+
+def _vinted_counter_defs():
+    return [
+        {
+            "channel": channel,
+            "key": vinted_channel_key(channel),
+            "label": "Dexify_TCG" if channel == "Dexify" else channel,
+            "icon": VINTED_COUNTER_ICONS.get(channel, "🛒"),
+        }
+        for channel in VINTED_CHANNELS
+    ]
+
 
 def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
     st.markdown("## 🎰 Compteurs de ventes")
@@ -35,21 +56,19 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
         "label": "Main propre & Brocante",
         "reset_mode": "manual",
     })
-    counters.setdefault("dexify", {
-        "year": year_str,
-        "start_date": today_str,
-        "label": "Dexify_TCG",
-        "reset_mode": "manual",
-    })
-    counters.setdefault("pokedeal", {
-        "year": year_str,
-        "start_date": today_str,
-        "label": "Pokédeal",
-        "reset_mode": "manual",
-    })
+    vinted_defs = _vinted_counter_defs()
+    for channel_def in vinted_defs:
+        counters.setdefault(channel_def["key"], {
+            "year": year_str,
+            "start_date": today_str,
+            "label": channel_def["label"],
+            "reset_mode": "manual",
+        })
+        counters[channel_def["key"]].setdefault("label", channel_def["label"])
     counters["main_brocante"].setdefault("start_date", today_str)
-    counters["dexify"].setdefault("start_date", f"{counters['dexify'].get('year', year_str)}-01-01")
-    counters["pokedeal"].setdefault("start_date", f"{counters['pokedeal'].get('year', year_str)}-01-01")
+    for channel_def in vinted_defs:
+        channel_key = channel_def["key"]
+        counters[channel_key].setdefault("start_date", f"{counters[channel_key].get('year', year_str)}-01-01")
 
     # ── Calculer les compteurs depuis les ventes réelles ──
     cd = ld_func()
@@ -60,13 +79,17 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             archives_cnt = json.load(f)
 
     start_date_mb = counters["main_brocante"]["start_date"]
-    dexify_year = counters["dexify"].get("year", year_str)
-    pokedeal_year = counters["pokedeal"].get("year", year_str)
-    dexify_start_date = counters["dexify"].get("start_date", f"{dexify_year}-01-01")
-    pokedeal_start_date = counters["pokedeal"].get("start_date", f"{pokedeal_year}-01-01")
     start_dt_mb = counters["main_brocante"].get("start_datetime", start_date_mb)
-    dexify_start_dt = counters["dexify"].get("start_datetime", dexify_start_date)
-    pokedeal_start_dt = counters["pokedeal"].get("start_datetime", pokedeal_start_date)
+    vinted_counter_state = {}
+    for channel_def in vinted_defs:
+        channel_key = channel_def["key"]
+        channel_year = counters[channel_key].get("year", year_str)
+        channel_start_date = counters[channel_key].get("start_date", f"{channel_year}-01-01")
+        vinted_counter_state[channel_key] = {
+            "year": channel_year,
+            "start_date": channel_start_date,
+            "start_datetime": counters[channel_key].get("start_datetime", channel_start_date),
+        }
 
     def sale_after_start(sale_date, start_date, start_datetime):
         sale_date = str(sale_date or "")
@@ -76,83 +99,91 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
 
     with st.expander("⚙️ Données de départ (à saisir une seule fois)", expanded=True):
         st.caption("Ces valeurs sont ajoutées aux ventes calculées par l'application. Elles sont lues avant l'affichage des compteurs.")
-        vi1, vi2, vi3 = st.columns(3)
-        mb_init_ca = vi1.number_input("🤝 Main propre & Brocante — CA (€)", 0., 999999., float(counters["main_brocante"].get("init_ca", 0.)), key="counter_mb_init")
-        dx_init_ca = vi2.number_input("⚡ Dexify_TCG — CA (€)", 0., 999999., float(counters["dexify"].get("init_ca", 0.)), key="counter_dx_init")
-        pk_init_ca = vi3.number_input("🎴 Pokédeal — CA (€)", 0., 999999., float(counters["pokedeal"].get("init_ca", 0.)), key="counter_pk_init")
+        init_columns = st.columns(1 + len(vinted_defs))
+        mb_init_ca = init_columns[0].number_input("🤝 Main propre & Brocante — CA (€)", 0., 999999., float(counters["main_brocante"].get("init_ca", 0.)), key="counter_mb_init")
+        vinted_init_values = {}
+        for idx, channel_def in enumerate(vinted_defs, start=1):
+            channel_key = channel_def["key"]
+            vinted_init_values[channel_key] = init_columns[idx].number_input(
+                f"{channel_def['icon']} {channel_def['label']} — CA (€)",
+                0.,
+                999999.,
+                float(counters[channel_key].get("init_ca", 0.)),
+                key=f"counter_{channel_key}_init",
+            )
         if st.button("💾 Sauvegarder les données de départ", type="primary", key="save_counter_inits"):
             counters["main_brocante"]["init_ca"] = float(mb_init_ca)
-            counters["dexify"]["init_ca"] = float(dx_init_ca)
-            counters["pokedeal"]["init_ca"] = float(pk_init_ca)
             counters["main_brocante"]["start_date"] = today_str
-            counters["dexify"]["start_date"] = today_str
-            counters["pokedeal"]["start_date"] = today_str
             counters["main_brocante"]["start_datetime"] = now.isoformat()
-            counters["dexify"]["start_datetime"] = now.isoformat()
-            counters["pokedeal"]["start_datetime"] = now.isoformat()
-            counters["dexify"]["year"] = year_str
-            counters["pokedeal"]["year"] = year_str
+            for channel_def in vinted_defs:
+                channel_key = channel_def["key"]
+                counters[channel_key]["init_ca"] = float(vinted_init_values[channel_key])
+                counters[channel_key]["start_date"] = today_str
+                counters[channel_key]["start_datetime"] = now.isoformat()
+                counters[channel_key]["year"] = year_str
             safe_write_json_func(COUNTERS_FILE, counters)
             st.success("✅ Valeurs initiales sauvegardées ! Les compteurs repartent d'aujourd'hui.")
             st.rerun()
 
     init_mb_display = float(mb_init_ca)
-    init_dx_display = float(dx_init_ca)
-    init_pk_display = float(pk_init_ca)
+    vinted_init_display = {channel_key: float(value) for channel_key, value in vinted_init_values.items()}
 
     # Compteurs calculés
     cnt_main_brocante = {"nb": 0, "ca": 0.}
-    cnt_dexify = {"nb": 0, "ca": 0.}
-    cnt_pokedeal = {"nb": 0, "ca": 0.}
+    cnt_vinted = {channel_def["key"]: {"nb": 0, "ca": 0.} for channel_def in vinted_defs}
+
+    def counter_key_for_sale(canal):
+        normalized = normalize_vinted_channel(canal)
+        if normalized in VINTED_CHANNELS:
+            return vinted_channel_key(normalized)
+        return canal_key_func(canal)
 
     for lot in all_lots + archives_cnt:
         for v in lot.get("ventes", []):
             if v.get("is_lot_sale") or v.get("is_exchange_benefit"):
                 continue
-            canal = canal_key_func(v.get("canal", ""))
+            canal = counter_key_for_sale(v.get("canal", ""))
             if not canal:
                 continue
             raw_date = v.get("date", "")
-            date_str = raw_date[:10]
             price = float(v.get("price", 0))
+            qty = int(v.get("quantity", 1) or 1)
             if canal in ("main", "brocante"):
                 if sale_after_start(raw_date, start_date_mb, start_dt_mb):
                     cnt_main_brocante["ca"] += price
-            elif canal == "dexify":
-                if sale_after_start(raw_date, dexify_start_date, dexify_start_dt):
-                    cnt_dexify["ca"] += price
-            elif canal == "pokedeal":
-                if sale_after_start(raw_date, pokedeal_start_date, pokedeal_start_dt):
-                    cnt_pokedeal["ca"] += price
+                    cnt_main_brocante["nb"] += qty
+            elif canal in cnt_vinted:
+                channel_state = vinted_counter_state[canal]
+                if sale_after_start(raw_date, channel_state["start_date"], channel_state["start_datetime"]):
+                    cnt_vinted[canal]["ca"] += price
+                    cnt_vinted[canal]["nb"] += qty
         for card in lot.get("cards", []):
             for se in card.get("sold_entries", []):
-                canal = canal_key_func(se.get("canal", ""))
+                canal = counter_key_for_sale(se.get("canal", ""))
                 if not canal:
                     continue  # ignorer les ventes sans canal (avant la mise à jour)
                 raw_date = se.get("date", "")
-                date_str = raw_date[:10]
                 price = float(se.get("price", 0))
                 qty = int(se.get("quantity", 1))
 
                 if canal in ("main", "brocante"):
                     if sale_after_start(raw_date, start_date_mb, start_dt_mb):
                         cnt_main_brocante["ca"] += price
+                        cnt_main_brocante["nb"] += qty
 
-                elif canal == "dexify":
-                    if sale_after_start(raw_date, dexify_start_date, dexify_start_dt):
-                        cnt_dexify["ca"] += price
-
-                elif canal == "pokedeal":
-                    if sale_after_start(raw_date, pokedeal_start_date, pokedeal_start_dt):
-                        cnt_pokedeal["ca"] += price
+                elif canal in cnt_vinted:
+                    channel_state = vinted_counter_state[canal]
+                    if sale_after_start(raw_date, channel_state["start_date"], channel_state["start_datetime"]):
+                        cnt_vinted[canal]["ca"] += price
+                        cnt_vinted[canal]["nb"] += qty
 
     # ── Affichage ──
     st.markdown("---")
 
     # ── Compteur Main propre & Brocante ──
-    col_mb, col_dx, col_pk = st.columns(3)
+    counter_columns = st.columns(1 + len(vinted_defs))
 
-    with col_mb:
+    with counter_columns[0]:
         days_since = (now.date() - dt_module.date.fromisoformat(start_date_mb)).days
         total_mb_ca = cnt_main_brocante["ca"] + init_mb_display
         st.markdown(f"""
@@ -160,6 +191,7 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
                     box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;">
           <div style="font-size:1rem;font-weight:700;color:#64748b;margin-bottom:0.5rem;">🤝 Main propre & Brocante</div>
           <div style="font-size:3rem;font-weight:900;color:#10b981;">{total_mb_ca:.2f}€</div>
+          <div style="font-size:0.85rem;color:#64748b;font-weight:700;">{cnt_main_brocante["nb"]} vente(s)</div>
           <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;">Depuis le {dt_module.date.fromisoformat(start_date_mb).strftime('%d/%m/%Y')} ({days_since}j)</div>
         </div>
         """, unsafe_allow_html=True)
@@ -179,49 +211,43 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             if r2.button("❌ Non", key="reset_mb_no"):
                 st.session_state["confirm_reset_mb"] = False
 
-    with col_dx:
-        total_dx_ca = cnt_dexify["ca"] + init_dx_display
-        st.markdown(f"""
-        <div style="background:white;border-radius:16px;padding:1.5rem;border:2px solid #e2e8f0;
-                    box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;">
-          <div style="font-size:1rem;font-weight:700;color:#64748b;margin-bottom:0.5rem;">⚡ Dexify_TCG</div>
-          <div style="font-size:3rem;font-weight:900;color:#10b981;">{total_dx_ca:.2f}€</div>
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;">Depuis le {dexify_start_date}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        new_year_dx = st.selectbox("Année affichée", [str(y) for y in range(2023, now.year+2)],
-                                    index=[str(y) for y in range(2023, now.year+2)].index(dexify_year),
-                                    key="sel_year_dx")
-        if new_year_dx != dexify_year:
-            counters["dexify"]["year"] = new_year_dx
-            safe_write_json_func(COUNTERS_FILE, counters)
-            st.rerun()
-
-    with col_pk:
-        total_pk_ca = cnt_pokedeal["ca"] + init_pk_display
-        st.markdown(f"""
-        <div style="background:white;border-radius:16px;padding:1.5rem;border:2px solid #e2e8f0;
-                    box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;">
-          <div style="font-size:1rem;font-weight:700;color:#64748b;margin-bottom:0.5rem;">🎴 Pokédeal</div>
-          <div style="font-size:3rem;font-weight:900;color:#10b981;">{total_pk_ca:.2f}€</div>
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;">Depuis le {pokedeal_start_date}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        new_year_pk = st.selectbox("Année affichée", [str(y) for y in range(2023, now.year+2)],
-                                    index=[str(y) for y in range(2023, now.year+2)].index(pokedeal_year),
-                                    key="sel_year_pk")
-        if new_year_pk != pokedeal_year:
-            counters["pokedeal"]["year"] = new_year_pk
-            safe_write_json_func(COUNTERS_FILE, counters)
-            st.rerun()
+    total_vinted_ca = {}
+    for col, channel_def in zip(counter_columns[1:], vinted_defs):
+        channel_key = channel_def["key"]
+        channel_state = vinted_counter_state[channel_key]
+        total_vinted_ca[channel_key] = cnt_vinted[channel_key]["ca"] + vinted_init_display[channel_key]
+        with col:
+            st.markdown(f"""
+            <div style="background:white;border-radius:16px;padding:1.5rem;border:2px solid #e2e8f0;
+                        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;">
+              <div style="font-size:1rem;font-weight:700;color:#64748b;margin-bottom:0.5rem;">{channel_def['icon']} {channel_def['label']}</div>
+              <div style="font-size:3rem;font-weight:900;color:#10b981;">{total_vinted_ca[channel_key]:.2f}€</div>
+              <div style="font-size:0.85rem;color:#64748b;font-weight:700;">{cnt_vinted[channel_key]["nb"]} vente(s)</div>
+              <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.5rem;">Depuis le {channel_state['start_date']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            year_options = [str(y) for y in range(2023, now.year+2)]
+            channel_year = channel_state["year"] if channel_state["year"] in year_options else year_str
+            new_year = st.selectbox(
+                "Année affichée",
+                year_options,
+                index=year_options.index(channel_year),
+                key=f"sel_year_{channel_key}",
+            )
+            if new_year != channel_state["year"]:
+                counters[channel_key]["year"] = new_year
+                counters[channel_key]["start_date"] = f"{new_year}-01-01"
+                safe_write_json_func(COUNTERS_FILE, counters)
+                st.rerun()
 
     # ── Récap global ──
     st.markdown("---")
     st.markdown("### 📊 Récapitulatif")
-    rc1, rc2, rc3 = st.columns(3)
-    rc1.metric("🤝 Main propre & Brocante", f"{total_mb_ca:.2f}€")
-    rc2.metric("⚡ Dexify_TCG", f"{total_dx_ca:.2f}€")
-    rc3.metric("🎴 Pokédeal", f"{total_pk_ca:.2f}€")
+    recap_columns = st.columns(1 + len(vinted_defs))
+    recap_columns[0].metric("🤝 Main propre & Brocante", f"{total_mb_ca:.2f}€")
+    for col, channel_def in zip(recap_columns[1:], vinted_defs):
+        channel_key = channel_def["key"]
+        col.metric(f"{channel_def['icon']} {channel_def['label']}", f"{total_vinted_ca[channel_key]:.2f}€")
 
 
 

@@ -27,5 +27,9 @@ def normalize_vinted_channel(value: str) -> str:
     return _VINTED_CHANNEL_BY_KEY.get(_fold(value), str(value or "").strip())
 
 
+def vinted_channel_key(value: str) -> str:
+    return _fold(normalize_vinted_channel(value))
+
+
 def is_vinted_channel(value: str) -> bool:
     return normalize_vinted_channel(value) in VINTED_CHANNELS
