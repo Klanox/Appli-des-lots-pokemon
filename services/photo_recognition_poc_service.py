@@ -1019,8 +1019,26 @@ def _is_backish_for_grouping(classification: dict[str, Any]) -> bool:
     return _safe_float(classification.get("western_back_score"), 0.0) >= 0.50
 
 
+def _is_sequence_back_candidate(classification: dict[str, Any]) -> bool:
+    if _is_backish_for_grouping(classification):
+        return True
+    western_score = _safe_float(classification.get("western_back_score"), 0.0)
+    japanese_score = _safe_float(classification.get("japanese_back_score"), 0.0)
+    return western_score >= 0.42 or japanese_score >= 0.72
+
+
 def _entry_for_photo(photo: PhotoInfo, classifications: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return {"photo": photo, "classification": classifications.get(photo.filename, {})}
+
+
+def _entry_as_sequence_back(entry: dict[str, Any]) -> dict[str, Any]:
+    classification = dict(entry.get("classification") or {})
+    if _is_back_class(classification):
+        return entry
+    back_type = "japanese" if _safe_float(classification.get("japanese_back_score"), 0.0) >= 0.72 else "western"
+    classification["back_type"] = back_type
+    classification["sequence_inferred_back"] = True
+    return {**entry, "classification": classification}
 
 
 def _new_group(index: int, entry: dict[str, Any]) -> dict[str, Any]:
@@ -1041,6 +1059,10 @@ def _new_group(index: int, entry: dict[str, Any]) -> dict[str, Any]:
 def _close_group(groups: list[dict[str, Any]], current: dict[str, Any] | None):
     if current is None:
         return
+    if current.get("group_back") is not None and not current.get("detail_cards") and _safe_int(current.get("expected_cards"), 1) > 1:
+        current["expected_cards"] = 1
+        current["grouping_status"] = "review"
+        current.setdefault("grouping_reasons", []).append("indice multi-cartes ignoré car verso immédiat")
     if current.get("group_back") is None and not current.get("detail_cards"):
         current["grouping_status"] = "review"
         current.setdefault("grouping_reasons", []).append("aucun verso rattaché")
@@ -1074,8 +1096,27 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
 
         expected_cards = max(1, _safe_int(current.get("expected_cards"), 1))
         detail_cards = current.setdefault("detail_cards", [])
+        sequence_inferred_back = False
+        if not backish and not detail_cards and _is_sequence_back_candidate(result):
+            entry = _entry_as_sequence_back(entry)
+            result = entry["classification"]
+            backish = True
+            sequence_inferred_back = True
+            current["grouping_status"] = "review"
+            current.setdefault("grouping_reasons", []).append("verso inféré par cohérence front/back")
+        elif not backish and detail_cards:
+            open_detail = next((detail for detail in reversed(detail_cards) if not detail.get("back")), None)
+            if open_detail is not None and _is_sequence_back_candidate(result):
+                entry = _entry_as_sequence_back(entry)
+                result = entry["classification"]
+                backish = True
+                sequence_inferred_back = True
+                current["grouping_status"] = "review"
+                current.setdefault("grouping_reasons", []).append("verso de détail inféré par cohérence front/back")
         if backish:
             current["photos"].append(entry)
+            if sequence_inferred_back:
+                entry["classification"]["sequence_inferred_back"] = True
             if detail_cards:
                 open_detail = next((detail for detail in reversed(detail_cards) if not detail.get("back")), None)
                 if open_detail is not None:
@@ -1197,7 +1238,7 @@ def _metrics_for_groups(
         1
         for group in groups
         for entry in group.get("photos", [])
-        if not _is_back_class(entry.get("classification") or {}) and _is_backish_for_grouping(entry.get("classification") or {})
+        if (entry.get("classification") or {}).get("sequence_inferred_back")
     )
     diagnostic_causes: dict[str, int] = {}
     for group in groups:
@@ -1208,6 +1249,7 @@ def _metrics_for_groups(
             if group.get("grouping_status") == "review":
                 reason = f"grouping à vérifier + {reason}"
             diagnostic_causes[reason] = diagnostic_causes.get(reason, 0) + 1
+    group_sizes = [len(group.get("photos", []) or []) for group in groups]
     metrics = {
         "photos_total_folder": len(ordered),
         "photos_analyzed": len(photo_window),
@@ -1222,6 +1264,19 @@ def _metrics_for_groups(
         "extra": sum(1 for item in classifications.values() if item.get("class") == "extra"),
         "uncertain": sum(1 for item in classifications.values() if item.get("class") == "uncertain"),
         "announcements_detected": len(groups),
+        "photos_per_announcement": round(len(photo_window) / max(1, len(groups)), 2),
+        "expected_announcements_hint": 90,
+        "expected_announcements_delta": len(groups) - 90,
+        "one_photo_groups": sum(1 for size in group_sizes if size == 1),
+        "two_photo_groups": sum(1 for size in group_sizes if size == 2),
+        "three_photo_groups": sum(1 for size in group_sizes if size == 3),
+        "four_plus_photo_groups": sum(1 for size in group_sizes if size >= 4),
+        "primary_without_back": sum(
+            1
+            for group in groups
+            if group.get("primary_front") and group.get("group_back") is None and not group.get("detail_cards")
+        ),
+        "back_without_front": sum(1 for group in groups if group.get("primary_front") is None and group.get("group_back") is not None),
         "front_photos_in_groups": len(front_photos),
         "multi_card_fronts": sum(
             1

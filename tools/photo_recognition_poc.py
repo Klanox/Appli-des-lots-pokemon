@@ -57,6 +57,7 @@ STATUS_LABELS = {
 
 VIEW_OPTIONS = [
     "Synthèse complète",
+    "Carte du grouping",
     "File à vérifier",
     "File non reconnus",
     "Contrôle verts",
@@ -224,6 +225,12 @@ def _render_full_summary(result: dict, sample: dict):
     s3.metric("Multi-cartes", metrics.get("multi_card_fronts", 0))
     s4.metric("Temps / annonce", f"{metrics.get('avg_seconds_per_announcement', 0)} s")
 
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("Photos / annonce", metrics.get("photos_per_announcement", "—"))
+    g2.metric("Écart ordre ~90", metrics.get("expected_announcements_delta", "—"))
+    g3.metric("Groupes 1 photo", metrics.get("one_photo_groups", 0))
+    g4.metric("Grouping review", metrics.get("grouping_to_review", 0))
+
     manual = _manual_validation_summary(sample, result)
     v1, v2, v3, v4 = st.columns(4)
     v1.metric("Reviews corrigées", manual["review_fixed"])
@@ -240,16 +247,62 @@ def _render_full_summary(result: dict, sample: dict):
             hide_index=True,
         )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     if c1.button("Voir les erreurs", type="primary"):
         st.session_state["photo_poc_view"] = "File à vérifier" if metrics.get("to_review", 0) else "File non reconnus"
         _rerun()
-    if c2.button("Voir les reconnaissances"):
+    if c2.button("Carte du grouping"):
+        st.session_state["photo_poc_view"] = "Carte du grouping"
+        _rerun()
+    if c3.button("Voir les reconnaissances"):
         st.session_state["photo_poc_view"] = "Résultats / debug reconnaissance"
         _rerun()
-    if c3.button("Tout afficher"):
+    if c4.button("Tout afficher"):
         st.session_state["photo_poc_view"] = "Résultats / debug reconnaissance"
         _rerun()
+
+
+def _render_grouping_map(result: dict):
+    metrics = result.get("metrics") or {}
+    st.markdown("### Carte du grouping")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Photos", metrics.get("photos_analyzed", 0))
+    c2.metric("Annonces", metrics.get("announcements_detected", 0))
+    c3.metric("Photos / annonce", metrics.get("photos_per_announcement", "—"))
+    c4.metric("Écart ~90", metrics.get("expected_announcements_delta", "—"))
+    c5.metric("Review", metrics.get("grouping_to_review", 0))
+
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("1 photo", metrics.get("one_photo_groups", 0))
+    d2.metric("2 photos", metrics.get("two_photo_groups", 0))
+    d3.metric("3 photos", metrics.get("three_photo_groups", 0))
+    d4.metric("4+ photos", metrics.get("four_plus_photo_groups", 0))
+
+    rows = []
+    for group in result.get("groups", []) or []:
+        photos = _group_photo_payloads(group)
+        indexes = " ".join(f"[{photo.get('capture_index')}]" for photo in photos)
+        size = len(photos)
+        is_review = group.get("grouping_status") == "review"
+        is_multi = int(group.get("expected_cards") or 1) > 1 or len(group.get("matches", []) or []) > 1
+        if size == 1:
+            state = "⚠ incomplet"
+        elif is_multi:
+            state = "MULTI"
+        elif is_review:
+            state = "⚠ review"
+        else:
+            state = "✓"
+        rows.append(
+            {
+                "groupe": group.get("announcement_index"),
+                "photos": indexes,
+                "nb": size,
+                "statut": state,
+                "raison": " · ".join(group.get("grouping_reasons") or []),
+            }
+        )
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def _role_caption(photo_payload: dict) -> str:
@@ -1050,6 +1103,8 @@ st.caption(metrics["ocr_note"])
 
 if view == "Synthèse complète":
     _render_full_summary(result, sample)
+elif view == "Carte du grouping":
+    _render_grouping_map(result)
 elif view == "File à vérifier":
     _render_queue_view(
         sample_key,
