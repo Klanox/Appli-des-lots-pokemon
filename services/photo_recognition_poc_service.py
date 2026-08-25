@@ -52,6 +52,7 @@ FILENAME_DATETIME_PATTERNS = (
 
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
+POC_ANALYSIS_PIPELINE_VERSION = "v9-artwork-visual-grouping-v7"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1594,6 +1595,12 @@ def analyze_sample(
     ordered = list_ordered_photos(folder)
     start_index = max(1, int(start_index or 1))
     photo_window = ordered[start_index - 1 : start_index - 1 + max(1, int(max_photos or 1))]
+    photo_signature = hashlib.sha1(
+        "|".join(
+            f"{photo.capture_index}:{photo.filename}:{photo.size_bytes}"
+            for photo in photo_window
+        ).encode("utf-8")
+    ).hexdigest()
     drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
     classifications = {}
     for photo in photo_window:
@@ -1613,6 +1620,16 @@ def analyze_sample(
         reference_images_loaded=reference_images_loaded,
     )
     return {
+        "analysis_meta": {
+            "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
+            "folder": str(Path(folder).resolve()),
+            "drop_id": drop_id or (drop.get("id") if isinstance(drop, dict) else None),
+            "start_index": start_index,
+            "target_announcements": int(target_announcements or 0),
+            "max_photos": int(max_photos or 0),
+            "photo_count": len(photo_window),
+            "photo_signature": photo_signature,
+        },
         "drop": drop,
         "ordered_photos": ordered,
         "sample_photos": photo_window,

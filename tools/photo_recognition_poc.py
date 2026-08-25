@@ -10,6 +10,7 @@ datasets, but never writes to Pokestock business data.
 from __future__ import annotations
 
 import sys
+import hashlib
 from io import BytesIO
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from PIL import Image, ImageOps
 
 from services.photo_recognition_poc_service import (
     PHOTO_ROLES,
+    POC_ANALYSIS_PIPELINE_VERSION,
     POC_DIR,
     POC_GROUND_TRUTH_PATH,
     VALIDATED_GROUP_STATUSES,
@@ -98,6 +100,60 @@ st.markdown(
 
 def _rerun():
     st.rerun()
+
+
+def _request_view(view_name: str):
+    if view_name in VIEW_OPTIONS:
+        st.session_state["photo_poc_pending_view"] = view_name
+    _rerun()
+
+
+def _apply_pending_view():
+    pending = st.session_state.pop("photo_poc_pending_view", None)
+    if pending in VIEW_OPTIONS:
+        st.session_state["photo_poc_view"] = pending
+
+
+def _analysis_meta_for(
+    *,
+    folder: str,
+    photos: list,
+    drop_id: str | None,
+    start_index: int,
+    target_announcements: int,
+    max_photos: int,
+) -> dict:
+    start_index = max(1, int(start_index or 1))
+    max_photos = max(1, int(max_photos or 1))
+    photo_window = photos[start_index - 1 : start_index - 1 + max_photos]
+    photo_signature = hashlib.sha1(
+        "|".join(
+            f"{photo.capture_index}:{photo.filename}:{photo.size_bytes}"
+            for photo in photo_window
+        ).encode("utf-8")
+    ).hexdigest()
+    return {
+        "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
+        "folder": str(Path(folder).resolve()),
+        "drop_id": drop_id,
+        "start_index": start_index,
+        "target_announcements": int(target_announcements or 0),
+        "max_photos": int(max_photos or 0),
+        "photo_count": len(photo_window),
+        "photo_signature": photo_signature,
+    }
+
+
+def _result_matches_analysis(result: dict | None, expected: dict) -> bool:
+    if not isinstance(result, dict):
+        return False
+    meta = result.get("analysis_meta")
+    if not isinstance(meta, dict):
+        return False
+    for key, value in expected.items():
+        if meta.get(key) != value:
+            return False
+    return True
 
 
 def _save_sample(sample_key: str, sample: dict):
@@ -283,17 +339,13 @@ def _render_full_summary(result: dict, sample: dict):
 
     c1, c2, c3, c4 = st.columns(4)
     if c1.button("Voir les erreurs", type="primary"):
-        st.session_state["photo_poc_view"] = "File à vérifier" if metrics.get("to_review", 0) else "File non reconnus"
-        _rerun()
+        _request_view("File à vérifier" if metrics.get("to_review", 0) else "File non reconnus")
     if c2.button("Carte du grouping"):
-        st.session_state["photo_poc_view"] = "Carte du grouping"
-        _rerun()
+        _request_view("Carte du grouping")
     if c3.button("Voir les reconnaissances"):
-        st.session_state["photo_poc_view"] = "Résultats / debug reconnaissance"
-        _rerun()
+        _request_view("Résultats / debug reconnaissance")
     if c4.button("Tout afficher"):
-        st.session_state["photo_poc_view"] = "Résultats / debug reconnaissance"
-        _rerun()
+        _request_view("Résultats / debug reconnaissance")
 
 
 def _render_grouping_map(result: dict):
@@ -795,8 +847,7 @@ def _render_queue_view(
         st.warning("Aucune zone carte exploitable dans ce groupe.")
         c1, c2 = st.columns(2)
         if c1.button("Corriger le groupe", key=f"queue_group_fix_{queue_key}_{group_id}"):
-            st.session_state["photo_poc_view"] = "Validation des groupes"
-            _rerun()
+            _request_view("Validation des groupes")
         if c2.button("Non reconnu confirmé", key=f"queue_unrecognized_empty_{queue_key}_{group_id}"):
             _set_recognition_validation(sample_key, group_id, 0, {"status": "non_recognized"})
             _rerun()
@@ -817,8 +868,7 @@ def _render_queue_view(
             _set_recognition_validation(sample_key, group_id, match_index, {"status": "non_recognized"})
             _rerun()
         if action_cols[2].button("Corriger le groupe", key=f"queue_fix_{queue_key}_{group_id}_{match_index}"):
-            st.session_state["photo_poc_view"] = "Validation des groupes"
-            _rerun()
+            _request_view("Validation des groupes")
         if action_cols[3].button("Passer", key=f"queue_skip_{queue_key}_{group_id}_{match_index}"):
             st.session_state[index_key] = (current_index + 1) % max(1, len(groups))
             _rerun()
@@ -1110,6 +1160,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+_apply_pending_view()
+
 with st.sidebar:
     st.subheader("Échantillon")
     folder = st.text_input("Dossier photos", value=str(POC_DIR))
@@ -1124,12 +1176,10 @@ with st.sidebar:
     target_announcements = st.number_input("annonces visées", min_value=5, max_value=35, value=30, step=1)
     max_photos = st.number_input("photos max à analyser", min_value=10, max_value=max(10, len(photos)), value=min(75, max(10, len(photos))), step=5)
     view_default = st.session_state.get("photo_poc_view", "Synthèse complète")
-    view = st.radio(
-        "Vue",
-        VIEW_OPTIONS,
-        index=VIEW_OPTIONS.index(view_default) if view_default in VIEW_OPTIONS else 0,
-        key="photo_poc_view",
-    )
+    view_radio_kwargs = {"key": "photo_poc_view"}
+    if "photo_poc_view" not in st.session_state:
+        view_radio_kwargs["index"] = VIEW_OPTIONS.index(view_default) if view_default in VIEW_OPTIONS else 0
+    view = st.radio("Vue", VIEW_OPTIONS, **view_radio_kwargs)
     run = st.button("Analyser l'échantillon", type="primary")
     run_all = st.button("Analyser toutes les photos")
 
@@ -1178,6 +1228,32 @@ if run_all:
         target_announcements=analysis_target_announcements,
     )
 
+if bool(st.session_state.get("photo_poc_full_analysis")) and not run:
+    expected_meta = _analysis_meta_for(
+        folder=folder,
+        photos=photos,
+        drop_id=selected_drop_id,
+        start_index=1,
+        max_photos=len(photos),
+        target_announcements=len(photos),
+    )
+else:
+    expected_meta = _analysis_meta_for(
+        folder=folder,
+        photos=photos,
+        drop_id=selected_drop_id,
+        start_index=analysis_start_index,
+        max_photos=analysis_max_photos,
+        target_announcements=analysis_target_announcements,
+    )
+
+if not (run or run_all) and "photo_poc_result" in st.session_state:
+    if not _result_matches_analysis(st.session_state.get("photo_poc_result"), expected_meta):
+        st.session_state.pop("photo_poc_result", None)
+        st.session_state.pop("photo_poc_sample_key", None)
+        st.session_state.pop("photo_poc_full_analysis", None)
+        st.info("Résultat d'analyse POC obsolète ignoré. Relance l'analyse pour utiliser le pipeline V9 actuel.")
+
 if not (run or run_all) and "photo_poc_result" not in st.session_state:
     st.info("Choisis un bloc consécutif puis lance l'analyse. Par défaut, le POC ne traite pas tout le dossier.")
     st.stop()
@@ -1204,11 +1280,11 @@ if run or run_all:
     if run_all:
         done_metrics = st.session_state["photo_poc_result"].get("metrics") or {}
         if done_metrics.get("to_review", 0):
-            st.session_state["photo_poc_view"] = "File à vérifier"
+            st.session_state["photo_poc_pending_view"] = "File à vérifier"
         elif done_metrics.get("unrecognized", 0):
-            st.session_state["photo_poc_view"] = "File non reconnus"
+            st.session_state["photo_poc_pending_view"] = "File non reconnus"
         else:
-            st.session_state["photo_poc_view"] = "Synthèse complète"
+            st.session_state["photo_poc_pending_view"] = "Synthèse complète"
         _rerun()
 
 result = st.session_state["photo_poc_result"]
