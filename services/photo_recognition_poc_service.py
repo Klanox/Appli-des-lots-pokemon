@@ -29,6 +29,11 @@ try:
 except Exception:  # pragma: no cover - optional at runtime
     requests = None
 
+try:
+    import cv2
+except Exception:  # pragma: no cover - optional at runtime
+    cv2 = None
+
 from services.card_identity import card_identity_fingerprint
 from services.card_identity import card_language_key
 from services.custom_card_image_service import resolve_custom_card_image
@@ -282,6 +287,11 @@ def _reference_cache_path(url: str) -> Path:
 
 def _feature_cache_path(source: str) -> Path:
     digest = hashlib.sha1(str(source or "").encode("utf-8")).hexdigest()
+    return POC_CACHE_DIR / "features" / f"{digest}.json"
+
+
+def _artwork_feature_cache_path(source: str) -> Path:
+    digest = hashlib.sha1(f"artwork-v9|{source or ''}".encode("utf-8")).hexdigest()
     return POC_CACHE_DIR / "features" / f"{digest}.json"
 
 
@@ -580,6 +590,88 @@ def _feature_distance(a: dict[str, Any], b: dict[str, Any]) -> float:
     return 0.62 * hash_distance + 0.38 * hist_distance
 
 
+def _artwork_crop(image: Image.Image) -> Image.Image:
+    regions = detect_card_regions(image)
+    if regions:
+        image = _crop_region(image, regions[0])
+    w, h = image.size
+    if h <= 0 or w <= 0:
+        return image
+    # The illustration is usually central/top-middle. For full-art cards this
+    # still keeps enough composition while dropping most border/text noise.
+    left = int(w * 0.09)
+    right = int(w * 0.91)
+    top = int(h * 0.16)
+    bottom = int(h * 0.64)
+    if bottom <= top or right <= left:
+        return image
+    return image.crop((left, top, right, bottom))
+
+
+def _orb_descriptors(image: Image.Image) -> np.ndarray | None:
+    if cv2 is None:
+        return None
+    try:
+        gray = np.asarray(image.convert("L").resize((420, 300), Image.Resampling.LANCZOS), dtype=np.uint8)
+        gray = cv2.equalizeHist(gray)
+        orb = cv2.ORB_create(nfeatures=260, fastThreshold=7)
+        _keypoints, descriptors = orb.detectAndCompute(gray, None)
+        if descriptors is None or len(descriptors) == 0:
+            return None
+        return descriptors[:260]
+    except Exception:
+        return None
+
+
+def _artwork_feature(image: Image.Image) -> dict[str, Any]:
+    artwork = _artwork_crop(image)
+    return {"base": _feature(artwork), "orb": _orb_descriptors(artwork)}
+
+
+def _artwork_feature_to_json(feature: dict[str, Any]) -> dict[str, Any]:
+    payload = _feature_to_json(feature["base"])
+    orb = feature.get("orb")
+    payload["orb"] = orb.astype(int).tolist() if isinstance(orb, np.ndarray) and len(orb) else []
+    return payload
+
+
+def _artwork_feature_from_json(payload: dict[str, Any]) -> dict[str, Any] | None:
+    base = _feature_from_json(payload)
+    if base is None:
+        return None
+    orb_rows = payload.get("orb") or []
+    orb = np.asarray(orb_rows, dtype=np.uint8) if orb_rows else None
+    return {"base": base, "orb": orb}
+
+
+def _artwork_feature_distance(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+    base_distance = _feature_distance(a["base"], b["base"])
+    base_score = max(0.0, 100.0 * (1.0 - min(1.0, base_distance)))
+    orb_score = None
+    good_matches = 0
+    a_orb = a.get("orb")
+    b_orb = b.get("orb")
+    if cv2 is not None and isinstance(a_orb, np.ndarray) and isinstance(b_orb, np.ndarray) and len(a_orb) >= 4 and len(b_orb) >= 4:
+        try:
+            matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            pairs = matcher.knnMatch(a_orb, b_orb, k=2)
+            for pair in pairs:
+                if len(pair) < 2:
+                    continue
+                first, second = pair
+                if first.distance < 0.78 * second.distance:
+                    good_matches += 1
+            orb_score = min(100.0, good_matches * 4.6)
+        except Exception:
+            orb_score = None
+    if orb_score is None:
+        final_score = base_score
+    else:
+        final_score = max(base_score, base_score * 0.45 + orb_score * 0.55)
+    distance = max(0.0, 1.0 - final_score / 100.0)
+    return distance, {"artwork_score": round(final_score, 2), "hash_score": round(base_score, 2), "orb_score": round(orb_score, 2) if orb_score is not None else None, "orb_matches": good_matches}
+
+
 def build_reference_features(candidates: list[dict[str, Any]], *, max_candidates=450) -> dict[str, dict[str, Any]]:
     features = {}
     for candidate in candidates[:max_candidates]:
@@ -633,6 +725,32 @@ def _reference_feature_for_candidate(candidate: dict[str, Any]) -> dict[str, Any
     return feature
 
 
+def _reference_artwork_feature_for_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    source = str(candidate.get("image_url", "") or "")
+    if not source:
+        return None
+    cache_path = _artwork_feature_cache_path(source)
+    if cache_path.exists():
+        cached = _artwork_feature_from_json(load_json_file(cache_path, {}))
+        if cached is not None:
+            return cached
+    parsed = urlparse(source)
+    if parsed.scheme in {"http", "https"}:
+        # Network references are intentionally not fetched in the tight
+        # fallback path unless already cached by _load_image.
+        pass
+    image = _load_image(source, max_side=768)
+    if image is None:
+        return None
+    feature = _artwork_feature(image)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(_artwork_feature_to_json(feature), separators=(",", ":")), encoding="utf-8")
+    except Exception:
+        pass
+    return feature
+
+
 def _photo_visual_feature(path: str) -> dict[str, Any] | None:
     image = _load_image(path, max_side=1024)
     if image is None:
@@ -643,36 +761,72 @@ def _photo_visual_feature(path: str) -> dict[str, Any] | None:
     return _feature(image)
 
 
-def _apply_visual_shortlist_scores(path: str, scored: list[dict[str, Any]], *, limit=5) -> None:
+def _photo_artwork_feature(path: str) -> dict[str, Any] | None:
+    image = _load_image(path, max_side=1400)
+    if image is None:
+        return None
+    return _artwork_feature(image)
+
+
+def _apply_visual_shortlist_scores(path: str, scored: list[dict[str, Any]], *, limit=5, broad=False) -> dict[str, Any]:
+    started = time.perf_counter()
     if not scored:
-        return
+        return {"used": 0, "elapsed": 0.0, "broad": broad}
     refs = []
-    for item in scored[:limit]:
+    candidate_pool = scored[:limit]
+    if broad:
+        high_signal = [item for item in scored if float(item.get("score") or 0.0) >= 30 or (item.get("candidate") or {}).get("japanese")]
+        candidate_pool = (high_signal or scored)[: min(40, len(scored))]
+    for item in candidate_pool:
         candidate = item.get("candidate") or {}
         ref_feature = _reference_feature_for_candidate(candidate)
-        if ref_feature is not None:
-            refs.append((item, ref_feature))
+        artwork_feature = _reference_artwork_feature_for_candidate(candidate)
+        if ref_feature is not None or artwork_feature is not None:
+            refs.append((item, ref_feature, artwork_feature))
     if not refs:
-        return
+        return {"used": 0, "elapsed": round(time.perf_counter() - started, 3), "broad": broad}
     photo_feature = _photo_visual_feature(path)
-    if photo_feature is None:
-        return
+    photo_artwork_feature = _photo_artwork_feature(path)
+    if photo_feature is None and photo_artwork_feature is None:
+        return {"used": 0, "elapsed": round(time.perf_counter() - started, 3), "broad": broad}
     visual_rows = []
-    for item, ref_feature in refs:
-        distance = _feature_distance(photo_feature, ref_feature)
-        visual_score = max(0.0, 100.0 * (1.0 - min(1.0, distance)))
+    for item, ref_feature, artwork_feature in refs:
+        scores = []
+        if photo_feature is not None and ref_feature is not None:
+            distance = _feature_distance(photo_feature, ref_feature)
+            scores.append(("carte", max(0.0, 100.0 * (1.0 - min(1.0, distance))), {}))
+        if photo_artwork_feature is not None and artwork_feature is not None:
+            _distance, details = _artwork_feature_distance(photo_artwork_feature, artwork_feature)
+            scores.append(("artwork", float(details.get("artwork_score") or 0.0), details))
+        if not scores:
+            continue
+        mode, visual_score, details = max(scores, key=lambda row: row[1])
         item["visual_score"] = round(visual_score, 2)
-        visual_rows.append((visual_score, item))
+        if mode == "artwork":
+            item["visual_artwork_score"] = round(visual_score, 2)
+            item["visual_artwork_details"] = details
+        visual_rows.append((visual_score, item, mode))
     if not visual_rows:
-        return
+        return {"used": 0, "elapsed": round(time.perf_counter() - started, 3), "broad": broad}
     visual_rows.sort(key=lambda row: row[0], reverse=True)
-    best_visual_score, best_visual_item = visual_rows[0]
-    for score, item in visual_rows:
-        item.setdefault("reasons", []).append(f"visuel shortlist {score:.0f}")
+    best_visual_score, best_visual_item, best_mode = visual_rows[0]
+    second_visual_score = visual_rows[1][0] if len(visual_rows) > 1 else 0.0
+    for score, item, mode in visual_rows:
+        label = "artwork" if mode == "artwork" else "carte"
+        item.setdefault("reasons", []).append(f"visuel {label} {score:.0f}")
+        item["visual_margin"] = round(score - second_visual_score if item is best_visual_item else best_visual_score - score, 2)
     current_score = float(best_visual_item.get("score") or 0.0)
     if current_score >= 54 and best_visual_score >= 70:
         best_visual_item["score"] = round(min(100.0, current_score + 6.0), 2)
         best_visual_item.setdefault("reasons", []).append("bonus visuel prudent")
+    return {
+        "used": len(visual_rows),
+        "elapsed": round(time.perf_counter() - started, 3),
+        "broad": broad,
+        "best_visual_score": round(best_visual_score, 2),
+        "second_visual_score": round(second_visual_score, 2),
+        "best_mode": best_mode,
+    }
 
 
 def _ocr_status() -> tuple[bool, str]:
@@ -988,27 +1142,53 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
                 item["score"] = max(float(item.get("score") or 0.0), 88.0)
                 item.setdefault("reasons", []).append("nom OCR unique dans le drop")
     scored.sort(key=lambda item: item["score"], reverse=True)
+    visual_info = {"used": 0, "elapsed": 0.0, "broad": False}
     if scored and (ocr_payload.get("name_texts") or ocr_payload.get("number_texts")):
-        _apply_visual_shortlist_scores(path, scored, limit=5)
-        scored.sort(key=lambda item: item["score"], reverse=True)
+        pre_best = scored[0] if scored else None
+        pre_second = scored[1] if len(scored) > 1 else None
+        pre_margin = (float(pre_best.get("score") or 0.0) - float(pre_second.get("score") or 0.0)) if pre_best and pre_second else 100.0
+        no_name = not bool(ocr_payload.get("name_texts"))
+        has_cjk = bool(re.search(r"[\u3040-\u30ff\u3400-\u9fff]", str(ocr_payload.get("raw_text") or "")))
+        broad_visual = no_name and (bool(ocr_payload.get("collector_number_texts")) or has_cjk)
+        needs_visual = (
+            broad_visual
+            or pre_margin < 14
+            or float(pre_best.get("score") or 0.0) < 86
+            or (pre_best and pre_best.get("number_kind") in {"plain_collector", "noisy_number"})
+        )
+        if needs_visual:
+            visual_info = _apply_visual_shortlist_scores(path, scored, limit=5, broad=broad_visual)
+            scored.sort(key=lambda item: (float(item.get("score") or 0.0), float(item.get("visual_score") or 0.0)), reverse=True)
     top = scored[:3]
     best = top[0] if top else None
     second = top[1] if len(top) > 1 else None
     margin = (best["score"] - second["score"]) if best and second else (best["score"] if best else 0.0)
     status = "unrecognized"
     v8_auto_reason = ""
+    v9_auto_reason = ""
     if best:
         strong_name = best["name_similarity"] >= 0.96
         probable_name = best["name_similarity"] >= 0.86
         second_name = float(second.get("name_similarity") or 0.0) if second else 0.0
         reliable_number = best.get("number_kind") in {"full_collector", "local_collector"}
         weak_number_without_name = best.get("number_kind") in {"local_collector", "plain_collector", "noisy_number"} and best.get("name_similarity", 0.0) < 0.74
+        artwork_score = float(best.get("visual_artwork_score") or 0.0)
+        visual_margin = float(best.get("visual_margin") or 0.0)
         if best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name:
             status = "recognized"
         elif reliable_number and probable_name and best["score"] >= 92 and margin >= 6 and second_name < 0.74:
             status = "recognized"
             v8_auto_reason = "V8: numéro fiable + nom probable malgré marge courte"
             best.setdefault("reasons", []).append(v8_auto_reason)
+        elif not ocr_payload.get("name_texts") and reliable_number and best["score"] >= 86 and artwork_score >= 64 and visual_margin >= 10:
+            status = "recognized"
+            v9_auto_reason = "V9: numéro fiable + artwork distinctif"
+            best.setdefault("reasons", []).append(v9_auto_reason)
+        elif not (ocr_payload.get("name_texts") or ocr_payload.get("collector_number_texts")) and artwork_score >= 84 and visual_margin >= 18:
+            status = "recognized"
+            v9_auto_reason = "V9: artwork seul très distinctif"
+            best["score"] = max(float(best.get("score") or 0.0), min(94.0, artwork_score))
+            best.setdefault("reasons", []).append(v9_auto_reason)
         elif strong_name and best["score"] >= 88 and margin >= 30:
             status = "recognized"
         elif best["score"] >= 54:
@@ -1016,6 +1196,9 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
     if status == "recognized" and not v8_auto_reason and second and second.get("number_kind") == "noisy_number":
         v8_auto_reason = "V8: numéro parasite déclassé chez le candidat concurrent"
         best.setdefault("reasons", []).append(v8_auto_reason)
+    if status != "recognized" and best and (best.get("visual_artwork_score") or 0):
+        if float(best.get("score") or 0.0) < 54 and float(best.get("visual_artwork_score") or 0.0) >= 58:
+            status = "review"
     diagnostic_reason = "aucun signal OCR exploitable"
     if ocr_payload.get("number_texts") and not ocr_payload.get("name_texts"):
         diagnostic_reason = "nom OCR absent"
@@ -1036,6 +1219,10 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         "margin": round(margin, 2),
         "diagnostic_reason": diagnostic_reason,
         "v8_auto_reason": v8_auto_reason,
+        "v9_auto_reason": v9_auto_reason,
+        "visual_matching_used": visual_info.get("used", 0),
+        "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
+        "visual_matching_broad": visual_info.get("broad", False),
         "ocr": ocr_payload,
         "candidates": top,
     }
@@ -1372,6 +1559,16 @@ def _metrics_for_groups(
             for group in groups
             for match in group.get("matches", [])
             if match.get("method") == "ocr_fr" and not ((match.get("ocr") or {}).get("name_texts") or (match.get("ocr") or {}).get("number_texts"))
+        ),
+        "visual_matching_cases": sum(
+            1 for group in groups for match in group.get("matches", []) if _safe_int(match.get("visual_matching_used"), 0) > 0
+        ),
+        "visual_matching_broad_cases": sum(
+            1 for group in groups for match in group.get("matches", []) if bool(match.get("visual_matching_broad"))
+        ),
+        "visual_matching_seconds": round(
+            sum(_safe_float(match.get("visual_matching_elapsed"), 0.0) for group in groups for match in group.get("matches", [])),
+            3,
         ),
         "duration_seconds": round(duration, 2),
         "avg_seconds_per_announcement": round(duration / max(1, len(groups)), 2),

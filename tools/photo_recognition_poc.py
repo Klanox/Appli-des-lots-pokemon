@@ -61,6 +61,7 @@ VIEW_OPTIONS = [
     "File à vérifier",
     "File non reconnus",
     "Contrôle verts",
+    "Vérification complète",
     "Validation des groupes",
     "Résultats / debug reconnaissance",
     "Erreurs uniquement",
@@ -135,6 +136,8 @@ def _image_crop(path: str, kind: str):
                 return img.crop((0, 0, w, int(h * 0.36)))
             if kind == "number":
                 return img.crop((0, int(h * 0.68), w, h))
+            if kind == "artwork":
+                return img.crop((int(w * 0.09), int(h * 0.16), int(w * 0.91), int(h * 0.64)))
             return img
     except Exception:
         return None
@@ -237,6 +240,13 @@ def _render_full_summary(result: dict, sample: dict):
     v2.metric("Fails corrigés", manual["fail_fixed"])
     v3.metric("Verts contrôlés", manual["green_checked"])
     v4.metric("Verts faux", manual["green_wrong"])
+    if manual["green_checked"]:
+        st.caption(f"Précision observée : {manual['green_checked'] - manual['green_wrong']} / {manual['green_checked']} autos contrôlés.")
+
+    vm1, vm2, vm3 = st.columns(3)
+    vm1.metric("Cas visuels", metrics.get("visual_matching_cases", 0))
+    vm2.metric("Visuel large", metrics.get("visual_matching_broad_cases", 0))
+    vm3.metric("Temps visuel", f"{metrics.get('visual_matching_seconds', 0)} s")
 
     causes = metrics.get("diagnostic_causes") or {}
     if causes:
@@ -251,6 +261,7 @@ def _render_full_summary(result: dict, sample: dict):
     for group in result.get("groups", []) or []:
         for match in group.get("matches", []) or []:
             reason = match.get("v8_auto_reason")
+            reason = match.get("v9_auto_reason") or reason
             if not reason:
                 continue
             candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
@@ -262,11 +273,12 @@ def _render_full_summary(result: dict, sample: dict):
                     "numéro": candidate.get("number"),
                     "score": match.get("score"),
                     "marge": match.get("margin"),
+                    "visuel": (((match.get("candidates") or [{}])[0]).get("visual_artwork_score") or ((match.get("candidates") or [{}])[0]).get("visual_score")),
                     "raison": reason,
                 }
             )
     if new_auto_rows:
-        st.markdown("#### Nouveaux autos V8")
+        st.markdown("#### Nouveaux autos V8/V9")
         st.dataframe(new_auto_rows, width="stretch", hide_index=True)
 
     c1, c2, c3, c4 = st.columns(4)
@@ -642,12 +654,15 @@ def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: st
             name_crop = _image_crop(photo.path, "name")
             number_crop = _image_crop(photo.path, "number")
             card_crop = _image_crop(photo.path, "card")
+            artwork_crop = _image_crop(photo.path, "artwork")
             if name_crop:
                 crop_cols[0].image(name_crop, caption="crop nom", use_container_width=True)
             if number_crop:
                 crop_cols[1].image(number_crop, caption="crop numéro", use_container_width=True)
             if card_crop:
                 crop_cols[2].image(card_crop, caption="carte", use_container_width=True)
+            if artwork_crop:
+                st.image(artwork_crop, caption="crop artwork", width=320)
 
     validation = _recognition_validation(sample, group_id, match_index)
     c1, c2, c3 = st.columns([1, 1, 2])
@@ -707,12 +722,15 @@ def _render_match_readonly(match: dict, match_index: int):
             name_crop = _image_crop(photo.path, "name")
             number_crop = _image_crop(photo.path, "number")
             card_crop = _image_crop(photo.path, "card")
+            artwork_crop = _image_crop(photo.path, "artwork")
             if name_crop:
                 crop_cols[0].image(name_crop, caption="crop nom", use_container_width=True)
             if number_crop:
                 crop_cols[1].image(number_crop, caption="crop numéro", use_container_width=True)
             if card_crop:
                 crop_cols[2].image(card_crop, caption="carte", use_container_width=True)
+            if artwork_crop:
+                st.image(artwork_crop, caption="crop artwork", width=320)
 
 
 def _recognition_is_done(sample: dict, group_id: str, match_count: int) -> bool:
@@ -898,6 +916,51 @@ def _render_green_quality_view(sample_key: str, sample: dict, result: dict):
         if c3.button("Passer", key=f"green_skip_{group_id}_{match_index}"):
             st.session_state[index_key] = (current_index + 1) % max(1, len(groups))
             _rerun()
+
+
+def _render_full_check_view(sample_key: str, sample: dict, result: dict):
+    groups = result.get("groups", []) or []
+    if not groups:
+        st.info("Aucune annonce à vérifier.")
+        return
+    index_key = "photo_poc_full_check_index"
+    st.session_state[index_key] = min(int(st.session_state.get(index_key, 0) or 0), len(groups) - 1)
+    current_index = st.session_state[index_key]
+    group = groups[current_index]
+    group_id = _result_group_id(group)
+    level = group.get("confidence_level", "red")
+    path_by_key = _photo_path_by_key(result)
+
+    st.markdown(f"### Vérification complète — {current_index + 1} / {len(groups)}")
+    st.caption(
+        f"Annonce #{group.get('announcement_index')} · {STATUS_LABELS.get(level, level)} · "
+        f"grouping {group.get('grouping_status')} · {group.get('expected_cards', 1)} carte(s)"
+    )
+    _render_group_photos({"photos": _group_photo_payloads(group)}, path_by_key, compact=True)
+    for match_index, match in enumerate(group.get("matches", []) or []):
+        _render_match_readonly(match, match_index)
+        validation = _recognition_validation(sample, group_id, match_index)
+        if validation.get("status"):
+            st.caption("Validation POC : " + str(validation))
+        c1, c2, c3 = st.columns(3)
+        if c1.button("✓ Correct", key=f"full_ok_{group_id}_{match_index}", type="primary"):
+            _set_recognition_validation(sample_key, group_id, match_index, {"status": "correct"})
+            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
+            _rerun()
+        if c2.button("✕ Mauvais", key=f"full_bad_{group_id}_{match_index}"):
+            _set_recognition_validation(sample_key, group_id, match_index, {"status": "wrong"})
+            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
+            _rerun()
+        if c3.button("Suivant", key=f"full_next_{group_id}_{match_index}"):
+            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
+            _rerun()
+    nav1, nav2 = st.columns(2)
+    if nav1.button("← Précédente", key="full_prev", disabled=current_index == 0):
+        st.session_state[index_key] = max(0, current_index - 1)
+        _rerun()
+    if nav2.button("Suivante →", key="full_next_bottom", disabled=current_index >= len(groups) - 1):
+        st.session_state[index_key] = min(len(groups) - 1, current_index + 1)
+        _rerun()
 
 
 def _group_visible(group: dict, mode: str) -> bool:
@@ -1187,6 +1250,8 @@ elif view == "File non reconnus":
     )
 elif view == "Contrôle verts":
     _render_green_quality_view(sample_key, sample, result)
+elif view == "Vérification complète":
+    _render_full_check_view(sample_key, sample, result)
 elif view == "Validation des groupes":
     _render_metrics(metrics)
     _render_validation_view(sample_key, sample, result)
