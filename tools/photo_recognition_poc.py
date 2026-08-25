@@ -247,6 +247,28 @@ def _render_full_summary(result: dict, sample: dict):
             hide_index=True,
         )
 
+    new_auto_rows = []
+    for group in result.get("groups", []) or []:
+        for match in group.get("matches", []) or []:
+            reason = match.get("v8_auto_reason")
+            if not reason:
+                continue
+            candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+            new_auto_rows.append(
+                {
+                    "annonce": group.get("announcement_index"),
+                    "photos": " ".join(str(photo.get("capture_index")) for photo in _group_photo_payloads(group)),
+                    "carte": candidate.get("name"),
+                    "numéro": candidate.get("number"),
+                    "score": match.get("score"),
+                    "marge": match.get("margin"),
+                    "raison": reason,
+                }
+            )
+    if new_auto_rows:
+        st.markdown("#### Nouveaux autos V8")
+        st.dataframe(new_auto_rows, width="stretch", hide_index=True)
+
     c1, c2, c3, c4 = st.columns(4)
     if c1.button("Voir les erreurs", type="primary"):
         st.session_state["photo_poc_view"] = "File à vérifier" if metrics.get("to_review", 0) else "File non reconnus"
@@ -801,10 +823,48 @@ def _green_quality_groups(result: dict, sample: dict, target_count: int = 10) ->
         for group in green_groups
         if not _recognition_is_done(sample, _result_group_id(group), len(group.get("matches", []) or []))
     ]
+    priority_groups = [
+        group
+        for group in green_groups
+        if any(match.get("v8_auto_reason") for match in group.get("matches", []) or [])
+    ]
+    edge_groups = sorted(
+        [
+            group
+            for group in green_groups
+            if group not in priority_groups
+            and any(float(match.get("margin") or 0) <= 18 for match in group.get("matches", []) or [])
+        ],
+        key=lambda group: min(float(match.get("margin") or 999) for match in group.get("matches", []) or [{}]),
+    )
+    variant_groups = [
+        group
+        for group in green_groups
+        if group not in priority_groups
+        and group not in edge_groups
+        and any(
+            (((match.get("candidates") or [{}])[0]).get("candidate") or {}).get(flag)
+            for match in group.get("matches", []) or []
+            for flag in ("japanese", "reverse", "first_edition", "stamp", "promo", "pokeball", "masterball")
+        )
+    ]
+    ordered_priority = []
+    for group in priority_groups + edge_groups + variant_groups:
+        if group not in ordered_priority:
+            ordered_priority.append(group)
     if len(green_groups) <= target_count:
         return green_groups
+    if len(ordered_priority) >= target_count:
+        return ordered_priority[:target_count]
     picks = sorted({round(index * (len(green_groups) - 1) / max(1, target_count - 1)) for index in range(target_count)})
-    return [green_groups[index] for index in picks]
+    sampled = ordered_priority[:]
+    for index in picks:
+        group = green_groups[index]
+        if group not in sampled:
+            sampled.append(group)
+        if len(sampled) >= target_count:
+            break
+    return sampled
 
 
 def _render_green_quality_view(sample_key: str, sample: dict, result: dict):

@@ -46,7 +46,7 @@ FILENAME_DATETIME_PATTERNS = (
 )
 
 _OCR_ENGINE = None
-OCR_CACHE_VERSION = "v4d"
+OCR_CACHE_VERSION = "v8c"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -718,39 +718,29 @@ def _ocr_image_array(engine, image: Image.Image, region_name: str) -> list[dict[
     return parsed
 
 
-def run_ocr_for_photo(path: str) -> dict[str, Any]:
-    cache_path = _ocr_cache_path(path)
-    if cache_path.exists():
-        cached = load_json_file(cache_path, None)
-        if isinstance(cached, dict):
-            return cached
-    engine = _get_ocr_engine()
-    if engine is None:
-        return {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""}
-    image = _load_image(path, max_side=1800)
-    if image is None:
-        return {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""}
-    w, h = image.size
-    crops = {
-        "top_name": image.crop((0, 0, w, int(h * 0.24))).resize((w * 2, int(h * 0.24) * 2), Image.Resampling.LANCZOS),
-        "top_name_wide": image.crop((0, 0, w, int(h * 0.36))).resize((w * 2, int(h * 0.36) * 2), Image.Resampling.LANCZOS),
-        "bottom_number": image.crop((0, int(h * 0.68), w, h)).resize((w * 2, int(h * 0.32) * 2), Image.Resampling.LANCZOS),
-    }
-    rows = []
-    for region_name, crop in crops.items():
-        rows.extend(_ocr_image_array(engine, crop, region_name))
-    name_regions = {"top_name", "top_name_wide"}
+def _ocr_signals_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    name_regions = {"top_name", "top_name_wide", "top_name_low"}
     generic_name_noise = {
         "base",
+        "basb",
         "niveau",
         "niveaut",
+        "niveaui",
         "pv",
+        "hp",
         "talent",
         "faiblesse",
         "resistance",
         "retraite",
         "dresseur",
         "supporter",
+        "trainer",
+        "stagei",
+        "staget",
+        "evolvesfrom",
+        "evolutionde",
+        "energie",
+        "energy",
     }
     name_texts = []
     seen_names = set()
@@ -765,21 +755,69 @@ def run_ocr_for_photo(path: str) -> dict[str, Any]:
             continue
         seen_names.add(folded)
         name_texts.append(text)
+
     number_texts = []
+    collector_number_texts = []
     all_number_texts = []
+    collector_regions = {"bottom_collector", "bottom_edge"}
     for row in rows:
         text = row["text"]
         tokens = _extract_number_tokens(text) if re.search(r"\d", text) else []
         all_number_texts.extend(tokens)
         if row["region"] == "bottom_number":
             number_texts.extend(tokens)
+        if row["region"] in collector_regions or any("/" in _normalize_card_number(token) for token in tokens):
+            collector_number_texts.extend(tokens)
+    return {
+        "name_texts": name_texts,
+        "number_texts": sorted(set(number_texts)),
+        "collector_number_texts": sorted(set(collector_number_texts)),
+        "all_number_texts": sorted(set(all_number_texts)),
+    }
+
+
+def run_ocr_for_photo(path: str) -> dict[str, Any]:
+    cache_path = _ocr_cache_path(path)
+    if cache_path.exists():
+        cached = load_json_file(cache_path, None)
+        if isinstance(cached, dict):
+            return cached
+    engine = _get_ocr_engine()
+    if engine is None:
+        return {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""}
+    image = _load_image(path, max_side=1800)
+    if image is None:
+        return {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""}
+    w, h = image.size
+    base_crops = {
+        "top_name": image.crop((0, 0, w, int(h * 0.24))).resize((w * 2, int(h * 0.24) * 2), Image.Resampling.LANCZOS),
+        "top_name_wide": image.crop((0, 0, w, int(h * 0.36))).resize((w * 2, int(h * 0.36) * 2), Image.Resampling.LANCZOS),
+        "bottom_number": image.crop((0, int(h * 0.68), w, h)).resize((w * 2, int(h * 0.32) * 2), Image.Resampling.LANCZOS),
+    }
+    rows = []
+    for region_name, crop in base_crops.items():
+        rows.extend(_ocr_image_array(engine, crop, region_name))
+    signals = _ocr_signals_from_rows(rows)
+    if not signals["name_texts"]:
+        fallback = image.crop((0, int(h * 0.06), w, int(h * 0.42))).resize((w * 2, int(h * 0.36) * 2), Image.Resampling.LANCZOS)
+        rows.extend(_ocr_image_array(engine, fallback, "top_name_low"))
+        signals = _ocr_signals_from_rows(rows)
+    if not signals["collector_number_texts"]:
+        fallback_crops = {
+            "bottom_collector": image.crop((int(w * 0.42), int(h * 0.72), w, h)).resize((int(w * 0.58) * 2, int(h * 0.28) * 2), Image.Resampling.LANCZOS),
+            "bottom_edge": image.crop((int(w * 0.32), int(h * 0.82), w, h)).resize((int(w * 0.68) * 2, int(h * 0.18) * 2), Image.Resampling.LANCZOS),
+        }
+        for region_name, crop in fallback_crops.items():
+            rows.extend(_ocr_image_array(engine, crop, region_name))
+        signals = _ocr_signals_from_rows(rows)
     payload = {
         "available": True,
         "engine": "rapidocr_onnxruntime",
         "rows": rows,
-        "name_texts": name_texts,
-        "number_texts": sorted(set(number_texts)),
-        "all_number_texts": sorted(set(all_number_texts)),
+        "name_texts": signals["name_texts"],
+        "number_texts": signals["number_texts"],
+        "collector_number_texts": signals["collector_number_texts"],
+        "all_number_texts": signals["all_number_texts"],
         "raw_text": " | ".join(row["text"] for row in rows),
     }
     try:
@@ -831,7 +869,7 @@ def _expand_compact_number_token(token: str) -> list[str]:
 def _extract_number_tokens(text: str) -> list[str]:
     raw = str(text or "").upper().replace("O", "0")
     tokens = []
-    for match in re.finditer(r"[A-Z]{0,3}\d{1,4}\s*/\s*[A-Z]?\d{1,4}|[A-Z]{1,4}\d{1,4}[A-Z]?|\d{1,4}", raw):
+    for match in re.finditer(r"[A-Z]{0,3}\d{1,4}\s*/\s*[A-Z]?\d{1,4}|\d{6,7}|[A-Z]{1,4}\d{1,4}[A-Z]?|\d{1,4}", raw):
         normalized = _normalize_card_number(match.group(0))
         if normalized:
             tokens.append(normalized)
@@ -854,18 +892,33 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
     cand_num_full = _normalize_card_number(candidate_number)
     cand_num_local = _number_local(candidate_number)
     ocr_numbers = [_normalize_card_number(token) for token in ocr_payload.get("number_texts", [])]
-    ocr_locals = [_number_local(token) for token in ocr_numbers]
+    collector_numbers = [_normalize_card_number(token) for token in ocr_payload.get("collector_number_texts", [])]
+    collector_numbers = [token for token in collector_numbers if token]
+    collector_locals_from_full = [_number_local(token) for token in collector_numbers if "/" in token]
+    all_ocr_locals = [_number_local(token) for token in ocr_numbers]
     number_score = 0.0
     number_reason = ""
     number_kind = ""
-    if cand_num_full and cand_num_full in ocr_numbers and ("/" in cand_num_full or len(cand_num_local) >= 2):
-        number_score = 78.0
+    if cand_num_full and "/" in cand_num_full and cand_num_full in collector_numbers:
+        number_score = 80.0
         number_reason = f"numéro exact {cand_num_full}"
-        number_kind = "full"
-    elif cand_num_local and cand_num_local in ocr_locals and len(cand_num_local) >= 2:
-        number_score = 62.0
+        number_kind = "full_collector"
+    elif cand_num_local and cand_num_local in collector_locals_from_full and len(cand_num_local) >= 2:
+        number_score = 66.0
         number_reason = f"numéro local {cand_num_local}"
-        number_kind = "local"
+        number_kind = "local_collector"
+    elif cand_num_full and "/" not in cand_num_full and cand_num_full in collector_numbers and len(cand_num_local) >= 2:
+        number_score = 58.0
+        number_reason = f"numéro simple collector {cand_num_full}"
+        number_kind = "plain_collector"
+    elif cand_num_full and cand_num_full in ocr_numbers and len(cand_num_local) >= 2:
+        number_score = 38.0
+        number_reason = f"numéro simple bruité {cand_num_full}"
+        number_kind = "noisy_number"
+    elif cand_num_local and cand_num_local in all_ocr_locals and len(cand_num_local) >= 2:
+        number_score = 30.0
+        number_reason = f"numéro local bruité {cand_num_local}"
+        number_kind = "noisy_number"
 
     name_scores = [(_similarity(text, str(candidate.get("name") or "")), text) for text in ocr_payload.get("name_texts", [])]
     best_name_score, best_name_text = max(name_scores, default=(0.0, ""))
@@ -897,6 +950,7 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
         "name_similarity": round(best_name_score, 3),
         "ocr_name": best_name_text,
         "ocr_numbers": ocr_numbers,
+        "collector_numbers": collector_numbers,
         "reasons": reasons,
     }
 
@@ -914,18 +968,18 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
     full_number_counts = {}
     local_number_counts = {}
     for item in scored:
-        if item.get("number_kind") == "full":
+        if item.get("number_kind") == "full_collector":
             full_number_counts[item.get("candidate_number_full", "")] = full_number_counts.get(item.get("candidate_number_full", ""), 0) + 1
-        if item.get("number_kind") == "local":
+        if item.get("number_kind") == "local_collector":
             local_number_counts[item.get("candidate_number_local", "")] = local_number_counts.get(item.get("candidate_number_local", ""), 0) + 1
     for item in scored:
         current_score = float(item.get("score") or 0.0)
         full_key = item.get("candidate_number_full", "")
         local_key = item.get("candidate_number_local", "")
-        if item.get("number_kind") == "full" and full_number_counts.get(full_key, 0) == 1:
+        if item.get("number_kind") == "full_collector" and full_number_counts.get(full_key, 0) == 1:
             item["score"] = max(current_score, 92.0)
             item.setdefault("reasons", []).append("numéro complet unique dans le drop")
-        elif item.get("number_kind") == "local" and local_number_counts.get(local_key, 0) == 1:
+        elif item.get("number_kind") == "local_collector" and local_number_counts.get(local_key, 0) == 1:
             item["score"] = max(current_score, 86.0)
             item.setdefault("reasons", []).append("numéro local unique dans le drop")
     if exact_name_count == 1:
@@ -942,15 +996,26 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
     second = top[1] if len(top) > 1 else None
     margin = (best["score"] - second["score"]) if best and second else (best["score"] if best else 0.0)
     status = "unrecognized"
+    v8_auto_reason = ""
     if best:
         strong_name = best["name_similarity"] >= 0.96
-        local_number_without_name = best.get("number_kind") == "local" and best.get("name_similarity", 0.0) < 0.74
-        if best["score"] >= 86 and margin >= 12 and best["number_match"] and not local_number_without_name:
+        probable_name = best["name_similarity"] >= 0.86
+        second_name = float(second.get("name_similarity") or 0.0) if second else 0.0
+        reliable_number = best.get("number_kind") in {"full_collector", "local_collector"}
+        weak_number_without_name = best.get("number_kind") in {"local_collector", "plain_collector", "noisy_number"} and best.get("name_similarity", 0.0) < 0.74
+        if best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name:
             status = "recognized"
+        elif reliable_number and probable_name and best["score"] >= 92 and margin >= 6 and second_name < 0.74:
+            status = "recognized"
+            v8_auto_reason = "V8: numéro fiable + nom probable malgré marge courte"
+            best.setdefault("reasons", []).append(v8_auto_reason)
         elif strong_name and best["score"] >= 88 and margin >= 30:
             status = "recognized"
         elif best["score"] >= 54:
             status = "review"
+    if status == "recognized" and not v8_auto_reason and second and second.get("number_kind") == "noisy_number":
+        v8_auto_reason = "V8: numéro parasite déclassé chez le candidat concurrent"
+        best.setdefault("reasons", []).append(v8_auto_reason)
     diagnostic_reason = "aucun signal OCR exploitable"
     if ocr_payload.get("number_texts") and not ocr_payload.get("name_texts"):
         diagnostic_reason = "nom OCR absent"
@@ -970,6 +1035,7 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         "second_score": second["score"] if second else 0.0,
         "margin": round(margin, 2),
         "diagnostic_reason": diagnostic_reason,
+        "v8_auto_reason": v8_auto_reason,
         "ocr": ocr_payload,
         "candidates": top,
     }
