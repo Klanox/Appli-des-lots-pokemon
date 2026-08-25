@@ -37,6 +37,7 @@ from services.vinted_drops_service import drop_card_key, load_vinted_drops
 
 POC_DIR = Path("photo_recognition_poc")
 POC_CACHE_DIR = POC_DIR / ".cache"
+POC_GROUND_TRUTH_PATH = POC_DIR / ".poc_ground_truth.json"
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 EXIF_DATETIME_TAGS = (36867, 36868, 306)
 FILENAME_DATETIME_PATTERNS = (
@@ -46,6 +47,15 @@ FILENAME_DATETIME_PATTERNS = (
 
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v4d"
+PHOTO_ROLES = (
+    "primary_front",
+    "back_western",
+    "back_japanese",
+    "card_front",
+    "card_back",
+    "extra",
+    "uncertain",
+)
 
 
 @dataclass(frozen=True)
@@ -1104,26 +1114,7 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
     return groups[:target_announcements]
 
 
-def analyze_sample(
-    *,
-    folder: str | Path = POC_DIR,
-    data_path="data.json",
-    drops_path="vinted_drops.json",
-    drop_id: str | None = None,
-    start_index=1,
-    target_announcements=30,
-    max_photos=90,
-):
-    started = time.perf_counter()
-    ordered = list_ordered_photos(folder)
-    start_index = max(1, int(start_index or 1))
-    photo_window = ordered[start_index - 1 : start_index - 1 + max(1, int(max_photos or 1))]
-    drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
-    classifications = {}
-    for photo in photo_window:
-        classifications[photo.filename] = classify_photo(photo.path)
-    groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
-    front_photos = [group["primary_front"]["photo"] for group in groups if group.get("primary_front")]
+def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, Any]], *, force_grouping_trust=False) -> tuple[bool, str, int]:
     ocr_available, ocr_note = _ocr_status()
     reference_features = {} if ocr_available else build_reference_features(candidates)
     used_candidate_counts = {}
@@ -1131,6 +1122,7 @@ def analyze_sample(
         front = group.get("primary_front")
         if not front:
             group["matches"] = []
+            group["confidence_level"] = "red"
             continue
         group_back = group.get("group_back") or {}
         back_type = ((group_back.get("classification") or {}).get("back_type") or "")
@@ -1167,7 +1159,8 @@ def analyze_sample(
                 if key:
                     used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
         statuses = [match.get("status") for match in group["matches"]]
-        if group.get("grouping_status") == "review":
+        grouping_review = group.get("grouping_status") == "review" and not force_grouping_trust
+        if grouping_review:
             if statuses and any(status in ("recognized", "review") for status in statuses):
                 group["confidence_level"] = "orange"
             else:
@@ -1180,7 +1173,23 @@ def analyze_sample(
             group["confidence_level"] = "orange"
         else:
             group["confidence_level"] = "red"
-    duration = time.perf_counter() - started
+    return ocr_available, ocr_note, len(reference_features)
+
+
+def _metrics_for_groups(
+    *,
+    ordered: list[PhotoInfo],
+    photo_window: list[PhotoInfo],
+    candidates: list[dict[str, Any]],
+    classifications: dict[str, dict[str, Any]],
+    groups: list[dict[str, Any]],
+    duration: float,
+    ocr_available: bool,
+    ocr_note: str,
+    reference_images_loaded: int,
+    ground_truth_mode=False,
+) -> dict[str, Any]:
+    front_photos = [group["primary_front"]["photo"] for group in groups if group.get("primary_front")]
     western_backs = sum(1 for item in classifications.values() if item.get("class") == "back_western")
     japanese_backs = sum(1 for item in classifications.values() if item.get("class") == "back_japanese")
     inferred_backs = sum(
@@ -1202,7 +1211,7 @@ def analyze_sample(
         "photos_total_folder": len(ordered),
         "photos_analyzed": len(photo_window),
         "candidate_cards": len(candidates),
-        "reference_images_loaded": len(reference_features),
+        "reference_images_loaded": reference_images_loaded,
         "primary_front": len(front_photos),
         "raw_front_like_photos": sum(1 for item in classifications.values() if item.get("class") == "primary_front"),
         "back": western_backs + japanese_backs,
@@ -1216,7 +1225,8 @@ def analyze_sample(
         "multi_card_fronts": sum(
             1
             for group in groups
-            if group.get("primary_front") and len((group["primary_front"].get("classification") or {}).get("regions", []) or []) > 1
+            if group.get("expected_cards", 1) > 1
+            or (group.get("primary_front") and len((group["primary_front"].get("classification") or {}).get("regions", []) or []) > 1)
         ),
         "grouping_to_review": sum(1 for group in groups if group.get("grouping_status") == "review"),
         "grouping_silent_errors": 0,
@@ -1246,7 +1256,256 @@ def analyze_sample(
         "ocr_available": ocr_available,
         "ocr_note": ocr_note,
         "diagnostic_causes": diagnostic_causes,
+        "ground_truth_mode": ground_truth_mode,
     }
+    return metrics
+
+
+def analyze_sample(
+    *,
+    folder: str | Path = POC_DIR,
+    data_path="data.json",
+    drops_path="vinted_drops.json",
+    drop_id: str | None = None,
+    start_index=1,
+    target_announcements=30,
+    max_photos=90,
+):
+    started = time.perf_counter()
+    ordered = list_ordered_photos(folder)
+    start_index = max(1, int(start_index or 1))
+    photo_window = ordered[start_index - 1 : start_index - 1 + max(1, int(max_photos or 1))]
+    drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
+    classifications = {}
+    for photo in photo_window:
+        classifications[photo.filename] = classify_photo(photo.path)
+    groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
+    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(groups, candidates)
+    duration = time.perf_counter() - started
+    metrics = _metrics_for_groups(
+        ordered=ordered,
+        photo_window=photo_window,
+        candidates=candidates,
+        classifications=classifications,
+        groups=groups,
+        duration=duration,
+        ocr_available=ocr_available,
+        ocr_note=ocr_note,
+        reference_images_loaded=reference_images_loaded,
+    )
+    return {
+        "drop": drop,
+        "ordered_photos": ordered,
+        "sample_photos": photo_window,
+        "candidates": candidates,
+        "groups": groups,
+        "classifications": classifications,
+        "metrics": metrics,
+    }
+
+
+def photo_identity(photo: PhotoInfo) -> dict[str, Any]:
+    return {"filename": photo.filename, "capture_index": photo.capture_index}
+
+
+def photo_key(photo_or_payload: PhotoInfo | dict[str, Any]) -> str:
+    if isinstance(photo_or_payload, PhotoInfo):
+        return f"{photo_or_payload.capture_index}:{photo_or_payload.filename}"
+    return f"{photo_or_payload.get('capture_index')}:{photo_or_payload.get('filename')}"
+
+
+def _role_for_entry(group: dict[str, Any], entry: dict[str, Any]) -> str:
+    photo = entry.get("photo")
+    if group.get("primary_front") and photo_key(group["primary_front"]["photo"]) == photo_key(photo):
+        return "primary_front"
+    if group.get("group_back") and photo_key(group["group_back"]["photo"]) == photo_key(photo):
+        klass = group["group_back"].get("classification") or {}
+        return "back_japanese" if klass.get("back_type") == "japanese" else "back_western"
+    for detail in group.get("detail_cards") or []:
+        if detail.get("front") and photo_key(detail["front"]["photo"]) == photo_key(photo):
+            return "card_front"
+        if detail.get("back") and photo_key(detail["back"]["photo"]) == photo_key(photo):
+            klass = detail["back"].get("classification") or {}
+            return "back_japanese" if klass.get("back_type") == "japanese" else "card_back"
+    klass_name = str((entry.get("classification") or {}).get("class") or "")
+    if klass_name in PHOTO_ROLES:
+        return klass_name
+    if klass_name.startswith("back"):
+        return "back_japanese" if klass_name == "back_japanese" else "back_western"
+    return "extra" if klass_name == "extra" else "uncertain"
+
+
+def group_to_ground_truth(group: dict[str, Any]) -> dict[str, Any]:
+    photos = []
+    for entry in group.get("photos", []) or []:
+        photo = entry.get("photo")
+        if not photo:
+            continue
+        photos.append({**photo_identity(photo), "role": _role_for_entry(group, entry)})
+    return {
+        "group_id": str(group.get("announcement_index") or len(photos) or ""),
+        "status": "unvalidated",
+        "auto_grouping_status": group.get("grouping_status", "review"),
+        "expected_cards": max(1, _safe_int(group.get("expected_cards"), 1)),
+        "jp_physical": False,
+        "photos": photos,
+        "notes": "",
+        "recognition_validation": {},
+    }
+
+
+def sample_ground_truth_key(*, folder: str | Path, start_index: int, max_photos: int, target_announcements: int, drop_id: str | None = None) -> str:
+    folder_name = Path(folder).name or str(folder)
+    drop_part = drop_id or "active"
+    return f"{folder_name}|drop={drop_part}|start={int(start_index)}|photos={int(max_photos)}|target={int(target_announcements)}"
+
+
+def load_poc_ground_truth(path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
+    payload = load_json_file(path, {"version": 1, "samples": {}})
+    if not isinstance(payload, dict):
+        return {"version": 1, "samples": {}}
+    payload.setdefault("version", 1)
+    payload.setdefault("samples", {})
+    return payload
+
+
+def save_poc_ground_truth(payload: dict[str, Any], path: str | Path = POC_GROUND_TRUTH_PATH) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
+    payload = load_poc_ground_truth(path)
+    samples = payload.setdefault("samples", {})
+    if sample_key not in samples:
+        samples[sample_key] = {
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "groups": [group_to_ground_truth(group) for group in result.get("groups", [])],
+        }
+        save_poc_ground_truth(payload, path)
+    return payload
+
+
+def update_ground_truth_sample(sample_key: str, sample: dict[str, Any], *, path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
+    payload = load_poc_ground_truth(path)
+    payload.setdefault("samples", {})[sample_key] = {**sample, "updated_at": datetime.now().isoformat(timespec="seconds")}
+    save_poc_ground_truth(payload, path)
+    return payload
+
+
+def _entry_from_ground_truth_photo(photo_payload: dict[str, Any], by_key: dict[str, PhotoInfo], classifications: dict[str, dict[str, Any]]):
+    photo = by_key.get(photo_key(photo_payload))
+    if not photo:
+        return None
+    classification = dict(classifications.get(photo.filename, {}))
+    role = str(photo_payload.get("role") or "uncertain")
+    if role in {"back_western", "back_japanese"}:
+        classification["class"] = role
+        classification["back_type"] = "japanese" if role == "back_japanese" else "western"
+    elif role in {"primary_front", "card_front"}:
+        classification["class"] = "primary_front"
+    elif role == "extra":
+        classification["class"] = "extra"
+    return {"photo": photo, "classification": classification, "ground_truth_role": role}
+
+
+def groups_from_ground_truth(sample: dict[str, Any], photos: list[PhotoInfo], classifications: dict[str, dict[str, Any]], *, only_validated=True):
+    by_key = {photo_key(photo): photo for photo in photos}
+    groups = []
+    for raw_idx, raw_group in enumerate(sample.get("groups", []) or [], start=1):
+        status = str(raw_group.get("status") or "unvalidated")
+        if only_validated and status not in {"correct", "corrected"}:
+            continue
+        entries = []
+        for photo_payload in raw_group.get("photos", []) or []:
+            entry = _entry_from_ground_truth_photo(photo_payload, by_key, classifications)
+            if entry:
+                entries.append(entry)
+        if not entries:
+            continue
+        primary = next((entry for entry in entries if entry.get("ground_truth_role") == "primary_front"), entries[0])
+        group_back = next((entry for entry in entries if entry.get("ground_truth_role") in {"back_western", "back_japanese"}), None)
+        detail_cards = []
+        current_detail = None
+        for entry in entries:
+            role = entry.get("ground_truth_role")
+            if role == "card_front":
+                current_detail = {"front": entry, "back": None}
+                detail_cards.append(current_detail)
+            elif role == "card_back":
+                if current_detail is None or current_detail.get("back"):
+                    current_detail = {"front": None, "back": entry}
+                    detail_cards.append(current_detail)
+                else:
+                    current_detail["back"] = entry
+        groups.append(
+            {
+                "announcement_index": len(groups) + 1,
+                "ground_truth_group_id": raw_group.get("group_id") or str(raw_idx),
+                "photos": entries,
+                "primary_front": primary,
+                "group_back": group_back,
+                "detail_cards": detail_cards,
+                "expected_cards": max(1, _safe_int(raw_group.get("expected_cards"), 1)),
+                "grouping_status": "ok",
+                "grouping_reasons": ["ground truth validé"],
+                "jp_physical": bool(raw_group.get("jp_physical")),
+                "ground_truth_status": status,
+                "recognition_validation": raw_group.get("recognition_validation") or {},
+            }
+        )
+    return groups
+
+
+def analyze_ground_truth_sample(
+    sample: dict[str, Any],
+    *,
+    folder: str | Path = POC_DIR,
+    data_path="data.json",
+    drops_path="vinted_drops.json",
+    drop_id: str | None = None,
+    only_validated=True,
+):
+    started = time.perf_counter()
+    ordered = list_ordered_photos(folder)
+    filenames = {
+        str(photo.get("filename") or "")
+        for group in sample.get("groups", []) or []
+        for photo in group.get("photos", []) or []
+    }
+    photo_window = [photo for photo in ordered if photo.filename in filenames]
+    classifications = {photo.filename: classify_photo(photo.path) for photo in photo_window}
+    drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
+    groups = groups_from_ground_truth(sample, ordered, classifications, only_validated=only_validated)
+    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(groups, candidates, force_grouping_trust=True)
+    duration = time.perf_counter() - started
+    metrics = _metrics_for_groups(
+        ordered=ordered,
+        photo_window=photo_window,
+        candidates=candidates,
+        classifications=classifications,
+        groups=groups,
+        duration=duration,
+        ocr_available=ocr_available,
+        ocr_note=ocr_note,
+        reference_images_loaded=reference_images_loaded,
+        ground_truth_mode=True,
+    )
+    total_groups = len(sample.get("groups", []) or [])
+    validated = sum(1 for group in sample.get("groups", []) or [] if group.get("status") in {"correct", "corrected"})
+    corrected = sum(1 for group in sample.get("groups", []) or [] if group.get("status") == "corrected")
+    metrics.update(
+        {
+            "ground_truth_groups": total_groups,
+            "ground_truth_validated": validated,
+            "ground_truth_corrected": corrected,
+            "ground_truth_accuracy": round(validated / max(1, total_groups) * 100, 1),
+            "real_announcements": len(groups),
+            "real_multi_card_groups": sum(1 for group in groups if _safe_int(group.get("expected_cards"), 1) > 1),
+        }
+    )
     return {
         "drop": drop,
         "ordered_photos": ordered,
