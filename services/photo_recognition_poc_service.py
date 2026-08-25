@@ -53,7 +53,7 @@ FILENAME_DATETIME_PATTERNS = (
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
-POC_ANALYSIS_PIPELINE_VERSION = "v11-single-reconcile"
+POC_ANALYSIS_PIPELINE_VERSION = "v12-sequence-dp"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1523,6 +1523,502 @@ def _reconcile_consecutive_single_groups(groups: list[dict[str, Any]]) -> list[d
     return _reindex_groups(reconciled)
 
 
+def _capture_gap_seconds(left: PhotoInfo | None, right: PhotoInfo | None) -> float | None:
+    if left is None or right is None:
+        return None
+    try:
+        return max(
+            0.0,
+            (datetime.fromisoformat(right.capture_datetime) - datetime.fromisoformat(left.capture_datetime)).total_seconds(),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _v12_raw_back_score(classification: dict[str, Any]) -> float:
+    return max(
+        _safe_float(classification.get("western_back_score"), 0.0),
+        _safe_float(classification.get("japanese_back_score"), 0.0),
+    )
+
+
+def _v12_single_role(classification: dict[str, Any]) -> str:
+    klass = str(classification.get("class") or "")
+    if klass == "back_japanese":
+        return "back_japanese"
+    if klass == "back_western":
+        return "back_western"
+    if _safe_float(classification.get("japanese_back_score"), 0.0) >= 0.62:
+        return "back_japanese_candidate"
+    if _safe_float(classification.get("western_back_score"), 0.0) >= 0.50:
+        return "back_western_candidate"
+    if klass == "primary_front":
+        return "front"
+    return "unknown"
+
+
+def _v12_pair_score(
+    entries: list[dict[str, Any]],
+    index: int,
+) -> tuple[float, list[str]]:
+    front_entry = entries[index]
+    back_entry = entries[index + 1]
+    front_photo = front_entry.get("photo")
+    back_photo = back_entry.get("photo")
+    front_classification = front_entry.get("classification") or {}
+    back_classification = back_entry.get("classification") or {}
+    gap = _capture_gap_seconds(front_photo, back_photo)
+    score = 0.0
+    reasons = []
+
+    if gap is None:
+        score -= 0.5
+        reasons.append("gap temporel indisponible")
+    elif gap <= 12:
+        score += 3.2
+        reasons.append(f"captures rapprochées ({gap:.0f}s)")
+    elif gap <= 20:
+        score += 2.0
+        reasons.append(f"captures proches ({gap:.0f}s)")
+    elif gap <= 35:
+        score += 0.8
+        reasons.append(f"captures compatibles ({gap:.0f}s)")
+    elif gap <= 60:
+        score -= 1.0
+        reasons.append(f"pause dans la paire ({gap:.0f}s)")
+    else:
+        score -= 3.0
+        reasons.append(f"longue pause dans la paire ({gap:.0f}s)")
+
+    back_is_detected = _is_back_class(back_classification)
+    back_score = _v12_raw_back_score(back_classification)
+    if back_is_detected:
+        score += 3.2
+        reasons.append("verso détecté")
+    elif back_score >= 0.25:
+        score += 1.0
+        reasons.append(f"verso sous-seuil plausible ({back_score:.2f})")
+    elif back_score >= 0.12:
+        score += 0.3
+        reasons.append(f"verso faible mais compatible ({back_score:.2f})")
+    else:
+        score -= 1.5
+        reasons.append(f"peu de signal verso ({back_score:.2f})")
+
+    front_is_detected_back = _is_back_class(front_classification)
+    front_back_score = _v12_raw_back_score(front_classification)
+    if not front_is_detected_back:
+        score += 1.3
+        reasons.append("première photo front-like")
+    elif back_score >= front_back_score + 0.02:
+        score += 0.4
+        reasons.append("première photo réinterprétée comme recto")
+    else:
+        score -= 3.0
+        reasons.append("première photo fortement back-like")
+
+    previous_photo = entries[index - 1].get("photo") if index > 0 else None
+    next_photo = entries[index + 2].get("photo") if index + 2 < len(entries) else None
+    previous_gap = _capture_gap_seconds(previous_photo, front_photo)
+    next_gap = _capture_gap_seconds(back_photo, next_photo)
+    if gap is not None and next_gap is not None:
+        if next_gap >= gap + 5:
+            score += 0.8
+            reasons.append("rupture temporelle après la paire")
+        elif next_gap + 5 < gap:
+            score -= 0.8
+            reasons.append("paire suivante temporellement plus probable")
+    if gap is not None and previous_gap is not None and previous_gap >= gap + 5:
+        score += 0.4
+        reasons.append("rupture temporelle avant la paire")
+    return score, reasons
+
+
+def _v12_optimize_simple_entries(entries: list[dict[str, Any]]) -> list[tuple[int, int, float, list[str]]]:
+    if not entries:
+        return []
+    single_penalty = 2.4
+    count = len(entries)
+    scores = [-math.inf] * (count + 1)
+    paths: list[tuple[int, int, float, list[str]] | None] = [None] * (count + 1)
+    scores[0] = 0.0
+    for index in range(count):
+        single_score = scores[index] - single_penalty
+        if single_score > scores[index + 1]:
+            scores[index + 1] = single_score
+            paths[index + 1] = (index, 1, -single_penalty, ["groupe incomplet pénalisé"])
+        if index + 1 >= count:
+            continue
+        pair_score, pair_reasons = _v12_pair_score(entries, index)
+        if scores[index] + pair_score > scores[index + 2]:
+            scores[index + 2] = scores[index] + pair_score
+            paths[index + 2] = (index, 2, pair_score, pair_reasons)
+
+    segments = []
+    cursor = count
+    while cursor > 0:
+        choice = paths[cursor]
+        if choice is None:
+            choice = (cursor - 1, 1, -single_penalty, ["séquence non résolue"])
+        start, size, segment_score, reasons = choice
+        segments.append((start, size, segment_score, reasons))
+        cursor = start
+    return list(reversed(segments))
+
+
+def _v12_baseline_single_patterns(groups: list[dict[str, Any]]) -> dict[str, int]:
+    patterns: dict[str, int] = {}
+    for index, group in enumerate(groups):
+        entry = _single_group_entry(group)
+        if entry is None:
+            continue
+        previous = groups[index - 1] if index > 0 else None
+        following = groups[index + 1] if index + 1 < len(groups) else None
+        previous_single = _single_group_entry(previous) if previous else None
+        following_single = _single_group_entry(following) if following else None
+        role = _v12_single_role(entry.get("classification") or {})
+        if previous_single and following_single:
+            label = "chaîne de singles"
+        elif following_single and role == "front":
+            label = "front single → single suivant"
+        elif following_single and role.startswith("back"):
+            label = "back single → single suivant"
+        elif previous_single and role == "front":
+            label = "single précédent → front single"
+        elif previous_single and role.startswith("back"):
+            label = "single précédent → back single"
+        elif previous is not None and following is not None:
+            label = "single isolé entre groupes normaux"
+        elif role.startswith("back"):
+            label = "verso isolé en bord de séquence"
+        else:
+            label = "recto isolé en bord de séquence"
+        patterns[label] = patterns.get(label, 0) + 1
+    return patterns
+
+
+def _v12_baseline_single_map(
+    baseline_groups: list[dict[str, Any]],
+    reconciled_groups: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    final_group_by_capture = {
+        capture_index: group
+        for group in reconciled_groups
+        for capture_index in _group_capture_indices(group)
+    }
+    rows = []
+    for group_index, group in enumerate(baseline_groups):
+        entry = _single_group_entry(group)
+        if entry is None:
+            continue
+        photo = entry.get("photo")
+        classification = entry.get("classification") or {}
+        capture_index = _safe_int(getattr(photo, "capture_index", 0), 0)
+        previous = baseline_groups[group_index - 1] if group_index > 0 else None
+        following = baseline_groups[group_index + 1] if group_index + 1 < len(baseline_groups) else None
+        previous_indices = _group_capture_indices(previous) if previous else []
+        following_indices = _group_capture_indices(following) if following else []
+        previous_photo = (previous.get("photos") or [{}])[-1].get("photo") if previous else None
+        following_photo = (following.get("photos") or [{}])[0].get("photo") if following else None
+        final_group = final_group_by_capture.get(capture_index) or {}
+        final_size = len(final_group.get("photos", []) or [])
+        if final_group.get("v12_recovered_multi"):
+            attachment = "multi-cartes récupéré"
+        elif final_size == 2:
+            final_indices = _group_capture_indices(final_group)
+            attachment = "suivant" if final_indices and final_indices[0] == capture_index else "précédent"
+        elif final_size == 1:
+            attachment = "aucune"
+        else:
+            attachment = "séquence restructurée"
+        rows.append(
+            {
+                "capture_index": capture_index,
+                "estimated_role": _v12_single_role(classification),
+                "western_back_score": round(_safe_float(classification.get("western_back_score"), 0.0), 3),
+                "japanese_back_score": round(_safe_float(classification.get("japanese_back_score"), 0.0), 3),
+                "previous_group": previous_indices,
+                "next_group": following_indices,
+                "gap_previous_seconds": _capture_gap_seconds(previous_photo, photo),
+                "gap_next_seconds": _capture_gap_seconds(photo, following_photo),
+                "v11_reason": " · ".join(group.get("grouping_reasons") or group.get("v11_single_unmerged_reason") or []),
+                "v12_attachment": attachment,
+                "v12_group": _group_capture_indices(final_group),
+            }
+        )
+    return rows
+
+
+def _v12_previous_layout(groups: list[dict[str, Any]], capture_indices: set[int]) -> list[list[int]]:
+    layout = []
+    for group in groups:
+        indices = _group_capture_indices(group)
+        if capture_indices.intersection(indices):
+            layout.append(indices)
+    return layout
+
+
+def _v12_pair_group(
+    entries: list[dict[str, Any]],
+    start: int,
+    score: float,
+    reasons: list[str],
+    baseline_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    front_entry = entries[start]
+    raw_back_entry = entries[start + 1]
+    raw_back_classification = raw_back_entry.get("classification") or {}
+    inferred = not _is_back_class(raw_back_classification)
+    back_entry = _entry_as_sequence_back(raw_back_entry) if inferred else raw_back_entry
+    front_photo = front_entry.get("photo")
+    back_photo = back_entry.get("photo")
+    indices = {
+        _safe_int(getattr(front_photo, "capture_index", 0), 0),
+        _safe_int(getattr(back_photo, "capture_index", 0), 0),
+    }
+    previous_layout = _v12_previous_layout(baseline_groups, indices)
+    changed = previous_layout != [sorted(indices)]
+    grouping_status = "ok" if score >= 4.0 else "review"
+    grouping_reasons = ["segmentation V12 front/back", *reasons]
+    if inferred:
+        japanese_score = _safe_float(raw_back_classification.get("japanese_back_score"), 0.0)
+        western_score = _safe_float(raw_back_classification.get("western_back_score"), 0.0)
+        back_entry["classification"]["v12_back_role"] = (
+            "back_japanese_candidate" if japanese_score >= 0.55 and western_score < 0.50 else "back_candidate"
+        )
+        grouping_reasons.append("verso rattaché par cohérence séquentielle")
+    if _is_back_class(front_entry.get("classification") or {}):
+        grouping_reasons.append("faux back probable sur le recto")
+    if grouping_status == "review":
+        grouping_reasons.append("confiance de segmentation insuffisante pour validation automatique")
+    return {
+        "announcement_index": 0,
+        "photos": [front_entry, back_entry],
+        "primary_front": front_entry,
+        "group_back": back_entry,
+        "detail_cards": [],
+        "expected_cards": 1,
+        "grouping_status": grouping_status,
+        "grouping_reasons": grouping_reasons,
+        "v12_sequence_pair": True,
+        "v12_changed": changed,
+        "v12_pair_score": round(score, 3),
+        "v12_previous_layout": previous_layout,
+    }
+
+
+def _v12_single_group(entry: dict[str, Any], baseline_groups: list[dict[str, Any]]) -> dict[str, Any]:
+    photo = entry.get("photo")
+    classification = entry.get("classification") or {}
+    role = _v12_single_role(classification)
+    index = _safe_int(getattr(photo, "capture_index", 0), 0)
+    if role.startswith("back"):
+        reason_code = "missing_front"
+        reason = "verso isolé : recto manquant ou séquence ambiguë"
+        primary_front = None
+        group_back = entry
+    elif role == "front":
+        reason_code = "missing_back"
+        reason = "recto isolé : verso manquant probable"
+        primary_front = entry
+        group_back = None
+    else:
+        reason_code = "ambiguous_sequence"
+        reason = "photo isolée : rôle front/back indéterminé"
+        primary_front = entry
+        group_back = None
+    return {
+        "announcement_index": 0,
+        "photos": [entry],
+        "primary_front": primary_front,
+        "group_back": group_back,
+        "detail_cards": [],
+        "expected_cards": 1,
+        "grouping_status": "review",
+        "grouping_reasons": [reason],
+        "v12_single_reason": reason_code,
+        "v12_single_role": role,
+        "v12_changed": True,
+        "v12_previous_layout": _v12_previous_layout(baseline_groups, {index}),
+    }
+
+
+def _v12_combined_primary_signal(entry: dict[str, Any]) -> tuple[bool, float]:
+    """Detect a central card boundary only for a pending multi-card pattern."""
+    photo = entry.get("photo")
+    if photo is None:
+        return False, 0.0
+    image = _load_image(photo.path, max_side=768)
+    if image is None:
+        return False, 0.0
+    gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    height, width = gray.shape
+    if height < 160 or width < 120:
+        return False, 0.0
+    inner = gray[:, int(width * 0.10) : int(width * 0.90)]
+    vertical_edges = np.abs(np.diff(inner.astype(np.int16), axis=0))
+    best_fraction = 0.0
+    for row in range(int(height * 0.42), int(height * 0.58)):
+        edge_row = vertical_edges[row]
+        strong_fraction = float(np.mean(edge_row >= 24))
+        mean_edge = float(np.mean(edge_row))
+        if mean_edge >= 16.0:
+            best_fraction = max(best_fraction, strong_fraction)
+    return best_fraction >= 0.34, best_fraction
+
+
+def _recover_v12_multi_groups(
+    groups: list[dict[str, Any]],
+    baseline_groups: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Recover `primary + 2 x (front/back)` blocks without touching known anchors."""
+    recovered = []
+    recovered_count = 0
+    index = 0
+    while index < len(groups):
+        current = groups[index]
+        following = groups[index + 1 : index + 3]
+        current_photos = current.get("photos", []) or []
+        can_test = (
+            len(current_photos) == 1
+            and current.get("primary_front") is not None
+            and len(following) == 2
+            and all(len(group.get("photos", []) or []) == 2 for group in following)
+            and all(not group.get("v12_anchor") for group in following)
+            and all(group.get("primary_front") is not None and group.get("group_back") is not None for group in following)
+            and all(_safe_float(group.get("v12_pair_score"), 0.0) >= 4.0 for group in following)
+        )
+        if can_test:
+            combined_entries = [entry for group in [current, *following] for entry in group.get("photos", []) or []]
+            capture_indices = [entry["photo"].capture_index for entry in combined_entries]
+            consecutive = capture_indices == list(range(capture_indices[0], capture_indices[0] + 5))
+            gap = _capture_gap_seconds(current_photos[0].get("photo"), following[0]["photos"][0].get("photo"))
+            has_boundary, boundary_score = _v12_combined_primary_signal(current_photos[0])
+            if consecutive and (gap is None or gap <= 75) and has_boundary:
+                previous_layout = _v12_previous_layout(baseline_groups, set(capture_indices))
+                recovered.append(
+                    {
+                        "announcement_index": 0,
+                        "photos": combined_entries,
+                        "primary_front": current_photos[0],
+                        "group_back": None,
+                        "detail_cards": [
+                            {"front": following[0]["primary_front"], "back": following[0]["group_back"]},
+                            {"front": following[1]["primary_front"], "back": following[1]["group_back"]},
+                        ],
+                        "expected_cards": 2,
+                        "grouping_status": "review",
+                        "grouping_reasons": [
+                            "multi-cartes V12 récupéré : primary + 2×(front/back)",
+                            f"frontière horizontale du recto commun ({boundary_score:.0%})",
+                            "validation prudente requise pour le bloc multi-cartes",
+                        ],
+                        "v12_recovered_multi": True,
+                        "v12_changed": True,
+                        "v12_previous_layout": previous_layout,
+                    }
+                )
+                recovered_count += 1
+                index += 3
+                continue
+        recovered.append(current)
+        index += 1
+    return recovered, recovered_count
+
+
+def _reconcile_v12_sequence(
+    baseline_groups: list[dict[str, Any]],
+    classifications: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    baseline_summary = {
+        "groups": len(baseline_groups),
+        "singles": sum(1 for group in baseline_groups if len(group.get("photos", []) or []) == 1),
+        "reviews": sum(1 for group in baseline_groups if group.get("grouping_status") == "review"),
+        "single_patterns": _v12_baseline_single_patterns(baseline_groups),
+    }
+    ordered_photos = sorted(
+        {
+            entry["photo"].capture_index: entry["photo"]
+            for group in baseline_groups
+            for entry in group.get("photos", []) or []
+            if entry.get("photo") is not None
+        }.values(),
+        key=lambda photo: photo.capture_index,
+    )
+    ordered_entries = [_entry_for_photo(photo, classifications) for photo in ordered_photos]
+    entry_by_index = {entry["photo"].capture_index: entry for entry in ordered_entries}
+    anchors = {}
+    for group in baseline_groups:
+        indices = _group_capture_indices(group)
+        expected_cards = max(1, _safe_int(group.get("expected_cards"), 1))
+        if expected_cards > 1 and len(indices) == 1 + expected_cards * 2:
+            anchors[indices[0]] = (indices[-1], group)
+
+    reconciled = []
+    interval_entries = []
+
+    def flush_interval():
+        if not interval_entries:
+            return
+        for start, size, score, reasons in _v12_optimize_simple_entries(interval_entries):
+            if size == 2:
+                reconciled.append(_v12_pair_group(interval_entries, start, score, reasons, baseline_groups))
+            else:
+                reconciled.append(_v12_single_group(interval_entries[start], baseline_groups))
+        interval_entries.clear()
+
+    cursor = ordered_photos[0].capture_index if ordered_photos else 1
+    last_capture = ordered_photos[-1].capture_index if ordered_photos else 0
+    while cursor <= last_capture:
+        anchor = anchors.get(cursor)
+        if anchor:
+            flush_interval()
+            anchor_end, anchor_group = anchor
+            preserved = dict(anchor_group)
+            preserved["v12_anchor"] = True
+            preserved["v12_changed"] = False
+            preserved["v12_previous_layout"] = [_group_capture_indices(anchor_group)]
+            reconciled.append(preserved)
+            cursor = anchor_end + 1
+            continue
+        entry = entry_by_index.get(cursor)
+        if entry is not None:
+            interval_entries.append(entry)
+        cursor += 1
+    flush_interval()
+    reconciled, recovered_multi_groups = _recover_v12_multi_groups(reconciled, baseline_groups)
+    _reindex_groups(reconciled)
+
+    final_indices = [
+        _safe_int(getattr(entry.get("photo"), "capture_index", 0), 0)
+        for group in reconciled
+        for entry in group.get("photos", []) or []
+    ]
+    baseline_single_indices = {
+        _group_capture_indices(group)[0]
+        for group in baseline_groups
+        if len(_group_capture_indices(group)) == 1
+    }
+    repaired_single_indices = {
+        index
+        for group in reconciled
+        if len(group.get("photos", []) or []) > 1
+        for index in _group_capture_indices(group)
+        if index in baseline_single_indices
+    }
+    summary = {
+        **baseline_summary,
+        "repaired_single_photos": len(repaired_single_indices),
+        "recovered_multi_groups": recovered_multi_groups,
+        "single_map": _v12_baseline_single_map(baseline_groups, reconciled),
+        "photos_lost": max(0, len(ordered_photos) - len(set(final_indices))),
+        "photos_duplicated": max(0, len(final_indices) - len(set(final_indices))),
+    }
+    if reconciled:
+        reconciled[0]["_v12_summary"] = summary
+    return reconciled
+
+
 def _close_group(groups: list[dict[str, Any]], current: dict[str, Any] | None):
     if current is None:
         return
@@ -1619,7 +2115,8 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
         current = _new_group(len(groups) + 1, entry)
     if current is not None and len(groups) < target_announcements:
         _close_group(groups, current)
-    return _reconcile_consecutive_single_groups(groups[:target_announcements])
+    v11_groups = _reconcile_consecutive_single_groups(groups[:target_announcements])
+    return _reconcile_v12_sequence(v11_groups, classifications)
 
 
 def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, Any]], *, force_grouping_trust=False) -> tuple[bool, str, int]:
@@ -1742,6 +2239,27 @@ def _metrics_for_groups(
         for reason in reasons:
             key = str(reason or "single sans diagnostic V11")
             single_reasons[key] = single_reasons.get(key, 0) + 1
+    v12_summary = next(
+        (group.get("_v12_summary") for group in groups if isinstance(group.get("_v12_summary"), dict)),
+        {},
+    )
+    v12_single_reasons: dict[str, int] = {}
+    v12_review_reasons: dict[str, int] = {}
+    for group in groups:
+        if len(group.get("photos", []) or []) == 1:
+            reason = str(group.get("v12_single_reason") or "ambiguous_sequence")
+            v12_single_reasons[reason] = v12_single_reasons.get(reason, 0) + 1
+        if group.get("grouping_status") != "review":
+            continue
+        if group.get("v12_anchor") or group.get("v12_recovered_multi"):
+            category = "multi-cartes prudent"
+        elif len(group.get("photos", []) or []) == 1:
+            category = str(group.get("v12_single_reason") or "single/incomplet")
+        elif str(((group.get("group_back") or {}).get("classification") or {}).get("v12_back_role") or "").startswith("back_japanese"):
+            category = "JP candidat"
+        else:
+            category = "paire séquentielle à confirmer"
+        v12_review_reasons[category] = v12_review_reasons.get(category, 0) + 1
     metrics = {
         "photos_total_folder": len(ordered),
         "photos_analyzed": len(photo_window),
@@ -1778,6 +2296,18 @@ def _metrics_for_groups(
         ),
         "v11_single_fusions": sum(1 for group in groups if group.get("v11_single_fusion")),
         "v11_single_unmerged_reasons": single_reasons,
+        "v12_baseline_groups": _safe_int(v12_summary.get("groups"), len(groups)),
+        "v12_baseline_singles": _safe_int(v12_summary.get("singles"), 0),
+        "v12_baseline_reviews": _safe_int(v12_summary.get("reviews"), 0),
+        "v12_single_patterns_before": v12_summary.get("single_patterns") or {},
+        "v12_single_map_before": v12_summary.get("single_map") or [],
+        "v12_repaired_single_photos": _safe_int(v12_summary.get("repaired_single_photos"), 0),
+        "v12_recovered_multi_groups": _safe_int(v12_summary.get("recovered_multi_groups"), 0),
+        "v12_single_reasons": v12_single_reasons,
+        "v12_review_reasons": v12_review_reasons,
+        "v12_changed_groups": sum(1 for group in groups if group.get("v12_changed")),
+        "v12_photos_lost": _safe_int(v12_summary.get("photos_lost"), 0),
+        "v12_photos_duplicated": _safe_int(v12_summary.get("photos_duplicated"), 0),
         "grouping_to_review": sum(1 for group in groups if group.get("grouping_status") == "review"),
         "grouping_silent_errors": 0,
         "auto_recognized": sum(1 for group in groups if group.get("confidence_level") == "green"),
@@ -1845,7 +2375,9 @@ def analyze_sample(
     classifications = {}
     for photo in photo_window:
         classifications[photo.filename] = classify_photo(photo.path)
+    grouping_started = time.perf_counter()
     groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
+    grouping_duration = time.perf_counter() - grouping_started
     ocr_available, ocr_note, reference_images_loaded = _recognize_groups(groups, candidates)
     duration = time.perf_counter() - started
     metrics = _metrics_for_groups(
@@ -1859,6 +2391,7 @@ def analyze_sample(
         ocr_note=ocr_note,
         reference_images_loaded=reference_images_loaded,
     )
+    metrics["v12_grouping_seconds"] = round(grouping_duration, 3)
     return {
         "analysis_meta": {
             "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
@@ -1996,10 +2529,12 @@ def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path:
         if group.get("photos")
     }
     merged = []
+    matched_existing_ids: set[int] = set()
     changed = False
     for detected in detected_groups:
         existing = by_id.get(str(detected.get("group_id"))) or by_signature.get(str(detected.get("photo_signature")))
         if existing:
+            matched_existing_ids.add(id(existing))
             preserved = {
                 **detected,
                 **existing,
@@ -2014,6 +2549,32 @@ def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path:
         else:
             merged.append(detected)
             changed = True
+
+    # Manual truth wins over a newly detected segmentation that overlaps it.
+    unmatched_manual = [
+        group
+        for group in existing_groups
+        if id(group) not in matched_existing_ids
+        and normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES
+        and group.get("photos")
+    ]
+    for manual_group in unmatched_manual:
+        manual_keys = {photo_key(photo) for photo in manual_group.get("photos", []) or []}
+        if not manual_keys:
+            continue
+        merged = [
+            group
+            for group in merged
+            if manual_keys.isdisjoint({photo_key(photo) for photo in group.get("photos", []) or []})
+        ]
+        merged.append(manual_group)
+        changed = True
+    merged.sort(
+        key=lambda group: min(
+            (_safe_int(photo.get("capture_index"), 10**9) for photo in group.get("photos", []) or []),
+            default=10**9,
+        )
+    )
     if len(merged) != len(existing_groups):
         changed = True
     if changed:

@@ -60,6 +60,7 @@ STATUS_LABELS = {
 VIEW_OPTIONS = [
     "Synthèse complète",
     "Carte du grouping",
+    "Singles / grouping reviews",
     "File à vérifier",
     "File non reconnus",
     "Contrôle verts",
@@ -496,7 +497,7 @@ def _render_grouping_map(result: dict):
     c1.metric("Photos", metrics.get("photos_analyzed", 0))
     c2.metric("Annonces", metrics.get("announcements_detected", 0))
     c3.metric("Photos / annonce", metrics.get("photos_per_announcement", "—"))
-    c4.metric("Écart ~90", metrics.get("expected_announcements_delta", "—"))
+    c4.metric("V11 → V12", f"{metrics.get('v12_baseline_groups', 0)} → {metrics.get('announcements_detected', 0)}")
     c5.metric("Review", metrics.get("grouping_to_review", 0))
 
     d1, d2, d3, d4 = st.columns(4)
@@ -505,13 +506,22 @@ def _render_grouping_map(result: dict):
     d3.metric("3 photos", metrics.get("three_photo_groups", 0))
     d4.metric("4+ photos", metrics.get("four_plus_photo_groups", 0))
 
-    v1, v2 = st.columns(2)
-    v1.metric("Fusions V11", metrics.get("v11_single_fusions", 0))
-    v2.metric("Singles restants", metrics.get("one_photo_groups", 0))
+    v1, v2, v3, v4 = st.columns(4)
+    v1.metric("Singles V11", metrics.get("v12_baseline_singles", 0))
+    v2.metric("Singles V12", metrics.get("one_photo_groups", 0))
+    v3.metric("Multi récupérés", metrics.get("v12_recovered_multi_groups", 0))
+    v4.metric("Grouping seul", f"{metrics.get('v12_grouping_seconds', 0)} s")
+
+    lost = metrics.get("v12_photos_lost", 0)
+    duplicated = metrics.get("v12_photos_duplicated", 0)
+    if lost or duplicated:
+        st.error(f"Photos perdues : {lost} · dupliquées : {duplicated}")
+    else:
+        st.success(f"Intégrité : {metrics.get('photos_analyzed', 0)} photos couvertes une seule fois.")
 
     grouping_filter = st.selectbox(
         "Filtre grouping",
-        ["Tous", "Groupes 1 photo", "Groupes modifiés V11", "Grouping review"],
+        ["Tous", "Groupes 1 photo", "Groupes modifiés V12", "Grouping review"],
         key="photo_poc_grouping_filter",
     )
 
@@ -522,10 +532,10 @@ def _render_grouping_map(result: dict):
         size = len(photos)
         is_review = group.get("grouping_status") == "review"
         is_multi = int(group.get("expected_cards") or 1) > 1 or len(group.get("matches", []) or []) > 1
-        is_v11 = bool(group.get("v11_single_fusion"))
+        is_v12 = bool(group.get("v12_changed"))
         if grouping_filter == "Groupes 1 photo" and size != 1:
             continue
-        if grouping_filter == "Groupes modifiés V11" and not is_v11:
+        if grouping_filter == "Groupes modifiés V12" and not is_v12:
             continue
         if grouping_filter == "Grouping review" and not is_review:
             continue
@@ -533,8 +543,10 @@ def _render_grouping_map(result: dict):
             state = "⚠ incomplet"
         elif is_multi:
             state = "MULTI"
-        elif is_v11:
-            state = "✓ fusion V11"
+        elif group.get("v12_recovered_multi"):
+            state = "MULTI V12"
+        elif is_v12:
+            state = "✓ modifié V12"
         elif is_review:
             state = "⚠ review"
         else:
@@ -545,10 +557,76 @@ def _render_grouping_map(result: dict):
                 "photos": indexes,
                 "nb": size,
                 "statut": state,
+                "V11": " · ".join("[" + ",".join(str(value) for value in layout) + "]" for layout in group.get("v12_previous_layout", []) or []),
+                "score": group.get("v12_pair_score"),
                 "raison": " · ".join(group.get("grouping_reasons") or group.get("v11_single_unmerged_reason") or []),
             }
         )
     st.dataframe(rows, width="stretch", hide_index=True)
+
+
+def _render_v12_grouping_issues(result: dict):
+    metrics = result.get("metrics") or {}
+    groups = result.get("groups", []) or []
+    path_by_key = _photo_path_by_key(result)
+    st.markdown("### Singles / grouping reviews")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Singles", f"{metrics.get('v12_baseline_singles', 0)} → {metrics.get('one_photo_groups', 0)}")
+    c2.metric("Reviews", f"{metrics.get('v12_baseline_reviews', 0)} → {metrics.get('grouping_to_review', 0)}")
+    c3.metric("Groupes modifiés", metrics.get("v12_changed_groups", 0))
+    c4.metric("Multi récupérés", metrics.get("v12_recovered_multi_groups", 0))
+
+    patterns = metrics.get("v12_single_patterns_before") or {}
+    if patterns:
+        st.markdown("#### Cartographie V11 des 31 singles")
+        st.dataframe(
+            [{"pattern": pattern, "nombre": count} for pattern, count in sorted(patterns.items(), key=lambda item: (-item[1], item[0]))],
+            width="stretch",
+            hide_index=True,
+        )
+        with st.expander("Voir le détail des singles V11", expanded=False):
+            st.dataframe(metrics.get("v12_single_map_before") or [], width="stretch", hide_index=True)
+
+    review_reasons = metrics.get("v12_review_reasons") or {}
+    if review_reasons:
+        st.markdown("#### Reviews V12 restantes")
+        st.dataframe(
+            [{"cause": reason, "nombre": count} for reason, count in sorted(review_reasons.items(), key=lambda item: (-item[1], item[0]))],
+            width="stretch",
+            hide_index=True,
+        )
+
+    issues = [
+        group
+        for group in groups
+        if group.get("grouping_status") == "review" or group.get("v12_changed") or len(group.get("photos", []) or []) == 1
+    ]
+    show = st.selectbox(
+        "Cas affichés",
+        ["Problèmes restants", "Groupes modifiés V12", "Tous les cas ciblés"],
+        key="photo_poc_v12_issue_filter",
+    )
+    if show == "Problèmes restants":
+        issues = [group for group in issues if group.get("grouping_status") == "review"]
+    elif show == "Groupes modifiés V12":
+        issues = [group for group in issues if group.get("v12_changed")]
+
+    for group in issues:
+        payloads = _group_photo_payloads(group)
+        captures = [photo.get("capture_index") for photo in payloads]
+        previous = " · ".join(
+            "[" + ",".join(str(value) for value in layout) + "]"
+            for layout in group.get("v12_previous_layout", []) or []
+        ) or "—"
+        st.markdown(
+            f"**Groupe #{group.get('announcement_index')}** · V11 {previous} → V12 {captures} · "
+            f"{'review' if group.get('grouping_status') == 'review' else 'résolu'}"
+        )
+        _render_group_photos({"photos": payloads}, path_by_key, compact=True)
+        reason = " · ".join(group.get("grouping_reasons") or [])
+        score = group.get("v12_pair_score")
+        st.caption(f"Raison : {reason}" + (f" · score {score}" if score is not None else ""))
+        st.divider()
 
 
 def _role_caption(photo_payload: dict) -> str:
@@ -1544,6 +1622,8 @@ if view == "Synthèse complète":
     _render_full_summary(result, sample)
 elif view == "Carte du grouping":
     _render_grouping_map(result)
+elif view == "Singles / grouping reviews":
+    _render_v12_grouping_issues(result)
 elif view == "File à vérifier":
     _render_queue_view(
         sample_key,
