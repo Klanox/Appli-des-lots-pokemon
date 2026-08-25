@@ -646,6 +646,19 @@ def _candidate_row(candidate_row: dict) -> dict:
     }
 
 
+def _variant_label(candidate: dict) -> str:
+    variants = []
+    if candidate.get("japanese"):
+        variants.append("JAP")
+    if candidate.get("reverse"):
+        variants.append("REVERSE")
+    if candidate.get("first_edition"):
+        variants.append("1RE")
+    if candidate.get("stamp"):
+        variants.append("STAMP")
+    return " · ".join(variants) or "FR"
+
+
 def _recognition_validation(sample: dict, group_id: str, match_index: int) -> dict:
     for group in sample.get("groups", []):
         if str(group.get("group_id")) == str(group_id):
@@ -783,6 +796,72 @@ def _render_match_readonly(match: dict, match_index: int):
                 crop_cols[2].image(card_crop, caption="carte", use_container_width=True)
             if artwork_crop:
                 st.image(artwork_crop, caption="crop artwork", width=320)
+
+
+def _render_full_check_match(match: dict, match_index: int):
+    ocr_payload = match.get("ocr") or {}
+    candidate_rows = (match.get("candidates") or [])[:3]
+    primary_row = candidate_rows[0] if candidate_rows else {}
+    primary = primary_row.get("candidate") or {}
+
+    st.markdown(
+        f"**Zone carte {match_index + 1} · {match.get('method')} · {match.get('status')}**"
+    )
+    if primary:
+        card_cols = st.columns([0.9, 1.4])
+        with card_cols[0]:
+            if primary.get("image_url"):
+                st.image(primary.get("image_url"), width=260)
+            else:
+                st.info("Image référence indisponible")
+        with card_cols[1]:
+            st.markdown("#### Carte proposée")
+            st.markdown(f"**{primary.get('name') or 'Carte inconnue'} · {primary.get('number') or '—'}**")
+            st.caption(primary.get("set") or "Set non renseigné")
+            st.caption(f"Variante : {_variant_label(primary)}")
+            st.markdown(
+                f"Score **{match.get('score', 0)}** · marge **{match.get('margin', 0)}**"
+            )
+            st.caption("Raison : " + str(match.get("diagnostic_reason") or "—"))
+    else:
+        st.warning("Aucun candidat proposé pour cette zone.")
+
+    with st.expander("Voir les autres candidats / debug", expanded=False):
+        st.caption(
+            "OCR nom : "
+            + " / ".join(ocr_payload.get("name_texts") or ["—"])
+            + " · OCR numéro : "
+            + " / ".join(ocr_payload.get("number_texts") or ["—"])
+        )
+        if ocr_payload.get("all_number_texts"):
+            st.caption("Numéros debug tous crops : " + " / ".join(ocr_payload.get("all_number_texts") or []))
+        rows = [_candidate_row(candidate_row) for candidate_row in candidate_rows]
+        if rows:
+            st.dataframe(rows, width="stretch", hide_index=True)
+        other_rows = candidate_rows[1:3]
+        if other_rows:
+            cols = st.columns(len(other_rows))
+            for idx, candidate_row in enumerate(other_rows, start=2):
+                candidate = candidate_row.get("candidate") or {}
+                with cols[idx - 2]:
+                    if candidate.get("image_url"):
+                        st.image(candidate.get("image_url"), width=120)
+                    st.caption(f"#{idx} · {candidate.get('name')} · {candidate.get('number')}")
+        photo = match.get("photo")
+        if photo:
+            crop_cols = st.columns(3)
+            name_crop = _image_crop(photo.path, "name")
+            number_crop = _image_crop(photo.path, "number")
+            card_crop = _image_crop(photo.path, "card")
+            artwork_crop = _image_crop(photo.path, "artwork")
+            if name_crop:
+                crop_cols[0].image(name_crop, caption="crop nom", width=220)
+            if number_crop:
+                crop_cols[1].image(number_crop, caption="crop numéro", width=220)
+            if card_crop:
+                crop_cols[2].image(card_crop, caption="carte", width=220)
+            if artwork_crop:
+                st.image(artwork_crop, caption="crop artwork", width=260)
 
 
 def _recognition_is_done(sample: dict, group_id: str, match_count: int) -> bool:
@@ -988,7 +1067,7 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
     )
     _render_group_photos({"photos": _group_photo_payloads(group)}, path_by_key, compact=True)
     for match_index, match in enumerate(group.get("matches", []) or []):
-        _render_match_readonly(match, match_index)
+        _render_full_check_match(match, match_index)
         validation = _recognition_validation(sample, group_id, match_index)
         if validation.get("status"):
             st.caption("Validation POC : " + str(validation))
