@@ -1,18 +1,18 @@
 {
   "files": {
     "data": {
-      "fingerprint": "86f3ee6f7de876d8bdfb11cc82641d0d6ee7b0ba0a7ccdcef43fd6c8c4b46e5a",
+      "fingerprint": "56105bdefd0709a1e20f64f9e6cc50f611e2e91a3435a02162d9cbc2dd9de477",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T08:52:22.921844+00:00",
-      "last_save_at": "2026-08-24T21:06:22.218420+00:00",
+      "last_read_at": "2026-08-24T15:55:48.688818+00:00",
+      "last_save_at": "2026-08-24T08:47:08.752423+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "lot_estimations": {
       "fingerprint": "c87b5cb763934457802a5ee1d7aaa065a0dccbb81452240be951c57bf28542bc",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T08:52:23.113023+00:00",
+      "last_read_at": "2026-08-24T15:55:48.854074+00:00",
       "last_save_at": "2026-07-11T13:04:56.149798+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
@@ -20,23 +20,23 @@
       "fingerprint": "da8db8c21a19cfbed7e0b38034acbb03f1511d236c3f711a131c4654413375cb",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T08:52:23.810576+00:00",
+      "last_read_at": "2026-08-24T15:55:49.609934+00:00",
       "last_save_at": "2026-07-04T19:10:17.519766+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "monthly_goals": {
-      "fingerprint": "683f9a60815767fce725c836f5f8b81a287fb478c26eebe73be7fbec04a96745",
+      "fingerprint": "a8f50fb00e778af4bc3b1d6f74d389c7b34aa8f2e9955fd9344e148c73355e52",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-08-24T20:53:44.642216+00:00",
-      "last_read_at": "2026-08-25T08:52:23.326817+00:00",
+      "last_save_at": "2026-08-09T09:04:46.741045+00:00",
+      "last_read_at": "2026-08-24T15:55:49.168789+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "activity_state": {
       "fingerprint": "e43ac73ddf01a232def4f9f1f979349c1e2eae578cca3a770d5b55bcd0e81069",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T08:52:23.264278+00:00",
+      "last_read_at": "2026-08-24T15:55:49.069409+00:00",
       "last_save_at": "2026-08-23T14:33:07.260934+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
@@ -46,7 +46,7 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-08-15T18:23:22.434066+00:00",
-      "last_read_at": "2026-08-25T08:52:23.189524+00:00"
+      "last_read_at": "2026-08-24T15:55:48.960598+00:00"
     },
     "counters": {
       "fingerprint": "c5454fdcb086a679ffa0d96076d994b88f6b45f743e0db3ec403c8144d7355f0",
@@ -60,14 +60,14 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-08-24T08:51:37.364607+00:00",
-      "last_read_at": "2026-08-25T08:52:23.508401+00:00"
+      "last_read_at": "2026-08-24T15:55:49.429319+00:00"
     },
     "custom_card_images": {
       "fingerprint": "9dc6084b49231d560d7159837755cd4d04266427b9fb968886a87333c6c92171",
       "source": "cloud",
       "local_dirty": false,
       "last_save_at": "2026-08-22T18:16:53.986808+00:00",
-      "last_read_at": "2026-08-25T08:52:23.889494+00:00"
+      "last_read_at": "2026-08-24T15:55:49.671495+00:00"
     }
   }
 }
