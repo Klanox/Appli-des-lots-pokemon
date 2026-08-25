@@ -52,7 +52,7 @@ FILENAME_DATETIME_PATTERNS = (
 
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
-POC_ANALYSIS_PIPELINE_VERSION = "v9-artwork-visual-grouping-v7"
+POC_ANALYSIS_PIPELINE_VERSION = "v10-gt-safe-special-layout"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1009,6 +1009,47 @@ def _number_local(value: str) -> str:
     return normalized.split("/", 1)[0] if normalized else ""
 
 
+def _special_layout_signals(ocr_payload: dict[str, Any], candidate: dict[str, Any] | None = None) -> list[str]:
+    text_bits = []
+    text_bits.extend(ocr_payload.get("name_texts") or [])
+    text_bits.extend(ocr_payload.get("number_texts") or [])
+    text_bits.append(str(ocr_payload.get("raw_text") or ""))
+    if candidate:
+        text_bits.append(str(candidate.get("name") or ""))
+    folded = _fold_text(" ".join(text_bits))
+    signals = []
+    if "legende" in folded or "legend" in folded:
+        signals.append("layout spécial / LÉGENDE détecté")
+    if "vunion" in folded or ("union" in folded and "pokemon" in folded):
+        signals.append("layout spécial / V-UNION détecté")
+    return signals
+
+
+def _full_number_mismatch_reason(ocr_payload: dict[str, Any], best: dict[str, Any] | None) -> str:
+    if not best:
+        return ""
+    candidate = best.get("candidate") or {}
+    candidate_number = _normalize_card_number(candidate.get("number") or "")
+    candidate_local = _number_local(candidate_number)
+    if not candidate_local or best.get("number_kind") not in {"local_collector", "plain_collector", "noisy_number"}:
+        return ""
+    full_ocr_numbers = [
+        _normalize_card_number(token)
+        for token in (ocr_payload.get("collector_number_texts") or [])
+        if "/" in _normalize_card_number(token)
+    ]
+    if not full_ocr_numbers:
+        return ""
+    if candidate_number and "/" in candidate_number and candidate_number in full_ocr_numbers:
+        return ""
+    same_local = [number for number in full_ocr_numbers if _number_local(number) == candidate_local]
+    if not same_local:
+        return ""
+    if candidate_number and "/" in candidate_number:
+        return f"numéro OCR {same_local[0]} incompatible avec candidat {candidate_number}"
+    return f"numéro OCR complet {same_local[0]} absent des métadonnées candidat"
+
+
 def _expand_compact_number_token(token: str) -> list[str]:
     digits = re.sub(r"\D", "", str(token or ""))
     expanded = []
@@ -1167,6 +1208,8 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
     status = "unrecognized"
     v8_auto_reason = ""
     v9_auto_reason = ""
+    v10_safety_reason = ""
+    special_layout = False
     if best:
         strong_name = best["name_similarity"] >= 0.96
         probable_name = best["name_similarity"] >= 0.86
@@ -1175,6 +1218,8 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         weak_number_without_name = best.get("number_kind") in {"local_collector", "plain_collector", "noisy_number"} and best.get("name_similarity", 0.0) < 0.74
         artwork_score = float(best.get("visual_artwork_score") or 0.0)
         visual_margin = float(best.get("visual_margin") or 0.0)
+        special_signals = _special_layout_signals(ocr_payload, best.get("candidate") or {})
+        special_layout = bool(special_signals)
         if best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name:
             status = "recognized"
         elif reliable_number and probable_name and best["score"] >= 92 and margin >= 6 and second_name < 0.74:
@@ -1194,6 +1239,18 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
             status = "recognized"
         elif best["score"] >= 54:
             status = "review"
+        if special_layout and status == "recognized":
+            status = "review"
+            v10_safety_reason = " · ".join(special_signals)
+            best.setdefault("reasons", []).append(v10_safety_reason)
+        number_mismatch_reason = _full_number_mismatch_reason(ocr_payload, best)
+        if number_mismatch_reason and not ocr_payload.get("name_texts"):
+            if status == "recognized":
+                status = "review"
+            elif status == "review" and float(best.get("visual_artwork_score") or 0.0) < 72:
+                status = "unrecognized"
+            v10_safety_reason = number_mismatch_reason
+            best.setdefault("reasons", []).append(number_mismatch_reason)
     if status == "recognized" and not v8_auto_reason and second and second.get("number_kind") == "noisy_number":
         v8_auto_reason = "V8: numéro parasite déclassé chez le candidat concurrent"
         best.setdefault("reasons", []).append(v8_auto_reason)
@@ -1211,6 +1268,8 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         diagnostic_reason = "score insuffisant pour auto"
     elif best and status == "unrecognized":
         diagnostic_reason = "aucun candidat fiable"
+    if v10_safety_reason:
+        diagnostic_reason = v10_safety_reason
     return {
         "region": {"box": [0, 0, 1, 1], "source": "ocr"},
         "status": status,
@@ -1221,6 +1280,8 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         "diagnostic_reason": diagnostic_reason,
         "v8_auto_reason": v8_auto_reason,
         "v9_auto_reason": v9_auto_reason,
+        "v10_safety_reason": v10_safety_reason,
+        "special_layout": special_layout,
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
@@ -1314,9 +1375,8 @@ def _close_group(groups: list[dict[str, Any]], current: dict[str, Any] | None):
     if current is None:
         return
     if current.get("group_back") is not None and not current.get("detail_cards") and _safe_int(current.get("expected_cards"), 1) > 1:
-        current["expected_cards"] = 1
         current["grouping_status"] = "review"
-        current.setdefault("grouping_reasons", []).append("indice multi-cartes ignoré car verso immédiat")
+        current.setdefault("grouping_reasons", []).append("multi-cartes sans rectos individuels à reconnaître")
     if current.get("group_back") is None and not current.get("detail_cards"):
         current["grouping_status"] = "review"
         current.setdefault("grouping_reasons", []).append("aucun verso rattaché")
@@ -1428,6 +1488,24 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
             for detail in detail_cards:
                 if detail.get("front"):
                     match_entries.append(detail["front"])
+        elif _safe_int(group.get("expected_cards"), 1) > 1:
+            group["matches"] = [
+                {
+                    "region": {"box": [0, 0, 1, 1], "source": "multi_card_group"},
+                    "status": "review",
+                    "method": "multi_card_group",
+                    "score": 0.0,
+                    "second_score": 0.0,
+                    "margin": 0.0,
+                    "diagnostic_reason": "multi-cartes: sous-cartes à vérifier",
+                    "v10_safety_reason": "recto commun multi-cartes non auto-validé",
+                    "ocr": {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""},
+                    "candidates": [],
+                    "photo": front["photo"],
+                }
+            ]
+            group["confidence_level"] = "orange"
+            continue
         else:
             match_entries.append(front)
         group["matches"] = []

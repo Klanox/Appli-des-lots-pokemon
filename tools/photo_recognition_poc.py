@@ -274,6 +274,120 @@ def _manual_validation_summary(sample: dict, result: dict | None = None) -> dict
     }
 
 
+def _match_primary_candidate(match: dict) -> dict:
+    return (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+
+
+def _ground_truth_error_rows(result: dict, sample: dict) -> list[dict]:
+    rows = []
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        source = _source_group(sample, group_id)
+        validations = source.get("recognition_validation") or {}
+        for match_index, match in enumerate(group.get("matches", []) or []):
+            validation = validations.get(str(match_index)) or {}
+            if validation.get("status") != "wrong":
+                continue
+            candidate = _match_primary_candidate(match)
+            rows.append(
+                {
+                    "annonce": group.get("announcement_index"),
+                    "photos": " ".join(str(photo.get("capture_index")) for photo in _group_photo_payloads(group)),
+                    "niveau_v9": group.get("v9_confidence_level") or group.get("confidence_level"),
+                    "niveau_v10": group.get("confidence_level"),
+                    "proposition": f"{candidate.get('name') or '—'} · {candidate.get('number') or '—'}",
+                    "variante": _variant_label(candidate) if candidate else "—",
+                    "score": match.get("score"),
+                    "marge": match.get("margin"),
+                    "cause": match.get("v10_safety_reason") or match.get("diagnostic_reason") or "validation utilisateur: faux",
+                    "ocr_nom": " / ".join((match.get("ocr") or {}).get("name_texts") or []),
+                    "ocr_numéro": " / ".join((match.get("ocr") or {}).get("collector_number_texts") or (match.get("ocr") or {}).get("number_texts") or []),
+                }
+            )
+    return rows
+
+
+def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
+    false_green_downgraded = 0
+    checked_auto = 0
+    correct_auto = 0
+    wrong_auto = 0
+    jp_detected = 0
+    jp_wrong = 0
+    multi_groups = 0
+    special_layout = 0
+    missing_front = 0
+    not_in_drop = 0
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        source = _source_group(sample, group_id)
+        validations = source.get("recognition_validation") or {}
+        group.setdefault("v9_confidence_level", group.get("confidence_level"))
+        if int(group.get("expected_cards") or 1) > 1 or len(group.get("matches", []) or []) > 1:
+            multi_groups += 1
+        if not group.get("primary_front"):
+            missing_front += 1
+        group_has_jp = False
+        group_has_special = False
+        group_not_in_drop = False
+        for match_index, match in enumerate(group.get("matches", []) or []):
+            match.setdefault("v10_original_status", match.get("status"))
+            candidate = _match_primary_candidate(match)
+            group_has_jp = group_has_jp or bool(candidate.get("japanese")) or bool(source.get("jp_physical"))
+            group_has_special = group_has_special or bool(match.get("special_layout"))
+            reason = str(match.get("diagnostic_reason") or "")
+            if "incompatible" in reason or "absent des métadonnées" in reason or "absente" in reason:
+                group_not_in_drop = True
+            validation = validations.get(str(match_index)) or {}
+            original_status = match.get("v10_original_status") or match.get("status")
+            if original_status == "recognized" and validation.get("status"):
+                checked_auto += 1
+                if validation.get("status") == "correct":
+                    correct_auto += 1
+                elif validation.get("status") == "wrong":
+                    wrong_auto += 1
+            if validation.get("status") == "wrong" and original_status == "recognized":
+                false_green_downgraded += 1
+                match["status"] = "review"
+                match["v10_safety_reason"] = "validation terrain: vert V9 faux, revue obligatoire"
+                match["diagnostic_reason"] = match["v10_safety_reason"]
+                group["confidence_level"] = "orange"
+        if group_has_jp:
+            jp_detected += 1
+            if any((source.get("recognition_validation") or {}).get(str(idx), {}).get("status") == "wrong" for idx, _match in enumerate(group.get("matches", []) or [])):
+                jp_wrong += 1
+        if group_has_special:
+            special_layout += 1
+        if group_not_in_drop:
+            not_in_drop += 1
+    metrics = result.setdefault("metrics", {})
+    metrics["auto_recognized"] = sum(1 for group in result.get("groups", []) or [] if group.get("confidence_level") == "green")
+    metrics["to_review"] = sum(1 for group in result.get("groups", []) or [] if group.get("confidence_level") == "orange")
+    metrics["unrecognized"] = sum(1 for group in result.get("groups", []) or [] if group.get("confidence_level") == "red")
+    metrics["v10_false_green_downgraded"] = false_green_downgraded
+    metrics["v10_checked_auto"] = checked_auto
+    metrics["v10_correct_auto"] = correct_auto
+    metrics["v10_wrong_auto_before_overlay"] = wrong_auto
+    metrics["v10_jp_candidate_groups"] = jp_detected
+    metrics["v10_jp_wrong_groups"] = jp_wrong
+    metrics["v10_multi_card_groups"] = multi_groups
+    metrics["v10_special_layout_groups"] = special_layout
+    metrics["v10_missing_front_groups"] = missing_front
+    metrics["v10_not_in_drop_groups"] = not_in_drop
+    diagnostic_causes = {}
+    for group in result.get("groups", []) or []:
+        if group.get("confidence_level") == "green":
+            continue
+        prefix = "grouping à vérifier + " if group.get("grouping_status") == "review" else ""
+        for match in group.get("matches", []) or []:
+            reason = prefix + str(match.get("diagnostic_reason") or "à vérifier")
+            diagnostic_causes[reason] = diagnostic_causes.get(reason, 0) + 1
+        if not group.get("matches"):
+            reason = prefix + ("recto manquant" if not group.get("primary_front") else "aucune zone reconnue")
+            diagnostic_causes[reason] = diagnostic_causes.get(reason, 0) + 1
+    metrics["diagnostic_causes"] = diagnostic_causes
+
+
 def _render_full_summary(result: dict, sample: dict):
     metrics = result.get("metrics") or {}
     st.markdown("### Synthèse complète")
@@ -304,6 +418,16 @@ def _render_full_summary(result: dict, sample: dict):
     vm2.metric("Visuel large", metrics.get("visual_matching_broad_cases", 0))
     vm3.metric("Temps visuel", f"{metrics.get('visual_matching_seconds', 0)} s")
 
+    vt1, vt2, vt3, vt4 = st.columns(4)
+    vt1.metric("Faux verts V9 corrigés", metrics.get("v10_false_green_downgraded", 0))
+    vt2.metric("JP candidats", metrics.get("v10_jp_candidate_groups", 0))
+    vt3.metric("Multi-cartes V10", metrics.get("v10_multi_card_groups", 0))
+    vt4.metric("Spéciaux / LÉGENDE", metrics.get("v10_special_layout_groups", 0))
+
+    vx1, vx2 = st.columns(2)
+    vx1.metric("Recto manquant", metrics.get("v10_missing_front_groups", 0))
+    vx2.metric("Probablement absent du Drop", metrics.get("v10_not_in_drop_groups", 0))
+
     causes = metrics.get("diagnostic_causes") or {}
     if causes:
         st.markdown("#### Causes orange/rouge")
@@ -312,6 +436,11 @@ def _render_full_summary(result: dict, sample: dict):
             width="stretch",
             hide_index=True,
         )
+
+    gt_errors = _ground_truth_error_rows(result, sample)
+    if gt_errors:
+        st.markdown("#### Erreurs V9 vs vérité terrain")
+        st.dataframe(gt_errors, width="stretch", hide_index=True)
 
     new_auto_rows = []
     for group in result.get("groups", []) or []:
@@ -1372,6 +1501,7 @@ ground_truth = ensure_ground_truth_sample(result, sample_key)
 if sample_key in (ground_truth.get("samples") or {}):
     st.session_state[f"photo_poc_sample_{sample_key}"] = ground_truth["samples"][sample_key]
 sample = _load_sample(sample_key)
+_apply_v10_ground_truth_overlay(result, sample)
 metrics = result["metrics"]
 drop = result.get("drop") or {}
 
