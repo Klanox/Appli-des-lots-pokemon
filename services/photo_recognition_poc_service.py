@@ -52,7 +52,8 @@ FILENAME_DATETIME_PATTERNS = (
 
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
-POC_ANALYSIS_PIPELINE_VERSION = "v10-gt-safe-special-layout"
+CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
+POC_ANALYSIS_PIPELINE_VERSION = "v11-single-reconcile"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -307,6 +308,17 @@ def _ocr_cache_path(source: str) -> Path:
     return POC_CACHE_DIR / "ocr" / f"{digest}.json"
 
 
+def _classification_cache_path(source: str) -> Path:
+    try:
+        path = Path(source)
+        stat = path.stat()
+        cache_key = f"{CLASSIFICATION_CACHE_VERSION}|{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}"
+    except Exception:
+        cache_key = f"{CLASSIFICATION_CACHE_VERSION}|{source or ''}"
+    digest = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()
+    return POC_CACHE_DIR / "classifications" / f"{digest}.json"
+
+
 def _feature_to_json(feature: dict[str, Any]) -> dict[str, Any]:
     bits = "".join("1" if value else "0" for value in feature["hash"].reshape(-1))
     return {"hash_bits": bits, "hash_size": int(feature["hash"].shape[0]), "hist": feature["hist"].astype(float).tolist()}
@@ -351,11 +363,13 @@ def _pokemon_back_score(arr: np.ndarray) -> tuple[float, list[str]]:
     blue_frac = float(np.mean(blue | dark_blue))
     yellow_frac = float(np.mean(yellow))
     vivid_frac = float(np.mean(sat > 0.28))
-    score = min(1.0, blue_frac * 2.15 + yellow_frac * 2.4 + max(0.0, vivid_frac - 0.32) * 0.8)
+    yellow_logo_bonus = yellow_frac * 1.8 if blue_frac >= 0.14 else 0.0
+    vivid_bonus = max(0.0, vivid_frac - 0.32) * 0.45 if blue_frac >= 0.12 else 0.0
+    score = min(1.0, blue_frac * 2.35 + yellow_logo_bonus + vivid_bonus)
     reasons = []
     if blue_frac > 0.22:
         reasons.append(f"bleu verso {blue_frac:.0%}")
-    if yellow_frac > 0.05:
+    if yellow_frac > 0.05 and blue_frac >= 0.14:
         reasons.append(f"jaune/orange {yellow_frac:.0%}")
     if vivid_frac > 0.45:
         reasons.append(f"couleurs saturées {vivid_frac:.0%}")
@@ -522,7 +536,7 @@ def detect_card_regions(image: Image.Image, *, max_regions=4) -> list[dict[str, 
     return kept
 
 
-def classify_photo(path: str) -> dict[str, Any]:
+def _classify_photo_uncached(path: str) -> dict[str, Any]:
     image = _load_image(path, max_side=1024)
     if image is None:
         return {"class": "uncertain", "confidence": 0.0, "reasons": ["image illisible"], "regions": []}
@@ -548,6 +562,26 @@ def classify_photo(path: str) -> dict[str, Any]:
     if largest >= 0.06:
         return {**base, "class": "extra", "confidence": round(min(0.75, 0.45 + largest), 2), "reasons": ["détail/zone partielle"]}
     return {**base, "class": "uncertain", "confidence": 0.25, "reasons": ["pas de carte complète détectée"]}
+
+
+def classify_photo(path: str) -> dict[str, Any]:
+    cache_path = _classification_cache_path(path)
+    if cache_path.exists():
+        cached = load_json_file(cache_path, None)
+        if isinstance(cached, dict) and cached.get("cache_version") == CLASSIFICATION_CACHE_VERSION:
+            payload = cached.get("classification")
+            if isinstance(payload, dict):
+                return payload
+    payload = _classify_photo_uncached(path)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps({"cache_version": CLASSIFICATION_CACHE_VERSION, "classification": payload}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+    return payload
 
 
 def _crop_region(image: Image.Image, region: dict[str, Any]) -> Image.Image:
@@ -1371,6 +1405,124 @@ def _new_group(index: int, entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _group_capture_indices(group: dict[str, Any]) -> list[int]:
+    indices = []
+    for entry in group.get("photos", []) or []:
+        photo = entry.get("photo")
+        if photo is not None:
+            indices.append(_safe_int(getattr(photo, "capture_index", 0), 0))
+    return [idx for idx in indices if idx > 0]
+
+
+def _single_group_entry(group: dict[str, Any]) -> dict[str, Any] | None:
+    photos = group.get("photos", []) or []
+    if len(photos) != 1:
+        return None
+    return photos[0]
+
+
+def _largest_region_ratio(classification: dict[str, Any]) -> float:
+    regions = classification.get("regions") or []
+    return max((_safe_float(region.get("area_ratio"), 0.0) for region in regions), default=0.0)
+
+
+def _is_probable_single_front(classification: dict[str, Any]) -> bool:
+    if _is_back_class(classification):
+        return False
+    klass = str(classification.get("class") or "")
+    largest = _largest_region_ratio(classification)
+    if klass == "primary_front":
+        return True
+    return largest >= 0.12 and _safe_float(classification.get("western_back_score"), 0.0) < 0.50
+
+
+def _v11_single_back_signal(classification: dict[str, Any]) -> tuple[bool, str, bool]:
+    if _is_back_class(classification):
+        return True, "verso détecté V10", False
+    if _is_sequence_back_candidate(classification):
+        return True, "verso inféré V10 par séquence", True
+    western_score = _safe_float(classification.get("western_back_score"), 0.0)
+    japanese_score = _safe_float(classification.get("japanese_back_score"), 0.0)
+    if western_score >= 0.30:
+        return True, f"verso occidental sous-seuil V11 ({western_score:.2f})", True
+    if japanese_score >= 0.62:
+        return True, f"verso japonais sous-seuil V11 ({japanese_score:.2f})", True
+    return False, f"score verso insuffisant (west {western_score:.2f}, jp {japanese_score:.2f})", False
+
+
+def _reindex_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for index, group in enumerate(groups, start=1):
+        group["announcement_index"] = index
+    return groups
+
+
+def _reconcile_consecutive_single_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reconciled = []
+    index = 0
+    while index < len(groups):
+        group = groups[index]
+        entry = _single_group_entry(group)
+        next_group = groups[index + 1] if index + 1 < len(groups) else None
+        next_entry = _single_group_entry(next_group) if next_group is not None else None
+        if entry is None or next_entry is None:
+            reconciled.append(group)
+            index += 1
+            continue
+
+        photo = entry.get("photo")
+        next_photo = next_entry.get("photo")
+        current_idx = _safe_int(getattr(photo, "capture_index", 0), 0)
+        next_idx = _safe_int(getattr(next_photo, "capture_index", 0), 0)
+        front_classification = entry.get("classification") or {}
+        back_classification = next_entry.get("classification") or {}
+        is_consecutive = current_idx > 0 and next_idx == current_idx + 1
+        front_ok = _is_probable_single_front(front_classification)
+        back_ok, back_reason, inferred = _v11_single_back_signal(back_classification)
+
+        if is_consecutive and front_ok and back_ok:
+            back_entry = _entry_as_sequence_back(next_entry) if inferred else next_entry
+            grouping_status = "ok"
+            grouping_reasons = [
+                "fusion V11 de deux groupes single consécutifs",
+                back_reason,
+            ]
+            if inferred:
+                grouping_status = "review"
+                grouping_reasons.append("verso accepté par cohérence de séquence")
+            merged = {
+                "announcement_index": len(reconciled) + 1,
+                "photos": [entry, back_entry],
+                "primary_front": entry,
+                "group_back": back_entry,
+                "detail_cards": [],
+                "expected_cards": 1,
+                "grouping_status": grouping_status,
+                "grouping_reasons": grouping_reasons,
+                "v11_single_fusion": True,
+                "v11_fusion_from": [_group_capture_indices(group), _group_capture_indices(next_group)],
+                "v11_fusion_reason": back_reason,
+            }
+            reconciled.append(merged)
+            index += 2
+            continue
+
+        if entry is not None:
+            group.setdefault("v11_single_unmerged_reason", []).append(
+                "single non fusionné: "
+                + (
+                    "non consécutif"
+                    if not is_consecutive
+                    else "première photo pas assez front-like"
+                    if not front_ok
+                    else back_reason
+                )
+            )
+        reconciled.append(group)
+        index += 1
+
+    return _reindex_groups(reconciled)
+
+
 def _close_group(groups: list[dict[str, Any]], current: dict[str, Any] | None):
     if current is None:
         return
@@ -1467,7 +1619,7 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
         current = _new_group(len(groups) + 1, entry)
     if current is not None and len(groups) < target_announcements:
         _close_group(groups, current)
-    return groups[:target_announcements]
+    return _reconcile_consecutive_single_groups(groups[:target_announcements])
 
 
 def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, Any]], *, force_grouping_trust=False) -> tuple[bool, str, int]:
@@ -1582,6 +1734,14 @@ def _metrics_for_groups(
                 reason = f"grouping à vérifier + {reason}"
             diagnostic_causes[reason] = diagnostic_causes.get(reason, 0) + 1
     group_sizes = [len(group.get("photos", []) or []) for group in groups]
+    single_reasons: dict[str, int] = {}
+    for group in groups:
+        if len(group.get("photos", []) or []) != 1:
+            continue
+        reasons = group.get("v11_single_unmerged_reason") or group.get("grouping_reasons") or ["single sans diagnostic V11"]
+        for reason in reasons:
+            key = str(reason or "single sans diagnostic V11")
+            single_reasons[key] = single_reasons.get(key, 0) + 1
     metrics = {
         "photos_total_folder": len(ordered),
         "photos_analyzed": len(photo_window),
@@ -1616,6 +1776,8 @@ def _metrics_for_groups(
             if group.get("expected_cards", 1) > 1
             or (group.get("primary_front") and len((group["primary_front"].get("classification") or {}).get("regions", []) or []) > 1)
         ),
+        "v11_single_fusions": sum(1 for group in groups if group.get("v11_single_fusion")),
+        "v11_single_unmerged_reasons": single_reasons,
         "grouping_to_review": sum(1 for group in groups if group.get("grouping_status") == "review"),
         "grouping_silent_errors": 0,
         "auto_recognized": sum(1 for group in groups if group.get("confidence_level") == "green"),

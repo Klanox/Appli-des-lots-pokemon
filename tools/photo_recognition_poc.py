@@ -404,6 +404,18 @@ def _render_full_summary(result: dict, sample: dict):
     g3.metric("Groupes 1 photo", metrics.get("one_photo_groups", 0))
     g4.metric("Grouping review", metrics.get("grouping_to_review", 0))
 
+    vg1, vg2 = st.columns(2)
+    vg1.metric("Fusions V11 singles", metrics.get("v11_single_fusions", 0))
+    vg2.metric("Singles restants", metrics.get("one_photo_groups", 0))
+    single_reasons = metrics.get("v11_single_unmerged_reasons") or {}
+    if single_reasons:
+        with st.expander("Singles non fusionnés V11", expanded=False):
+            st.dataframe(
+                [{"raison": reason, "cas": count} for reason, count in sorted(single_reasons.items(), key=lambda item: item[1], reverse=True)],
+                width="stretch",
+                hide_index=True,
+            )
+
     manual = _manual_validation_summary(sample, result)
     v1, v2, v3, v4 = st.columns(4)
     v1.metric("Reviews corrigées", manual["review_fixed"])
@@ -493,6 +505,16 @@ def _render_grouping_map(result: dict):
     d3.metric("3 photos", metrics.get("three_photo_groups", 0))
     d4.metric("4+ photos", metrics.get("four_plus_photo_groups", 0))
 
+    v1, v2 = st.columns(2)
+    v1.metric("Fusions V11", metrics.get("v11_single_fusions", 0))
+    v2.metric("Singles restants", metrics.get("one_photo_groups", 0))
+
+    grouping_filter = st.selectbox(
+        "Filtre grouping",
+        ["Tous", "Groupes 1 photo", "Groupes modifiés V11", "Grouping review"],
+        key="photo_poc_grouping_filter",
+    )
+
     rows = []
     for group in result.get("groups", []) or []:
         photos = _group_photo_payloads(group)
@@ -500,10 +522,19 @@ def _render_grouping_map(result: dict):
         size = len(photos)
         is_review = group.get("grouping_status") == "review"
         is_multi = int(group.get("expected_cards") or 1) > 1 or len(group.get("matches", []) or []) > 1
+        is_v11 = bool(group.get("v11_single_fusion"))
+        if grouping_filter == "Groupes 1 photo" and size != 1:
+            continue
+        if grouping_filter == "Groupes modifiés V11" and not is_v11:
+            continue
+        if grouping_filter == "Grouping review" and not is_review:
+            continue
         if size == 1:
             state = "⚠ incomplet"
         elif is_multi:
             state = "MULTI"
+        elif is_v11:
+            state = "✓ fusion V11"
         elif is_review:
             state = "⚠ review"
         else:
@@ -514,7 +545,7 @@ def _render_grouping_map(result: dict):
                 "photos": indexes,
                 "nb": size,
                 "statut": state,
-                "raison": " · ".join(group.get("grouping_reasons") or []),
+                "raison": " · ".join(group.get("grouping_reasons") or group.get("v11_single_unmerged_reason") or []),
             }
         )
     st.dataframe(rows, width="stretch", hide_index=True)
