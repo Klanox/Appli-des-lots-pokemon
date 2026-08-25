@@ -139,6 +139,15 @@ o2.metric("OCR numéro", metrics.get("ocr_number_detected", 0))
 o3.metric("OCR nom + numéro", metrics.get("ocr_both_detected", 0))
 o4.metric("OCR inutilisable", metrics.get("ocr_unusable", 0))
 
+diagnostic_causes = metrics.get("diagnostic_causes") or {}
+if diagnostic_causes:
+    with st.expander("Diagnostic review/fail", expanded=False):
+        st.dataframe(
+            [{"cause": cause, "cas": count} for cause, count in sorted(diagnostic_causes.items(), key=lambda item: item[1], reverse=True)],
+            width="stretch",
+            hide_index=True,
+        )
+
 m1, m2, m3 = st.columns(3)
 m1.metric("Reconnu", metrics["auto_recognized"])
 m2.metric("À vérifier", metrics["to_review"])
@@ -198,12 +207,15 @@ for group in result["groups"]:
                     + " · OCR numéro : "
                     + " / ".join(ocr_payload.get("number_texts") or ["—"])
                 )
+            if match.get("diagnostic_reason"):
+                st.caption("Raison : " + str(match.get("diagnostic_reason")))
             rows = []
             for candidate_row in match.get("candidates", []):
                 candidate = candidate_row["candidate"]
                 rows.append(
                     {
                         "score": candidate_row["score"],
+                        "visuel": candidate_row.get("visual_score", ""),
                         "raisons": " · ".join(candidate_row.get("reasons") or []),
                         "nom": candidate["name"],
                         "numéro": candidate["number"],
