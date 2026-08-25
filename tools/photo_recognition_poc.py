@@ -10,6 +10,7 @@ datasets, but never writes to Pokestock business data.
 from __future__ import annotations
 
 import sys
+from io import BytesIO
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ from services.photo_recognition_poc_service import (
     PHOTO_ROLES,
     POC_DIR,
     POC_GROUND_TRUTH_PATH,
+    VALIDATED_GROUP_STATUSES,
     analyze_ground_truth_sample,
     analyze_sample,
     ensure_ground_truth_sample,
@@ -32,6 +34,7 @@ from services.photo_recognition_poc_service import (
     photo_key,
     sample_ground_truth_key,
     update_ground_truth_sample,
+    normalize_group_status,
 )
 
 
@@ -69,10 +72,11 @@ st.markdown(
     .poc-green {background:#dcfce7;color:#166534;border-color:#86efac;}
     .poc-orange {background:#ffedd5;color:#9a3412;border-color:#fdba74;}
     .poc-red {background:#fee2e2;color:#991b1b;border-color:#fca5a5;}
-    .poc-card {background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:0.85rem;margin:0.55rem 0;}
+    .poc-card {background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:0.7rem 0.85rem;margin:0.5rem 0;}
     .poc-muted {color:#64748b;font-size:0.82rem;}
     .poc-mini {font-size:0.76rem;color:#64748b;}
     .poc-section-title {font-size:1rem;font-weight:850;color:#111827;margin:1rem 0 0.35rem;}
+    .poc-validated {color:#166534;font-weight:900;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -85,7 +89,28 @@ def _rerun():
 
 def _save_sample(sample_key: str, sample: dict):
     update_ground_truth_sample(sample_key, sample)
+    st.session_state[f"photo_poc_sample_{sample_key}"] = sample
     st.toast("Ground truth POC sauvegardé")
+
+
+def _load_sample(sample_key: str) -> dict:
+    cached = st.session_state.get(f"photo_poc_sample_{sample_key}")
+    if isinstance(cached, dict):
+        return cached
+    payload = load_poc_ground_truth()
+    sample = payload.get("samples", {}).get(sample_key, {"groups": []})
+    st.session_state[f"photo_poc_sample_{sample_key}"] = sample
+    return sample
+
+
+def _set_group_status(sample_key: str, group_id: str, status: str):
+    sample = _load_sample(sample_key)
+    for group in sample.get("groups", []) or []:
+        if str(group.get("group_id")) == str(group_id):
+            group["status"] = status
+            break
+    update_ground_truth_sample(sample_key, sample)
+    st.session_state[f"photo_poc_sample_{sample_key}"] = sample
 
 
 def _image_crop(path: str, kind: str):
@@ -101,6 +126,17 @@ def _image_crop(path: str, kind: str):
             return img
     except Exception:
         return None
+
+
+@st.cache_data(show_spinner=False)
+def _thumbnail_bytes(path: str, max_height: int = 300) -> bytes:
+    with Image.open(path) as raw:
+        img = ImageOps.exif_transpose(raw).convert("RGB")
+        ratio = max_height / max(1, img.height)
+        img = img.resize((max(1, int(img.width * ratio)), max_height), Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=82)
+        return buffer.getvalue()
 
 
 def _render_metrics(metrics: dict):
@@ -148,12 +184,15 @@ def _render_group_photos(group: dict, path_by_key: dict[str, str], *, compact=Fa
     if not photos:
         st.caption("Aucune photo dans ce groupe.")
         return
-    cols = st.columns(min(5 if compact else 6, len(photos)))
+    cols = st.columns(min(4 if compact else 5, len(photos)))
     for idx, photo_payload in enumerate(photos):
         with cols[idx % len(cols)]:
             path = path_by_key.get(photo_key(photo_payload))
             if path:
-                st.image(path, use_container_width=True)
+                try:
+                    st.image(_thumbnail_bytes(path, 285 if compact else 320), width=190 if compact else 230)
+                except Exception:
+                    st.image(path, width=190 if compact else 230)
             st.caption(_role_caption(photo_payload))
             st.caption(photo_payload.get("filename", ""))
 
@@ -217,29 +256,43 @@ def _render_validation_view(sample_key: str, sample: dict, result: dict):
     st.markdown("### Validation des groupes")
     v1, v2, v3, v4 = st.columns(4)
     total = len(groups)
-    validated = sum(1 for group in groups if group.get("status") in {"correct", "corrected"})
-    corrected = sum(1 for group in groups if group.get("status") == "corrected")
+    validated = sum(1 for group in groups if normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES)
+    corrected = sum(1 for group in groups if normalize_group_status(group.get("status")) == "corrected")
     v1.metric("Groupes POC", total)
-    v2.metric("Validés", validated)
-    v3.metric("Corrigés", corrected)
+    v2.metric("Validés", f"{validated} / {total}")
+    v3.metric("À corriger", max(0, total - validated))
     v4.metric("Progression", f"{round(validated / max(1, total) * 100, 1)} %")
 
     if st.button("✓ Marquer tous les groupes non corrigés comme corrects", type="secondary"):
         for group in groups:
             if group.get("status") == "unvalidated":
-                group["status"] = "correct"
+                group["status"] = "validated"
         _save_sample(sample_key, sample)
         _rerun()
 
+    show_only_pending = st.checkbox("Afficher seulement les groupes non validés", value=False)
+    next_pending = next(
+        (idx + 1 for idx, group in enumerate(groups) if normalize_group_status(group.get("status")) not in VALIDATED_GROUP_STATUSES),
+        None,
+    )
+    if next_pending:
+        st.caption(f"Prochain groupe non validé : #{next_pending}")
+    else:
+        st.success("Tous les groupes de cet échantillon sont validés.")
+
     for group_index, group in enumerate(groups):
-        status = group.get("status", "unvalidated")
-        badge_class = "poc-green" if status == "correct" else "poc-orange" if status == "corrected" else "poc-red"
+        status = normalize_group_status(group.get("status"))
+        if show_only_pending and status in VALIDATED_GROUP_STATUSES:
+            continue
+        group_id = str(group.get("group_id") or group_index)
+        badge_class = "poc-green" if status == "validated" else "poc-orange" if status == "corrected" else "poc-red"
+        badge_text = "✓ Validé" if status == "validated" else "✓ Corrigé" if status == "corrected" else "unvalidated"
         st.markdown(
             f"""
             <div class="poc-card">
               <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;">
                 <strong>Groupe #{group_index + 1}</strong>
-                <span class="poc-chip {badge_class}">{status}</span>
+                <span class="poc-chip {badge_class}">{badge_text}</span>
               </div>
               <div class="poc-mini">auto: {group.get('auto_grouping_status', 'n/a')} · cartes attendues: {group.get('expected_cards', 1)}</div>
             </div>
@@ -249,10 +302,13 @@ def _render_validation_view(sample_key: str, sample: dict, result: dict):
         _render_group_photos(group, path_by_key, compact=True)
 
         c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
-        if c1.button("✓ Groupe correct", key=f"gt_correct_{group_index}"):
-            group["status"] = "correct"
-            _save_sample(sample_key, sample)
-            _rerun()
+        c1.button(
+            "✓ Groupe correct",
+            key=f"gt_correct_{group_id}",
+            on_click=_set_group_status,
+            args=(sample_key, group_id, "validated"),
+            type="primary" if status not in VALIDATED_GROUP_STATUSES else "secondary",
+        )
         if c2.button("Fusion précédent", key=f"gt_merge_prev_{group_index}", disabled=group_index == 0):
             _merge_group(sample, group_index, -1)
             _save_sample(sample_key, sample)
@@ -262,7 +318,7 @@ def _render_validation_view(sample_key: str, sample: dict, result: dict):
             _save_sample(sample_key, sample)
             _rerun()
 
-        with st.expander("Corriger", expanded=status != "correct"):
+        with st.expander("Corriger", expanded=False):
             group["expected_cards"] = st.number_input(
                 "Nombre de cartes dans l'annonce",
                 min_value=1,
@@ -301,15 +357,13 @@ def _render_validation_view(sample_key: str, sample: dict, result: dict):
                 _save_sample(sample_key, sample)
                 _rerun()
 
-            group["status"] = st.selectbox(
-                "Statut validation",
-                ["unvalidated", "correct", "corrected"],
-                index=["unvalidated", "correct", "corrected"].index(group.get("status", "unvalidated")),
-                key=f"gt_status_{group_index}",
-            )
-            if st.button("Enregistrer corrections", key=f"gt_save_{group_index}", type="primary"):
-                if group["status"] == "unvalidated":
-                    group["status"] = "corrected"
+            s1, s2 = st.columns(2)
+            if s1.button("Enregistrer comme corrigé", key=f"gt_save_{group_index}", type="primary"):
+                group["status"] = "corrected"
+                _save_sample(sample_key, sample)
+                _rerun()
+            if s2.button("Remettre à valider", key=f"gt_reset_{group_index}"):
+                group["status"] = "unvalidated"
                 _save_sample(sample_key, sample)
                 _rerun()
 
@@ -443,7 +497,7 @@ def _render_results_view(sample_key: str, sample: dict, auto_result: dict, drop_
     st.markdown("### Résultats / debug reconnaissance")
     only_validated = st.checkbox("Reconnaître uniquement les groupes validés", value=True)
     if only_validated:
-        if not any(group.get("status") in {"correct", "corrected"} for group in sample.get("groups", [])):
+        if not any(normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES for group in sample.get("groups", [])):
             st.warning("Aucun groupe validé pour l'instant. Valide d'abord des groupes dans la vue dédiée.")
             return auto_result
         with st.spinner("Reconnaissance sur ground truth validé..."):
@@ -537,9 +591,11 @@ def _render_results_view(sample_key: str, sample: dict, auto_result: dict, drop_
 
 def _render_errors_view(sample_key: str, sample: dict, auto_result: dict, drop_id: str | None, folder: str):
     st.markdown("### Erreurs uniquement")
-    result = analyze_ground_truth_sample(sample, folder=folder, drop_id=drop_id, only_validated=True) if any(
-        group.get("status") in {"correct", "corrected"} for group in sample.get("groups", [])
-    ) else auto_result
+    result = (
+        analyze_ground_truth_sample(sample, folder=folder, drop_id=drop_id, only_validated=True)
+        if any(normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES for group in sample.get("groups", []))
+        else auto_result
+    )
     path_by_key = _photo_path_by_key(result)
     candidates = result.get("candidates", [])
     count = 0
@@ -639,9 +695,10 @@ if run:
         st.session_state["photo_poc_sample_key"] = sample_key
 
 result = st.session_state["photo_poc_result"]
-ensure_ground_truth_sample(result, sample_key)
-ground_truth = load_poc_ground_truth()
-sample = ground_truth.get("samples", {}).get(sample_key, {"groups": []})
+ground_truth = ensure_ground_truth_sample(result, sample_key)
+if sample_key in (ground_truth.get("samples") or {}):
+    st.session_state[f"photo_poc_sample_{sample_key}"] = ground_truth["samples"][sample_key]
+sample = _load_sample(sample_key)
 metrics = result["metrics"]
 drop = result.get("drop") or {}
 

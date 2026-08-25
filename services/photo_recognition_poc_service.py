@@ -56,6 +56,7 @@ PHOTO_ROLES = (
     "extra",
     "uncertain",
 )
+VALIDATED_GROUP_STATUSES = {"validated", "correct", "corrected"}
 
 
 @dataclass(frozen=True)
@@ -1314,6 +1315,28 @@ def photo_key(photo_or_payload: PhotoInfo | dict[str, Any]) -> str:
     return f"{photo_or_payload.get('capture_index')}:{photo_or_payload.get('filename')}"
 
 
+def group_photo_signature(photos: list[dict[str, Any]]) -> str:
+    keys = [photo_key(photo) for photo in photos if photo.get("filename")]
+    return "|".join(keys)
+
+
+def stable_group_id_from_photos(photos: list[dict[str, Any]]) -> str:
+    signature = group_photo_signature(photos)
+    digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()[:12]
+    first = photos[0].get("capture_index") if photos else "x"
+    last = photos[-1].get("capture_index") if photos else "x"
+    return f"group_{first}_{last}_{digest}"
+
+
+def normalize_group_status(status: str | None) -> str:
+    value = str(status or "unvalidated")
+    if value == "correct":
+        return "validated"
+    if value in {"validated", "corrected", "unvalidated"}:
+        return value
+    return "unvalidated"
+
+
 def _role_for_entry(group: dict[str, Any], entry: dict[str, Any]) -> str:
     photo = entry.get("photo")
     if group.get("primary_front") and photo_key(group["primary_front"]["photo"]) == photo_key(photo):
@@ -1343,7 +1366,8 @@ def group_to_ground_truth(group: dict[str, Any]) -> dict[str, Any]:
             continue
         photos.append({**photo_identity(photo), "role": _role_for_entry(group, entry)})
     return {
-        "group_id": str(group.get("announcement_index") or len(photos) or ""),
+        "group_id": stable_group_id_from_photos(photos),
+        "photo_signature": group_photo_signature(photos),
         "status": "unvalidated",
         "auto_grouping_status": group.get("grouping_status", "review"),
         "expected_cards": max(1, _safe_int(group.get("expected_cards"), 1)),
@@ -1378,18 +1402,58 @@ def save_poc_ground_truth(payload: dict[str, Any], path: str | Path = POC_GROUND
 def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
     payload = load_poc_ground_truth(path)
     samples = payload.setdefault("samples", {})
+    detected_groups = [group_to_ground_truth(group) for group in result.get("groups", [])]
     if sample_key not in samples:
         samples[sample_key] = {
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "updated_at": datetime.now().isoformat(timespec="seconds"),
-            "groups": [group_to_ground_truth(group) for group in result.get("groups", [])],
+            "groups": detected_groups,
         }
+        save_poc_ground_truth(payload, path)
+        return payload
+
+    sample = samples[sample_key]
+    existing_groups = sample.get("groups", []) or []
+    by_id = {str(group.get("group_id")): group for group in existing_groups if group.get("group_id")}
+    by_signature = {
+        str(group.get("photo_signature") or group_photo_signature(group.get("photos", []) or [])): group
+        for group in existing_groups
+        if group.get("photos")
+    }
+    merged = []
+    changed = False
+    for detected in detected_groups:
+        existing = by_id.get(str(detected.get("group_id"))) or by_signature.get(str(detected.get("photo_signature")))
+        if existing:
+            preserved = {
+                **detected,
+                **existing,
+                "group_id": detected.get("group_id"),
+                "photo_signature": detected.get("photo_signature"),
+                "photos": existing.get("photos") or detected.get("photos"),
+                "status": normalize_group_status(existing.get("status")),
+            }
+            merged.append(preserved)
+            if preserved.get("status") != existing.get("status") or preserved.get("group_id") != existing.get("group_id"):
+                changed = True
+        else:
+            merged.append(detected)
+            changed = True
+    if len(merged) != len(existing_groups):
+        changed = True
+    if changed:
+        sample["groups"] = merged
+        sample["updated_at"] = datetime.now().isoformat(timespec="seconds")
         save_poc_ground_truth(payload, path)
     return payload
 
 
 def update_ground_truth_sample(sample_key: str, sample: dict[str, Any], *, path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
     payload = load_poc_ground_truth(path)
+    for group in sample.get("groups", []) or []:
+        group["status"] = normalize_group_status(group.get("status"))
+        group["photo_signature"] = group.get("photo_signature") or group_photo_signature(group.get("photos", []) or [])
+        group["group_id"] = group.get("group_id") or stable_group_id_from_photos(group.get("photos", []) or [])
     payload.setdefault("samples", {})[sample_key] = {**sample, "updated_at": datetime.now().isoformat(timespec="seconds")}
     save_poc_ground_truth(payload, path)
     return payload
@@ -1416,7 +1480,8 @@ def groups_from_ground_truth(sample: dict[str, Any], photos: list[PhotoInfo], cl
     groups = []
     for raw_idx, raw_group in enumerate(sample.get("groups", []) or [], start=1):
         status = str(raw_group.get("status") or "unvalidated")
-        if only_validated and status not in {"correct", "corrected"}:
+        status = normalize_group_status(status)
+        if only_validated and status not in VALIDATED_GROUP_STATUSES:
             continue
         entries = []
         for photo_payload in raw_group.get("photos", []) or []:
@@ -1494,7 +1559,7 @@ def analyze_ground_truth_sample(
         ground_truth_mode=True,
     )
     total_groups = len(sample.get("groups", []) or [])
-    validated = sum(1 for group in sample.get("groups", []) or [] if group.get("status") in {"correct", "corrected"})
+    validated = sum(1 for group in sample.get("groups", []) or [] if normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES)
     corrected = sum(1 for group in sample.get("groups", []) or [] if group.get("status") == "corrected")
     metrics.update(
         {
