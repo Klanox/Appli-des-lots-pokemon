@@ -59,6 +59,8 @@ STATUS_LABELS = {
 
 VIEW_OPTIONS = [
     "Synthèse complète",
+    "Cas japonais",
+    "Nouveaux autos V13",
     "Carte du grouping",
     "Singles / grouping reviews",
     "File à vérifier",
@@ -318,7 +320,8 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
     multi_groups = 0
     special_layout = 0
     missing_front = 0
-    not_in_drop = 0
+    not_in_drop_strong = 0
+    not_in_drop_possible = 0
     for group in result.get("groups", []) or []:
         group_id = _result_group_id(group)
         source = _source_group(sample, group_id)
@@ -330,15 +333,22 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
             missing_front += 1
         group_has_jp = False
         group_has_special = False
-        group_not_in_drop = False
+        group_not_in_drop_strong = False
+        group_not_in_drop_possible = False
         for match_index, match in enumerate(group.get("matches", []) or []):
             match.setdefault("v10_original_status", match.get("status"))
             candidate = _match_primary_candidate(match)
-            group_has_jp = group_has_jp or bool(candidate.get("japanese")) or bool(source.get("jp_physical"))
+            group_has_jp = (
+                group_has_jp
+                or bool(candidate.get("japanese"))
+                or bool(source.get("jp_physical"))
+                or str(group.get("v13_back_type") or "").startswith("back_japanese")
+            )
             group_has_special = group_has_special or bool(match.get("special_layout"))
-            reason = str(match.get("diagnostic_reason") or "")
-            if "incompatible" in reason or "absent des métadonnées" in reason or "absente" in reason:
-                group_not_in_drop = True
+            if match.get("v13_not_in_drop_confidence") == "strong":
+                group_not_in_drop_strong = True
+            elif match.get("v13_not_in_drop_confidence") == "possible":
+                group_not_in_drop_possible = True
             validation = validations.get(str(match_index)) or {}
             original_status = match.get("v10_original_status") or match.get("status")
             if original_status == "recognized" and validation.get("status"):
@@ -359,8 +369,10 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
                 jp_wrong += 1
         if group_has_special:
             special_layout += 1
-        if group_not_in_drop:
-            not_in_drop += 1
+        if group_not_in_drop_strong:
+            not_in_drop_strong += 1
+        elif group_not_in_drop_possible:
+            not_in_drop_possible += 1
     metrics = result.setdefault("metrics", {})
     metrics["auto_recognized"] = sum(1 for group in result.get("groups", []) or [] if group.get("confidence_level") == "green")
     metrics["to_review"] = sum(1 for group in result.get("groups", []) or [] if group.get("confidence_level") == "orange")
@@ -374,7 +386,9 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
     metrics["v10_multi_card_groups"] = multi_groups
     metrics["v10_special_layout_groups"] = special_layout
     metrics["v10_missing_front_groups"] = missing_front
-    metrics["v10_not_in_drop_groups"] = not_in_drop
+    metrics["v10_not_in_drop_groups"] = not_in_drop_strong + not_in_drop_possible
+    metrics["v13_not_in_drop_strong"] = not_in_drop_strong
+    metrics["v13_not_in_drop_possible"] = not_in_drop_possible
     diagnostic_causes = {}
     for group in result.get("groups", []) or []:
         if group.get("confidence_level") == "green":
@@ -433,17 +447,24 @@ def _render_full_summary(result: dict, sample: dict):
 
     vt1, vt2, vt3, vt4 = st.columns(4)
     vt1.metric("Faux verts V9 corrigés", metrics.get("v10_false_green_downgraded", 0))
-    vt2.metric("JP candidats", metrics.get("v10_jp_candidate_groups", 0))
+    vt2.metric("JP candidats", metrics.get("v13_japanese_candidate_groups", metrics.get("v10_jp_candidate_groups", 0)))
     vt3.metric("Multi-cartes V10", metrics.get("v10_multi_card_groups", 0))
     vt4.metric("Spéciaux / LÉGENDE", metrics.get("v10_special_layout_groups", 0))
 
-    vx1, vx2 = st.columns(2)
+    vx1, vx2, vx3 = st.columns(3)
     vx1.metric("Recto manquant", metrics.get("v10_missing_front_groups", 0))
-    vx2.metric("Probablement absent du Drop", metrics.get("v10_not_in_drop_groups", 0))
+    vx2.metric("Absent du Drop · fort", metrics.get("v13_not_in_drop_strong", 0))
+    vx3.metric("Absent du Drop · possible", metrics.get("v13_not_in_drop_possible", 0))
 
-    causes = metrics.get("diagnostic_causes") or {}
+    jp1, jp2, jp3, jp4 = st.columns(4)
+    jp1.metric("Versos JP confirmés", metrics.get("v13_back_japanese", 0))
+    jp2.metric("Signaux JAP", metrics.get("v13_back_japanese_candidates", 0))
+    jp3.metric("JP auto / review", f"{metrics.get('v13_japanese_auto', 0)} / {metrics.get('v13_japanese_review', 0)}")
+    jp4.metric("Conflits langue", metrics.get("v13_japanese_conflicts", 0))
+
+    causes = metrics.get("v13_non_auto_causes") or metrics.get("diagnostic_causes") or {}
     if causes:
-        st.markdown("#### Causes orange/rouge")
+        st.markdown("#### Causes principales orange/rouge")
         st.dataframe(
             [{"cause": cause, "cas": count} for cause, count in sorted(causes.items(), key=lambda item: item[1], reverse=True)],
             width="stretch",
@@ -458,7 +479,8 @@ def _render_full_summary(result: dict, sample: dict):
     new_auto_rows = []
     for group in result.get("groups", []) or []:
         for match in group.get("matches", []) or []:
-            reason = match.get("v8_auto_reason")
+            reason = match.get("v13_auto_reason")
+            reason = reason or match.get("v8_auto_reason")
             reason = match.get("v9_auto_reason") or reason
             if not reason:
                 continue
@@ -476,7 +498,7 @@ def _render_full_summary(result: dict, sample: dict):
                 }
             )
     if new_auto_rows:
-        st.markdown("#### Nouveaux autos V8/V9")
+        st.markdown("#### Nouveaux autos V8/V9/V13")
         st.dataframe(new_auto_rows, width="stretch", hide_index=True)
 
     c1, c2, c3, c4 = st.columns(4)
@@ -488,6 +510,68 @@ def _render_full_summary(result: dict, sample: dict):
         _request_view("Résultats / debug reconnaissance")
     if c4.button("Tout afficher"):
         _request_view("Résultats / debug reconnaissance")
+
+
+def _render_v13_japanese_cases(result: dict):
+    metrics = result.get("metrics") or {}
+    st.markdown("### Cas japonais")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Versos JP confirmés", metrics.get("v13_back_japanese", 0))
+    c2.metric("Signaux JAP", metrics.get("v13_back_japanese_candidates", 0))
+    c3.metric("JP auto / review", f"{metrics.get('v13_japanese_auto', 0)} / {metrics.get('v13_japanese_review', 0)}")
+    c4.metric("JP fail", metrics.get("v13_japanese_fail", 0))
+    st.caption("Un signal JAP ne devient pas automatiquement un verso JP : les conflits restent en vérification.")
+
+    path_by_key = _photo_path_by_key(result)
+    cases = [
+        group
+        for group in result.get("groups", []) or []
+        if group.get("v13_japanese_candidate") or str(group.get("v13_back_type") or "").startswith("back_japanese")
+    ]
+    for group in cases:
+        top = _match_primary_candidate((group.get("matches") or [{}])[0])
+        label = (
+            f"Annonce #{group.get('announcement_index')} · {group.get('v13_back_type')} · "
+            f"{top.get('name') or 'sans candidat'} · {group.get('confidence_level')}"
+        )
+        with st.expander(label, expanded=False):
+            st.caption(
+                f"Verso : {group.get('v13_back_reason') or '—'} · scores {group.get('v13_back_scores') or {}} · "
+                f"conflit : {group.get('v13_language_conflict') or 'aucun'}"
+            )
+            _render_group_photos({"photos": _group_photo_payloads(group)}, path_by_key, compact=True)
+            for match_index, match in enumerate(group.get("matches", []) or []):
+                _render_match_readonly(match, match_index)
+
+
+def _render_v13_new_autos(result: dict):
+    st.markdown("### Nouveaux autos V13")
+    rows = []
+    for group in result.get("groups", []) or []:
+        for match in group.get("matches", []) or []:
+            reason = str(match.get("v13_auto_reason") or "")
+            if not reason:
+                continue
+            candidate_row = (match.get("candidates") or [{}])[0]
+            candidate = candidate_row.get("candidate") or {}
+            rows.append(
+                {
+                    "annonce": group.get("announcement_index"),
+                    "captures": " ".join(str(photo.get("capture_index")) for photo in _group_photo_payloads(group)),
+                    "carte": candidate.get("name"),
+                    "numéro": candidate.get("number"),
+                    "langue": "JAP" if candidate.get("japanese") else "FR",
+                    "score": match.get("score"),
+                    "marge": match.get("margin"),
+                    "visuel": candidate_row.get("visual_artwork_score") or candidate_row.get("visual_score"),
+                    "preuve": reason,
+                }
+            )
+    if not rows:
+        st.info("Aucun nouveau vert attribuable aux règles V13 dans cette analyse.")
+        return
+    st.dataframe(rows, width="stretch", hide_index=True)
+    st.caption("Cette liste est volontairement courte et sert au contrôle manuel des seules conversions V13.")
 
 
 def _render_grouping_map(result: dict):
@@ -894,6 +978,12 @@ def _variant_label(candidate: dict) -> str:
         variants.append("1RE")
     if candidate.get("stamp"):
         variants.append("STAMP")
+    if candidate.get("promo"):
+        variants.append("PROMO")
+    if candidate.get("master_ball"):
+        variants.append("MASTER BALL")
+    if candidate.get("poke_ball"):
+        variants.append("POKÉ BALL")
     return " · ".join(variants) or "FR"
 
 
@@ -1343,7 +1433,7 @@ def _group_visible(group: dict, mode: str) -> bool:
     if mode == "Grouping douteux":
         return group.get("grouping_status") == "review"
     if mode == "JP":
-        return bool(group.get("jp_physical")) or any(
+        return bool(group.get("jp_physical")) or bool(group.get("v13_japanese_candidate")) or str(group.get("v13_back_type") or "").startswith("back_japanese") or any(
             ((entry.get("classification") or {}).get("back_type") == "japanese") for entry in group.get("photos", [])
         )
     if mode == "Multi-cartes":
@@ -1620,6 +1710,10 @@ st.caption(metrics["ocr_note"])
 
 if view == "Synthèse complète":
     _render_full_summary(result, sample)
+elif view == "Cas japonais":
+    _render_v13_japanese_cases(result)
+elif view == "Nouveaux autos V13":
+    _render_v13_new_autos(result)
 elif view == "Carte du grouping":
     _render_grouping_map(result)
 elif view == "Singles / grouping reviews":

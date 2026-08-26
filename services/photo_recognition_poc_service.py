@@ -53,7 +53,7 @@ FILENAME_DATETIME_PATTERNS = (
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
-POC_ANALYSIS_PIPELINE_VERSION = "v12-sequence-dp"
+POC_ANALYSIS_PIPELINE_VERSION = "v13-jp-targeted-matching"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -232,6 +232,9 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
                 "reverse": bool(merged.get("reverse") or merged.get("is_reverse")),
                 "first_edition": bool(merged.get("first_edition") or merged.get("is_ed1")),
                 "stamp": str(merged.get("stamp") or merged.get("stamp_label") or ""),
+                "promo": bool(merged.get("promo") or merged.get("is_promo")),
+                "master_ball": bool(merged.get("master_ball") or merged.get("is_master_ball")),
+                "poke_ball": bool(merged.get("poke_ball") or merged.get("is_poke_ball")),
                 "quantity": max(1, _safe_int(merged.get("quantity"), 1)),
                 "price": _safe_float(merged.get("suggested_price", merged.get("price_at_add", 0))),
                 "image_url": _candidate_image_url(merged),
@@ -1044,19 +1047,44 @@ def _number_local(value: str) -> str:
 
 
 def _special_layout_signals(ocr_payload: dict[str, Any], candidate: dict[str, Any] | None = None) -> list[str]:
-    text_bits = []
-    text_bits.extend(ocr_payload.get("name_texts") or [])
-    text_bits.extend(ocr_payload.get("number_texts") or [])
-    text_bits.append(str(ocr_payload.get("raw_text") or ""))
-    if candidate:
-        text_bits.append(str(candidate.get("name") or ""))
-    folded = _fold_text(" ".join(text_bits))
+    # Body text regularly contains words such as "legendaire". Only the card
+    # title and the candidate name are reliable layout signals.
+    title_tokens = [_fold_text(value) for value in (ocr_payload.get("name_texts") or [])]
+    candidate_name = _fold_text((candidate or {}).get("name") or "")
     signals = []
-    if "legende" in folded or "legend" in folded:
+    legend_tokens = {"legende", "legend", "pokemonlegende", "pokemonlegend"}
+    if (
+        candidate_name in legend_tokens
+        or candidate_name.endswith("legende")
+        or any(token in legend_tokens or (len(token) <= 48 and token.endswith(("legende", "legend"))) for token in title_tokens)
+    ):
         signals.append("layout spécial / LÉGENDE détecté")
-    if "vunion" in folded or ("union" in folded and "pokemon" in folded):
+    if "vunion" in candidate_name or any(token in {"vunion", "pokemonvunion"} for token in title_tokens):
         signals.append("layout spécial / V-UNION détecté")
     return signals
+
+
+def _ocr_name_variants(ocr_payload: dict[str, Any]) -> list[str]:
+    names = [str(value or "").strip() for value in (ocr_payload.get("name_texts") or []) if str(value or "").strip()]
+    variants = list(names)
+    suffixes = {"ex", "gx", "v", "vmax", "vstar", "vunion", "break", "legende", "legend"}
+    for left in names:
+        for right in names:
+            if left == right:
+                continue
+            folded_right = _fold_text(right)
+            folded_left = _fold_text(left)
+            if folded_right in suffixes or folded_left in suffixes:
+                variants.append(f"{left} {right}")
+    unique = []
+    seen = set()
+    for value in variants:
+        folded = _fold_text(value)
+        if not folded or folded in seen:
+            continue
+        seen.add(folded)
+        unique.append(value)
+    return unique
 
 
 def _full_number_mismatch_reason(ocr_payload: dict[str, Any], best: dict[str, Any] | None) -> str:
@@ -1129,14 +1157,25 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
     number_score = 0.0
     number_reason = ""
     number_kind = ""
+    number_conflict = False
     if cand_num_full and "/" in cand_num_full and cand_num_full in collector_numbers:
         number_score = 80.0
         number_reason = f"numéro exact {cand_num_full}"
         number_kind = "full_collector"
     elif cand_num_local and cand_num_local in collector_locals_from_full and len(cand_num_local) >= 2:
-        number_score = 66.0
-        number_reason = f"numéro local {cand_num_local}"
-        number_kind = "local_collector"
+        same_local_numbers = [value for value in collector_numbers if _number_local(value) == cand_num_local]
+        if cand_num_full and "/" in cand_num_full and all(value != cand_num_full for value in same_local_numbers):
+            # Pokestock sometimes keeps the FR reference for a physical JP
+            # card. Preserve the local-number signal, but require name or
+            # artwork corroboration before an automatic match.
+            number_score = 66.0
+            number_reason = f"numéro local {cand_num_local}, total de set incompatible"
+            number_kind = "conflicting_collector"
+            number_conflict = True
+        else:
+            number_score = 66.0
+            number_reason = f"numéro local {cand_num_local}"
+            number_kind = "local_collector"
     elif cand_num_full and "/" not in cand_num_full and cand_num_full in collector_numbers and len(cand_num_local) >= 2:
         number_score = 58.0
         number_reason = f"numéro simple collector {cand_num_full}"
@@ -1150,8 +1189,14 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
         number_reason = f"numéro local bruité {cand_num_local}"
         number_kind = "noisy_number"
 
-    name_scores = [(_similarity(text, str(candidate.get("name") or "")), text) for text in ocr_payload.get("name_texts", [])]
+    original_name_scores = [
+        (_similarity(text, str(candidate.get("name") or "")), text)
+        for text in (ocr_payload.get("name_texts") or [])
+    ]
+    original_name_similarity = max((score for score, _text in original_name_scores), default=0.0)
+    name_scores = [(_similarity(text, str(candidate.get("name") or "")), text) for text in _ocr_name_variants(ocr_payload)]
     best_name_score, best_name_text = max(name_scores, default=(0.0, ""))
+    original_name_folds = {_fold_text(value) for value in (ocr_payload.get("name_texts") or [])}
     name_points = 0.0
     name_reason = ""
     if best_name_score >= 0.96:
@@ -1175,10 +1220,13 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
         "score": round(min(total, 100.0), 2),
         "number_match": bool(number_score),
         "number_kind": number_kind,
+        "number_conflict": number_conflict,
         "candidate_number_full": cand_num_full,
         "candidate_number_local": cand_num_local,
         "name_similarity": round(best_name_score, 3),
+        "original_name_similarity": round(original_name_similarity, 3),
         "ocr_name": best_name_text,
+        "name_joined": bool(best_name_text and _fold_text(best_name_text) not in original_name_folds),
         "ocr_numbers": ocr_numbers,
         "collector_numbers": collector_numbers,
         "reasons": reasons,
@@ -1224,8 +1272,14 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         pre_second = scored[1] if len(scored) > 1 else None
         pre_margin = (float(pre_best.get("score") or 0.0) - float(pre_second.get("score") or 0.0)) if pre_best and pre_second else 100.0
         no_name = not bool(ocr_payload.get("name_texts"))
+        no_usable_name = float(pre_best.get("name_similarity") or 0.0) < 0.74
         has_cjk = bool(re.search(r"[\u3040-\u30ff\u3400-\u9fff]", str(ocr_payload.get("raw_text") or "")))
-        broad_visual = no_name and (bool(ocr_payload.get("collector_number_texts")) or has_cjk)
+        number_needs_visual = pre_best.get("number_kind") in {"conflicting_collector", "local_collector", "plain_collector"}
+        broad_visual = (
+            (no_name or no_usable_name)
+            and (float(pre_best.get("score") or 0.0) < 54 or number_needs_visual)
+            and (bool(ocr_payload.get("collector_number_texts")) or has_cjk)
+        )
         needs_visual = (
             broad_visual
             or pre_margin < 14
@@ -1234,6 +1288,22 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         )
         if needs_visual:
             visual_info = _apply_visual_shortlist_scores(path, scored, limit=5, broad=broad_visual)
+            if broad_visual:
+                visual_candidates = [
+                    item
+                    for item in scored
+                    if (item.get("candidate") or {}).get("japanese")
+                    and float(item.get("visual_artwork_score") or 0.0) >= 72
+                ]
+                visual_candidates.sort(key=lambda item: float(item.get("visual_artwork_score") or 0.0), reverse=True)
+                if visual_candidates:
+                    visual_best = visual_candidates[0]
+                    visual_second = float(visual_candidates[1].get("visual_artwork_score") or 0.0) if len(visual_candidates) > 1 else 0.0
+                    visual_margin = float(visual_best.get("visual_artwork_score") or 0.0) - visual_second
+                    if visual_margin >= 8:
+                        visual_best["score"] = max(float(visual_best.get("score") or 0.0), 87.0)
+                        visual_best["v13_visual_jp_override"] = True
+                        visual_best.setdefault("reasons", []).append("V13: artwork JP nettement distinctif sur shortlist élargie")
             scored.sort(key=lambda item: (float(item.get("score") or 0.0), float(item.get("visual_score") or 0.0)), reverse=True)
     top = scored[:3]
     best = top[0] if top else None
@@ -1254,7 +1324,12 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         visual_margin = float(best.get("visual_margin") or 0.0)
         special_signals = _special_layout_signals(ocr_payload, best.get("candidate") or {})
         special_layout = bool(special_signals)
-        if best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name:
+        number_conflict = bool(best.get("number_conflict"))
+        v13_visual_jp_override = bool(best.get("v13_visual_jp_override"))
+        conflict_supported_by_name = number_conflict and probable_name
+        if v13_visual_jp_override:
+            status = "review"
+        elif best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name and (not number_conflict or conflict_supported_by_name):
             status = "recognized"
         elif reliable_number and probable_name and best["score"] >= 92 and margin >= 6 and second_name < 0.74:
             status = "recognized"
@@ -1291,6 +1366,67 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
     if status != "recognized" and best and (best.get("visual_artwork_score") or 0):
         if float(best.get("score") or 0.0) < 54 and float(best.get("visual_artwork_score") or 0.0) >= 58:
             status = "review"
+    v13_auto_reason = ""
+    if status == "recognized" and best:
+        if (
+            best.get("name_joined")
+            and float(best.get("original_name_similarity") or 0.0) < 0.86
+            and float(best.get("score") or 0.0) >= 92
+        ):
+            v13_auto_reason = "V13: nom OCR reconstitué avec son suffixe"
+        elif "legend" in _fold_text(ocr_payload.get("raw_text") or "") and not special_layout:
+            v13_auto_reason = "V13: faux layout spécial écarté (texte d'attaque)"
+        elif best.get("number_kind") == "full_collector":
+            conflicting_scores = [float(item.get("score") or 0.0) for item in scored[1:] if item.get("number_conflict")]
+            legacy_second = max(conflicting_scores + [float(second.get("score") or 0.0) if second else 0.0, 86.0 if conflicting_scores else 0.0])
+            if float(best.get("score") or 0.0) - legacy_second < 12 <= margin:
+                v13_auto_reason = "V13: candidat concurrent déclassé par total de set incompatible"
+        if v13_auto_reason:
+            best.setdefault("reasons", []).append(v13_auto_reason)
+    japanese_candidate = bool(best and (best.get("candidate") or {}).get("japanese"))
+    japanese_artwork_score = float(best.get("visual_artwork_score") or 0.0) if best else 0.0
+    japanese_signal = ""
+    japanese_number_signal = bool(
+        best
+        and japanese_candidate
+        and best.get("number_kind") in {"local_collector", "plain_collector", "conflicting_collector"}
+    )
+    if back_type == "japanese" and japanese_candidate:
+        japanese_signal = "verso JP + candidat JAP"
+    elif japanese_candidate and bool(best.get("v13_visual_jp_override")):
+        japanese_signal = "artwork distinctif + candidat JAP"
+    elif japanese_candidate and japanese_artwork_score >= 72:
+        japanese_signal = "candidat JAP + artwork compatible"
+    elif japanese_number_signal:
+        japanese_signal = "numéro local compatible + candidat JAP"
+    elif back_type == "japanese":
+        japanese_signal = "verso JP mais candidat FR"
+    if status == "unrecognized" and japanese_number_signal:
+        status = "review"
+
+    full_ocr_numbers = [
+        _normalize_card_number(value)
+        for value in (ocr_payload.get("collector_number_texts") or [])
+        if "/" in _normalize_card_number(value)
+    ]
+    exact_full_available = any(
+        _normalize_card_number(candidate.get("number") or "") in full_ocr_numbers
+        for candidate in available_candidates
+        if "/" in _normalize_card_number(candidate.get("number") or "")
+    )
+    not_in_drop_confidence = ""
+    best_name_similarity = float(best.get("name_similarity") or 0.0) if best else 0.0
+    plausible_name_texts = [
+        value for value in (ocr_payload.get("name_texts") or [])
+        if 3 <= len(_fold_text(value)) <= 32
+    ]
+    if special_layout:
+        not_in_drop_confidence = ""
+    elif full_ocr_numbers and not exact_full_available and plausible_name_texts and best_name_similarity < 0.55 and japanese_artwork_score < 35:
+        not_in_drop_confidence = "strong"
+    elif full_ocr_numbers and not exact_full_available and plausible_name_texts and best_name_similarity < 0.68 and japanese_artwork_score < 50:
+        not_in_drop_confidence = "possible"
+
     diagnostic_reason = "aucun signal OCR exploitable"
     if ocr_payload.get("number_texts") and not ocr_payload.get("name_texts"):
         diagnostic_reason = "nom OCR absent"
@@ -1304,6 +1440,11 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         diagnostic_reason = "aucun candidat fiable"
     if v10_safety_reason:
         diagnostic_reason = v10_safety_reason
+    if status != "recognized" and japanese_signal:
+        diagnostic_reason = f"JP : {japanese_signal} — vérification requise"
+    if status != "recognized" and not_in_drop_confidence:
+        label = "forte confiance" if not_in_drop_confidence == "strong" else "possible"
+        diagnostic_reason = f"carte absente du Drop {label}"
     return {
         "region": {"box": [0, 0, 1, 1], "source": "ocr"},
         "status": status,
@@ -1315,13 +1456,57 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         "v8_auto_reason": v8_auto_reason,
         "v9_auto_reason": v9_auto_reason,
         "v10_safety_reason": v10_safety_reason,
+        "v13_auto_reason": v13_auto_reason,
         "special_layout": special_layout,
+        "v13_japanese_signal": japanese_signal,
+        "v13_japanese_candidate": japanese_candidate,
+        "v13_visual_jp_override": bool(best and best.get("v13_visual_jp_override")),
+        "v13_not_in_drop_confidence": not_in_drop_confidence,
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
         "ocr": ocr_payload,
         "candidates": top,
     }
+
+
+def _apply_v13_group_language_diagnostic(group: dict[str, Any]) -> None:
+    back = group.get("group_back") or {}
+    classification = back.get("classification") or {}
+    raw_class = str(classification.get("class") or "")
+    western_score = _safe_float(classification.get("western_back_score"), 0.0)
+    japanese_score = _safe_float(classification.get("japanese_back_score"), 0.0)
+    matches = group.get("matches") or []
+    top_candidates = [((match.get("candidates") or [{}])[0].get("candidate") or {}) for match in matches]
+    has_japanese_top_candidate = any(candidate.get("japanese") for candidate in top_candidates)
+    has_japanese_signal = any(match.get("v13_japanese_signal") for match in matches)
+
+    back_type = "back_unknown"
+    reason = "signal verso insuffisant"
+    if raw_class == "back_japanese" and has_japanese_top_candidate:
+        back_type = "back_japanese"
+        reason = "structure verso JP + candidat JAP cohérent"
+    elif raw_class == "back_japanese":
+        reason = "détecteur verso JP contredit par le candidat FR"
+    elif has_japanese_signal:
+        back_type = "back_japanese_candidate"
+        reason = "candidat JAP soutenu par numéro/artwork; verso non conclusif"
+    elif raw_class == "back_western" or western_score >= 0.50:
+        back_type = "back_western"
+        reason = "structure verso occidental"
+
+    group["v13_back_type"] = back_type
+    group["v13_back_reason"] = reason
+    group["v13_back_scores"] = {"western": round(western_score, 3), "japanese": round(japanese_score, 3)}
+    group["v13_japanese_candidate"] = has_japanese_signal or back_type == "back_japanese"
+    group["v13_japanese_top_candidate"] = has_japanese_top_candidate
+    group["v13_language_conflict"] = (
+        "back JP + candidat FR"
+        if raw_class == "back_japanese" and not has_japanese_top_candidate
+        else "back western + candidat JAP"
+        if (raw_class == "back_western" or western_score >= 0.56) and has_japanese_signal
+        else ""
+    )
 
 
 def match_front_photo(path: str, regions: list[dict[str, Any]], candidates: list[dict[str, Any]], reference_features: dict[str, dict[str, Any]]):
@@ -2196,6 +2381,8 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
             group["confidence_level"] = "orange"
         else:
             group["confidence_level"] = "red"
+    for group in groups:
+        _apply_v13_group_language_diagnostic(group)
     return ocr_available, ocr_note, len(reference_features)
 
 
@@ -2230,6 +2417,34 @@ def _metrics_for_groups(
             if group.get("grouping_status") == "review":
                 reason = f"grouping à vérifier + {reason}"
             diagnostic_causes[reason] = diagnostic_causes.get(reason, 0) + 1
+    v13_non_auto_causes: dict[str, int] = {}
+    for group in groups:
+        if group.get("confidence_level") == "green":
+            continue
+        matches = group.get("matches") or []
+        if len(matches) > 1 or _safe_int(group.get("expected_cards"), 1) > 1:
+            category = "multi-cartes prudent"
+        elif group.get("grouping_status") == "review":
+            category = "grouping review"
+        elif group.get("v13_japanese_candidate") or str(group.get("v13_back_type") or "").startswith("back_japanese"):
+            category = "JP probable"
+        elif any(match.get("v13_not_in_drop_confidence") == "strong" for match in matches):
+            category = "not_in_drop forte confiance"
+        elif any(match.get("v13_not_in_drop_confidence") == "possible" for match in matches):
+            category = "not_in_drop possible"
+        elif any(match.get("special_layout") for match in matches):
+            category = "layout spécial / LÉGENDE"
+        elif matches and all(not (match.get("ocr") or {}).get("name_texts") for match in matches):
+            category = "nom OCR absent"
+        elif matches and all(not (match.get("ocr") or {}).get("number_texts") for match in matches):
+            category = "numéro OCR absent"
+        elif any("proches" in str(match.get("diagnostic_reason") or "") for match in matches):
+            category = "scores candidats proches"
+        elif any(match.get("status") == "unrecognized" for match in matches):
+            category = "aucun candidat fiable"
+        else:
+            category = "score insuffisant"
+        v13_non_auto_causes[category] = v13_non_auto_causes.get(category, 0) + 1
     group_sizes = [len(group.get("photos", []) or []) for group in groups]
     single_reasons: dict[str, int] = {}
     for group in groups:
@@ -2341,11 +2556,38 @@ def _metrics_for_groups(
             sum(_safe_float(match.get("visual_matching_elapsed"), 0.0) for group in groups for match in group.get("matches", [])),
             3,
         ),
+        "v13_back_japanese": sum(1 for group in groups if group.get("v13_back_type") == "back_japanese"),
+        "v13_back_japanese_candidates": sum(1 for group in groups if group.get("v13_back_type") == "back_japanese_candidate"),
+        "v13_japanese_candidate_groups": sum(1 for group in groups if group.get("v13_japanese_candidate")),
+        "v13_japanese_auto": sum(
+            1 for group in groups if group.get("v13_japanese_candidate") and group.get("confidence_level") == "green"
+        ),
+        "v13_japanese_review": sum(
+            1 for group in groups if group.get("v13_japanese_candidate") and group.get("confidence_level") == "orange"
+        ),
+        "v13_japanese_fail": sum(
+            1 for group in groups if group.get("v13_japanese_candidate") and group.get("confidence_level") == "red"
+        ),
+        "v13_japanese_conflicts": sum(1 for group in groups if group.get("v13_language_conflict")),
+        "v13_not_in_drop_strong": sum(
+            1
+            for group in groups
+            if any(match.get("v13_not_in_drop_confidence") == "strong" for match in group.get("matches", []))
+        ),
+        "v13_not_in_drop_possible": sum(
+            1
+            for group in groups
+            if any(match.get("v13_not_in_drop_confidence") == "possible" for match in group.get("matches", []))
+        ),
+        "v13_new_auto_signals": sum(
+            1 for group in groups for match in group.get("matches", []) if match.get("v13_auto_reason")
+        ),
         "duration_seconds": round(duration, 2),
         "avg_seconds_per_announcement": round(duration / max(1, len(groups)), 2),
         "ocr_available": ocr_available,
         "ocr_note": ocr_note,
         "diagnostic_causes": diagnostic_causes,
+        "v13_non_auto_causes": v13_non_auto_causes,
         "ground_truth_mode": ground_truth_mode,
     }
     return metrics
