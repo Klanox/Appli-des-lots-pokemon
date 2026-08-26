@@ -1138,20 +1138,33 @@ def _match_candidate(match: dict | None) -> dict:
     return ((((match or {}).get("candidates") or [{}])[0]).get("candidate") or {})
 
 
-def _proposal_signature(match: dict | None) -> str:
+def _semantic_proposal(match: dict | None) -> dict:
+    """Keep only the identity decisions that require a new human validation."""
     match = match or {}
-    photo = match.get("photo")
-    payload = {
-        "candidate": candidate_identity(_match_candidate(match)),
-        "photo": {
-            "filename": getattr(photo, "filename", ""),
-            "capture_index": getattr(photo, "capture_index", None),
-        },
-        "status": str(match.get("status") or ""),
-        "layout_type": str(match.get("layout_type") or "standard"),
-        "orientation_degrees": int(match.get("orientation_degrees") or 0),
-        "not_in_drop": str(match.get("v13_not_in_drop_confidence") or ""),
+    candidate = _match_candidate(match)
+    # The V10 ground-truth overlay can visually downgrade an already-known false
+    # green to review.  That is a safety presentation, not a new OCR proposal.
+    status = str(match.get("v10_original_status") or match.get("status") or "fail").lower()
+    not_in_drop = str(match.get("v13_not_in_drop_confidence") or "").lower()
+    if not_in_drop in {"strong", "possible"} or status == "not_in_drop":
+        proposal_status = "not_in_drop"
+    elif status == "recognized":
+        proposal_status = "recognized"
+    elif status in {"review", "orange"}:
+        proposal_status = "review"
+    else:
+        proposal_status = "fail"
+    return {
+        "candidate_card_uid": str(candidate.get("card_uid") or ""),
+        "candidate_status": proposal_status,
+        # These are identity discriminators, not rendering/debug metadata.
+        "japanese": bool(candidate.get("japanese") or candidate.get("is_japanese") or candidate.get("lang") == "ja"),
+        "variant": _variant_label(candidate),
     }
+
+
+def _proposal_signature(match: dict | None) -> str:
+    payload = _semantic_proposal(match)
     return hashlib.sha1(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -1161,7 +1174,8 @@ def _validation_payload(status: str, match: dict | None, **extra) -> dict:
     candidate = _match_candidate(match)
     payload = {
         "status": status,
-        "proposal_signature": _proposal_signature(match),
+        "semantic_proposal_signature": _proposal_signature(match),
+        "semantic_proposal": _semantic_proposal(match),
         "candidate_key": candidate_identity_key(candidate) if candidate else "",
         "candidate_snapshot": candidate_identity(candidate),
         "validated_at": datetime.now().isoformat(timespec="seconds"),
@@ -1210,14 +1224,14 @@ def _validation_state(validation: dict, match: dict | None) -> dict:
             "resolved_for_workflow": True,
             "expected_candidate_key": expected_key,
         }
-    stored_signature = str(validation.get("proposal_signature") or "")
+    stored_signature = str(validation.get("semantic_proposal_signature") or "")
     if not stored_signature:
         return {
             "state": "stale",
             "status": status,
             "resolved_correct": False,
             "resolved_for_workflow": False,
-            "reason": "ancienne validation sans signature de proposition",
+            "reason": "ancienne validation sans empreinte sémantique",
         }
     if stored_signature != _proposal_signature(match):
         return {
@@ -1225,7 +1239,7 @@ def _validation_state(validation: dict, match: dict | None) -> dict:
             "status": status,
             "resolved_correct": False,
             "resolved_for_workflow": False,
-            "reason": "la proposition a changé depuis cette validation",
+            "reason": "la proposition sémantique a changé depuis cette validation",
         }
     return {
         "state": "compatible",
@@ -1233,6 +1247,85 @@ def _validation_state(validation: dict, match: dict | None) -> dict:
         "resolved_correct": status in {"correct", "manual_choice"},
         "resolved_for_workflow": status in {"correct", "manual_choice"},
     }
+
+
+def _migrate_semantic_validation_baseline(sample_key: str, sample: dict, result: dict) -> dict:
+    """Bind legacy validations to the proposal currently displayed, once and locally.
+
+    Older POC entries only contained ``correct`` / ``wrong``.  Treating those as
+    stale forever requeued the entire dataset.  The migration intentionally stores
+    only the semantic proposal, so later score/OCR/debug changes remain compatible.
+    """
+    changed = False
+    groups_by_id = {_result_group_id(group): group for group in result.get("groups", []) or []}
+    for source_group in sample.get("groups", []) or []:
+        group_id = str(source_group.get("group_id") or "")
+        result_group = groups_by_id.get(group_id)
+        if not result_group:
+            continue
+        matches = result_group.get("matches", []) or []
+        current_count = len(matches)
+        if source_group.get("semantic_subcard_count") is None:
+            source_group["semantic_subcard_count"] = current_count
+            changed = True
+        validations = source_group.get("recognition_validation") or {}
+        for index, match in enumerate(matches):
+            validation = validations.get(str(index))
+            if not isinstance(validation, dict) or not validation.get("status"):
+                continue
+            if validation.get("expected_candidate_key") or validation.get("selected_key") or validation.get("drop_card_key"):
+                continue
+            if validation.get("semantic_proposal_signature"):
+                continue
+            validation["semantic_proposal_signature"] = _proposal_signature(match)
+            validation["semantic_proposal"] = _semantic_proposal(match)
+            validation["semantic_baseline_migrated"] = True
+            changed = True
+    if changed:
+        update_ground_truth_sample(sample_key, sample)
+        st.session_state[f"photo_poc_sample_{sample_key}"] = sample
+    return sample
+
+
+def _proposal_change_reason(before: dict, after: dict, *, structure_changed=False) -> str:
+    if structure_changed:
+        return "structure"
+    if before.get("candidate_status") == "not_in_drop" or after.get("candidate_status") == "not_in_drop":
+        return "not_in_drop"
+    if before.get("candidate_card_uid") != after.get("candidate_card_uid"):
+        return "candidat"
+    if before.get("japanese") != after.get("japanese") or before.get("variant") != after.get("variant"):
+        return "variante"
+    return "proposition"
+
+
+def _proposal_change_rows(sample: dict, result: dict) -> list[dict]:
+    rows = []
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        source = _source_group(sample, group_id)
+        matches = group.get("matches", []) or []
+        previous_count = source.get("semantic_subcard_count")
+        structure_changed = previous_count is not None and int(previous_count) != len(matches)
+        for index, match in enumerate(matches):
+            validation = _recognition_validation(sample, group_id, index)
+            state = _validation_state(validation, match)
+            if state.get("state") != "stale" and not structure_changed:
+                continue
+            before = validation.get("semantic_proposal") or {}
+            after = _semantic_proposal(match)
+            rows.append({
+                "group": group,
+                "group_id": group_id,
+                "match_index": index,
+                "before": before,
+                "after": after,
+                "reason": _proposal_change_reason(before, after, structure_changed=structure_changed),
+            })
+            # A multi-card structure change belongs to the group, not every child.
+            if structure_changed:
+                break
+    return rows
 
 
 def _ground_truth_state(sample: dict, result: dict) -> dict:
@@ -1940,6 +2033,52 @@ def _group_has_stale_validation(sample: dict, group: dict) -> bool:
     )
 
 
+def _format_semantic_proposal(proposal: dict) -> str:
+    proposal = proposal or {}
+    card_uid = str(proposal.get("candidate_card_uid") or "").strip()
+    status = str(proposal.get("candidate_status") or "fail")
+    if status == "not_in_drop":
+        return "Aucun candidat dans le Drop"
+    if not card_uid:
+        return f"Aucun candidat ({status})"
+    return f"{card_uid} ({status})"
+
+
+@st.fragment
+def _render_changed_proposals_view(sample_key: str, sample: dict, result: dict):
+    changes = _proposal_change_rows(sample, result)
+    st.markdown(f"### Propositions réellement modifiées : {len(changes)}")
+    if not changes:
+        st.success("Aucune proposition n'a changé depuis sa validation.")
+        return
+
+    index_key = "photo_poc_changed_proposal_index"
+    st.session_state[index_key] = min(int(st.session_state.get(index_key, 0) or 0), len(changes) - 1)
+    current_index = st.session_state[index_key]
+    change = changes[current_index]
+    group = change["group"]
+    group_id = change["group_id"]
+    match_index = change["match_index"]
+    match = (group.get("matches") or [{}])[match_index]
+    st.caption(f"Annonce #{group.get('announcement_index')} · sous-carte {match_index + 1} · raison : {change['reason']}")
+    before_col, after_col = st.columns(2)
+    before_col.info("Avant : " + _format_semantic_proposal(change["before"]))
+    after_col.warning("Après : " + _format_semantic_proposal(change["after"]))
+    _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
+    _render_full_check_match(match, match_index, sample_key=sample_key, sample=sample, group_id=group_id)
+
+    left, middle, right = st.columns(3)
+    if left.button("✓ Correct", key=f"changed_ok_{group_id}_{match_index}"):
+        _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("correct", match))
+        _rerun()
+    if middle.button("✕ Mauvais", key=f"changed_wrong_{group_id}_{match_index}"):
+        _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("wrong", match))
+        _rerun()
+    if right.button("Suivant", key=f"changed_next_{group_id}_{match_index}"):
+        st.session_state[index_key] = (current_index + 1) % len(changes)
+        _rerun()
+
+
 def _sensitive_groups(
     result: dict,
     sample: dict,
@@ -2439,6 +2578,7 @@ ground_truth = ensure_ground_truth_sample(result, sample_key)
 if sample_key in (ground_truth.get("samples") or {}):
     st.session_state[f"photo_poc_sample_{sample_key}"] = ground_truth["samples"][sample_key]
 sample = _load_sample(sample_key)
+sample = _migrate_semantic_validation_baseline(sample_key, sample, result)
 _apply_v10_ground_truth_overlay(result, sample)
 metrics = result["metrics"]
 drop = result.get("drop") or {}
@@ -2484,7 +2624,7 @@ elif view == "Vérification complète":
 elif view == "Cas sensibles":
     _render_sensitive_cases_view(sample_key, sample, result)
 elif view == "Propositions modifiées":
-    _render_sensitive_cases_view(sample_key, sample, result, stale_only=True)
+    _render_changed_proposals_view(sample_key, sample, result)
 elif view == "Validation des groupes":
     _render_metrics(metrics)
     _render_validation_view(sample_key, sample, result)
