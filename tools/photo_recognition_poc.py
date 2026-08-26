@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import hashlib
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -185,11 +186,13 @@ def _set_group_status(sample_key: str, group_id: str, status: str):
     st.session_state[f"photo_poc_sample_{sample_key}"] = sample
 
 
-def _image_crop(path: str, kind: str):
+def _image_crop(path: str, kind: str, orientation_degrees: int = 0):
     try:
         with Image.open(path) as raw:
             img = ImageOps.exif_transpose(raw).convert("RGB")
             img.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
+            if orientation_degrees:
+                img = img.rotate(-int(orientation_degrees), expand=True)
             w, h = img.size
             if kind == "name":
                 return img.crop((0, 0, w, int(h * 0.36)))
@@ -274,6 +277,80 @@ def _manual_validation_summary(sample: dict, result: dict | None = None) -> dict
         "green_checked": green_checked,
         "green_wrong": green_wrong,
         "manual_choices": manual_choices,
+    }
+
+
+def _validation_bilan(sample: dict, result: dict) -> dict:
+    controlled_groups = 0
+    auto_checked = 0
+    auto_correct = 0
+    auto_wrong = 0
+    jp_correct = 0
+    jp_wrong = 0
+    multi_correct = 0
+    multi_wrong = 0
+    review_fixed = 0
+    fail_fixed = 0
+    not_in_drop = 0
+    prepared_additions = 0
+    manual_choices = 0
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        source = _source_group(sample, group_id)
+        validations = source.get("recognition_validation") or {}
+        matches = group.get("matches", []) or []
+        group_level = str(group.get("confidence_level") or "")
+        if _recognition_is_done(sample, group_id, len(matches)):
+            controlled_groups += 1
+        is_multi = len(matches) > 1 or int(group.get("expected_cards") or 1) > 1
+        is_jp = bool(group.get("v13_japanese_candidate")) or str(group.get("v13_back_type") or "").startswith("back_japanese")
+        group_wrong = False
+        group_done = bool(matches)
+        for match_index, match in enumerate(matches):
+            validation = validations.get(str(match_index)) or {}
+            status = validation.get("status")
+            if not status:
+                group_done = False
+                continue
+            group_wrong = group_wrong or status == "wrong"
+            # The validation report describes the current V14 decision. Older
+            # per-match status snapshots may predate V10/V13 safety overlays and
+            # must not turn reviewed cases back into apparent automatic matches.
+            if group_level == "green":
+                auto_checked += 1
+                if status == "wrong":
+                    auto_wrong += 1
+                else:
+                    auto_correct += 1
+            elif group_level == "orange":
+                review_fixed += 1
+            else:
+                fail_fixed += 1
+            manual_choices += int(status == "manual_choice")
+            not_in_drop += int(bool(match.get("v13_not_in_drop_confidence")))
+        if is_jp and group_done:
+            jp_wrong += int(group_wrong)
+            jp_correct += int(not group_wrong)
+        if is_multi and group_done:
+            multi_wrong += int(group_wrong)
+            multi_correct += int(not group_wrong)
+        prepared_additions += len(source.get("prepared_drop_additions") or {})
+    return {
+        "controlled_groups": controlled_groups,
+        "total_groups": len(result.get("groups", []) or []),
+        "auto_checked": auto_checked,
+        "auto_correct": auto_correct,
+        "auto_wrong": auto_wrong,
+        "review_fixed": review_fixed,
+        "fail_fixed": fail_fixed,
+        "grouping_corrected": sum(1 for group in sample.get("groups", []) or [] if group.get("status") == "corrected"),
+        "jp_correct": jp_correct,
+        "jp_wrong": jp_wrong,
+        "multi_correct": multi_correct,
+        "multi_wrong": multi_wrong,
+        "not_in_drop": not_in_drop,
+        "prepared_additions": prepared_additions,
+        "manual_corrections": manual_choices + prepared_additions,
     }
 
 
@@ -439,6 +516,34 @@ def _render_full_summary(result: dict, sample: dict):
     v4.metric("Verts faux", manual["green_wrong"])
     if manual["green_checked"]:
         st.caption(f"Précision observée : {manual['green_checked'] - manual['green_wrong']} / {manual['green_checked']} autos contrôlés.")
+
+    st.markdown("#### Bilan de validation")
+    bilan = _validation_bilan(sample, result)
+    b1, b2, b3, b4, b5 = st.columns(5)
+    b1.metric("Annonces contrôlées", f"{bilan['controlled_groups']} / {bilan['total_groups']}")
+    b2.metric("Autos contrôlés", bilan["auto_checked"])
+    b3.metric("Autos corrects", bilan["auto_correct"])
+    b4.metric("Autos faux", bilan["auto_wrong"])
+    b5.metric("Corrections utilisateur", bilan["manual_corrections"])
+    if bilan["auto_checked"]:
+        st.success(
+            f"Précision auto observée : {bilan['auto_correct']} / {bilan['auto_checked']} autos contrôlés. "
+            "Cette mesure décrit les validations disponibles; elle ne constitue pas une garantie à 100 %."
+        )
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Reviews corrigées", bilan["review_fixed"])
+    d2.metric("Fails corrigés", bilan["fail_fixed"])
+    d3.metric("Grouping corrigés", bilan["grouping_corrected"])
+    d4.metric("Not in Drop", bilan["not_in_drop"])
+    st.caption(
+        f"JP corrects/faux : {bilan['jp_correct']} / {bilan['jp_wrong']} · "
+        f"Multi corrects/faux : {bilan['multi_correct']} / {bilan['multi_wrong']} · "
+        f"Ajouts au Drop préparés (POC) : {bilan['prepared_additions']}"
+    )
+    st.caption(
+        f"Régressions autos observées sur la baseline validée : {manual['green_wrong']} · "
+        f"autos protégés et toujours corrects : {manual['green_checked'] - manual['green_wrong']}"
+    )
 
     vm1, vm2, vm3 = st.columns(3)
     vm1.metric("Cas visuels", metrics.get("visual_matching_cases", 0))
@@ -995,15 +1100,67 @@ def _recognition_validation(sample: dict, group_id: str, match_index: int) -> di
     return {}
 
 
-def _set_recognition_validation(sample_key: str, group_id: str, match_index: int, payload: dict):
-    sample = _load_sample(sample_key)
+def _set_recognition_validation(
+    sample_key: str,
+    group_id: str,
+    match_index: int,
+    payload: dict,
+    *,
+    sample: dict | None = None,
+):
+    started = time.perf_counter()
+    sample = sample if isinstance(sample, dict) else _load_sample(sample_key)
     for group in sample.get("groups", []) or []:
         if str(group.get("group_id")) == str(group_id):
             validations = group.setdefault("recognition_validation", {})
             validations[str(match_index)] = payload
             break
-    update_ground_truth_sample(sample_key, sample)
     st.session_state[f"photo_poc_sample_{sample_key}"] = sample
+    update_ground_truth_sample(sample_key, sample)
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    latencies = st.session_state.setdefault("photo_poc_validation_latencies_ms", [])
+    latencies.append(elapsed_ms)
+    del latencies[:-30]
+    return elapsed_ms
+
+
+def _prepare_drop_addition(
+    sample_key: str,
+    sample: dict,
+    group_id: str,
+    match_index: int,
+    payload: dict,
+):
+    for group in sample.get("groups", []) or []:
+        if str(group.get("group_id")) != str(group_id):
+            continue
+        additions = group.setdefault("prepared_drop_additions", {})
+        additions[str(match_index)] = payload
+        break
+    st.session_state[f"photo_poc_sample_{sample_key}"] = sample
+    update_ground_truth_sample(sample_key, sample)
+
+
+def _full_check_validation_callback(
+    sample_key: str,
+    sample: dict,
+    group_id: str,
+    match_index: int,
+    status: str,
+    index_key: str,
+    current_index: int,
+    group_count: int,
+    match_count: int,
+):
+    _set_recognition_validation(
+        sample_key,
+        group_id,
+        match_index,
+        {"status": status},
+        sample=sample,
+    )
+    if _recognition_is_done(sample, group_id, match_count):
+        st.session_state[index_key] = min(current_index + 1, max(0, group_count - 1))
 
 
 def _candidate_options(candidates: list[dict]) -> dict[str, str]:
@@ -1015,6 +1172,7 @@ def _candidate_options(candidates: list[dict]) -> dict[str, str]:
 
 def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: str, match_index: int, candidates: list[dict]):
     ocr_payload = match.get("ocr") or {}
+    orientation = int(match.get("orientation_degrees") or 0)
     st.markdown(
         f"**Zone carte {match_index + 1} · {match.get('method')} · {match.get('status')} · "
         f"score {match.get('score', 0)} · marge {match.get('margin', 0)}**"
@@ -1044,10 +1202,10 @@ def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: st
     if photo:
         with st.expander("Afficher le crop OCR", expanded=False):
             crop_cols = st.columns(3)
-            name_crop = _image_crop(photo.path, "name")
-            number_crop = _image_crop(photo.path, "number")
-            card_crop = _image_crop(photo.path, "card")
-            artwork_crop = _image_crop(photo.path, "artwork")
+            name_crop = _image_crop(photo.path, "name", orientation)
+            number_crop = _image_crop(photo.path, "number", orientation)
+            card_crop = _image_crop(photo.path, "card", orientation)
+            artwork_crop = _image_crop(photo.path, "artwork", orientation)
             if name_crop:
                 crop_cols[0].image(name_crop, caption="crop nom", use_container_width=True)
             if number_crop:
@@ -1087,6 +1245,7 @@ def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: st
 
 def _render_match_readonly(match: dict, match_index: int):
     ocr_payload = match.get("ocr") or {}
+    orientation = int(match.get("orientation_degrees") or 0)
     st.markdown(
         f"**Zone carte {match_index + 1} · {match.get('method')} · {match.get('status')} · "
         f"score {match.get('score', 0)} · marge {match.get('margin', 0)}**"
@@ -1112,10 +1271,10 @@ def _render_match_readonly(match: dict, match_index: int):
     if photo:
         with st.expander("Afficher le crop OCR", expanded=False):
             crop_cols = st.columns(3)
-            name_crop = _image_crop(photo.path, "name")
-            number_crop = _image_crop(photo.path, "number")
-            card_crop = _image_crop(photo.path, "card")
-            artwork_crop = _image_crop(photo.path, "artwork")
+            name_crop = _image_crop(photo.path, "name", orientation)
+            number_crop = _image_crop(photo.path, "number", orientation)
+            card_crop = _image_crop(photo.path, "card", orientation)
+            artwork_crop = _image_crop(photo.path, "artwork", orientation)
             if name_crop:
                 crop_cols[0].image(name_crop, caption="crop nom", use_container_width=True)
             if number_crop:
@@ -1126,7 +1285,14 @@ def _render_match_readonly(match: dict, match_index: int):
                 st.image(artwork_crop, caption="crop artwork", width=320)
 
 
-def _render_full_check_match(match: dict, match_index: int):
+def _render_full_check_match(
+    match: dict,
+    match_index: int,
+    *,
+    sample_key: str,
+    sample: dict,
+    group_id: str,
+):
     ocr_payload = match.get("ocr") or {}
     candidate_rows = (match.get("candidates") or [])[:3]
     primary_row = candidate_rows[0] if candidate_rows else {}
@@ -1136,10 +1302,10 @@ def _render_full_check_match(match: dict, match_index: int):
         f"**Zone carte {match_index + 1} · {match.get('method')} · {match.get('status')}**"
     )
     if primary:
-        card_cols = st.columns([0.9, 1.4])
+        card_cols = st.columns([0.7, 1.7])
         with card_cols[0]:
             if primary.get("image_url"):
-                st.image(primary.get("image_url"), width=260)
+                st.image(primary.get("image_url"), width=190)
             else:
                 st.info("Image référence indisponible")
         with card_cols[1]:
@@ -1153,6 +1319,57 @@ def _render_full_check_match(match: dict, match_index: int):
             st.caption("Raison : " + str(match.get("diagnostic_reason") or "—"))
     else:
         st.warning("Aucun candidat proposé pour cette zone.")
+
+    orientation = int(match.get("orientation_degrees") or 0)
+    layout_type = str(match.get("layout_type") or "standard")
+    if orientation or layout_type != "standard":
+        st.caption(f"Orientation retenue : {orientation}° · layout : {layout_type}")
+
+    not_in_drop = str(match.get("v13_not_in_drop_confidence") or "")
+    if not_in_drop:
+        st.warning(
+            "Carte absente du Drop"
+            + (" · forte confiance" if not_in_drop == "strong" else " · possible")
+        )
+        prepared = (_source_group(sample, group_id).get("prepared_drop_additions") or {}).get(str(match_index))
+        if prepared:
+            st.success(f"Ajout POC préparé : {prepared.get('name') or 'carte sans nom'} · {prepared.get('number') or '—'}")
+        with st.popover("Ajouter cette carte au Drop"):
+            st.caption("Préparation POC uniquement. Aucune donnée réelle ne sera modifiée.")
+            default_name = ((ocr_payload.get("name_texts") or [""])[0])
+            default_number = ((ocr_payload.get("collector_number_texts") or ocr_payload.get("number_texts") or [""])[0])
+            with st.form(f"poc_prepare_add_{group_id}_{match_index}"):
+                name = st.text_input("Nom", value=default_name)
+                number = st.text_input("Numéro", value=default_number)
+                set_name = st.text_input("Set", value="")
+                flags = st.columns(4)
+                japanese = flags[0].toggle("JAP", value=False)
+                reverse = flags[1].toggle("Reverse", value=False)
+                stamp = flags[2].toggle("Stamp", value=False)
+                promo = flags[3].toggle("Promo", value=False)
+                notes = st.text_area("Notes", value="")
+                if st.form_submit_button("Préparer l'ajout", type="primary"):
+                    photo = match.get("photo")
+                    _prepare_drop_addition(
+                        sample_key,
+                        sample,
+                        group_id,
+                        match_index,
+                        {
+                            "name": name.strip(),
+                            "number": number.strip(),
+                            "set": set_name.strip(),
+                            "japanese": japanese,
+                            "reverse": reverse,
+                            "stamp": stamp,
+                            "promo": promo,
+                            "notes": notes.strip(),
+                            "source_photo": getattr(photo, "filename", ""),
+                            "capture_index": getattr(photo, "capture_index", None),
+                            "status": "prepared_only",
+                        },
+                    )
+                    st.success("Ajout préparé dans le ground truth POC.")
 
     with st.expander("Voir les autres candidats / debug", expanded=False):
         st.caption(
@@ -1178,10 +1395,10 @@ def _render_full_check_match(match: dict, match_index: int):
         photo = match.get("photo")
         if photo:
             crop_cols = st.columns(3)
-            name_crop = _image_crop(photo.path, "name")
-            number_crop = _image_crop(photo.path, "number")
-            card_crop = _image_crop(photo.path, "card")
-            artwork_crop = _image_crop(photo.path, "artwork")
+            name_crop = _image_crop(photo.path, "name", orientation)
+            number_crop = _image_crop(photo.path, "number", orientation)
+            card_crop = _image_crop(photo.path, "card", orientation)
+            artwork_crop = _image_crop(photo.path, "artwork", orientation)
             if name_crop:
                 crop_cols[0].image(name_crop, caption="crop nom", width=220)
             if number_crop:
@@ -1375,12 +1592,45 @@ def _render_green_quality_view(sample_key: str, sample: dict, result: dict):
             _rerun()
 
 
+@st.fragment
 def _render_full_check_view(sample_key: str, sample: dict, result: dict):
     groups = result.get("groups", []) or []
     if not groups:
         st.info("Aucune annonce à vérifier.")
         return
     index_key = "photo_poc_full_check_index"
+    completed = sum(
+        1
+        for candidate_group in groups
+        if _recognition_is_done(
+            sample,
+            _result_group_id(candidate_group),
+            len(candidate_group.get("matches", []) or []),
+        )
+    )
+    st.caption(f"Annonces contrôlées : {completed} / {len(groups)}")
+    if completed >= len(groups):
+        st.success(f"🎉 Vérification terminée — {len(groups)} / {len(groups)}")
+        latencies = st.session_state.get("photo_poc_validation_latencies_ms") or []
+        if latencies:
+            st.caption(f"Latence moyenne des {len(latencies)} derniers clics : {sum(latencies) / len(latencies):.1f} ms")
+        c1, c2 = st.columns(2)
+        if c1.button("Voir le bilan", type="primary", key="full_check_summary"):
+            _request_view("Synthèse complète")
+        if c2.button("Revoir les erreurs", key="full_check_errors"):
+            _request_view("Erreurs uniquement")
+
+    if index_key not in st.session_state:
+        pending_indices = [
+            index
+            for index, candidate_group in enumerate(groups)
+            if not _recognition_is_done(
+                sample,
+                _result_group_id(candidate_group),
+                len(candidate_group.get("matches", []) or []),
+            )
+        ]
+        st.session_state[index_key] = pending_indices[0] if pending_indices else 0
     st.session_state[index_key] = min(int(st.session_state.get(index_key, 0) or 0), len(groups) - 1)
     current_index = st.session_state[index_key]
     group = groups[current_index]
@@ -1388,36 +1638,48 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
     level = group.get("confidence_level", "red")
     path_by_key = _photo_path_by_key(result)
 
-    st.markdown(f"### Vérification complète — {current_index + 1} / {len(groups)}")
+    st.markdown(f"### Annonce {current_index + 1} / {len(groups)}")
     st.caption(
         f"Annonce #{group.get('announcement_index')} · {STATUS_LABELS.get(level, level)} · "
         f"grouping {group.get('grouping_status')} · {group.get('expected_cards', 1)} carte(s)"
     )
     _render_group_photos({"photos": _group_photo_payloads(group)}, path_by_key, compact=True)
-    for match_index, match in enumerate(group.get("matches", []) or []):
-        _render_full_check_match(match, match_index)
+    matches = group.get("matches", []) or []
+    if len(matches) > 1:
+        st.markdown(f"**{len(matches)} sous-cartes physiques — validation indépendante**")
+    for match_index, match in enumerate(matches):
+        _render_full_check_match(
+            match,
+            match_index,
+            sample_key=sample_key,
+            sample=sample,
+            group_id=group_id,
+        )
         validation = _recognition_validation(sample, group_id, match_index)
         if validation.get("status"):
-            st.caption("Validation POC : " + str(validation))
-        c1, c2, c3 = st.columns(3)
-        if c1.button("✓ Correct", key=f"full_ok_{group_id}_{match_index}", type="primary"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "correct"})
-            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
-            _rerun()
-        if c2.button("✕ Mauvais", key=f"full_bad_{group_id}_{match_index}"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "wrong"})
-            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
-            _rerun()
-        if c3.button("Suivant", key=f"full_next_{group_id}_{match_index}"):
-            st.session_state[index_key] = min(current_index + 1, len(groups) - 1)
-            _rerun()
+            st.success("Validation POC : " + str(validation.get("status")))
+            continue
+        c1, c2 = st.columns(2)
+        c1.button(
+            "✓ Correct",
+            key=f"full_ok_{group_id}_{match_index}",
+            type="primary",
+            on_click=_full_check_validation_callback,
+            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), len(matches)),
+        )
+        c2.button(
+            "✕ Mauvais",
+            key=f"full_bad_{group_id}_{match_index}",
+            on_click=_full_check_validation_callback,
+            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), len(matches)),
+        )
     nav1, nav2 = st.columns(2)
     if nav1.button("← Précédente", key="full_prev", disabled=current_index == 0):
         st.session_state[index_key] = max(0, current_index - 1)
-        _rerun()
+        st.rerun(scope="fragment")
     if nav2.button("Suivante →", key="full_next_bottom", disabled=current_index >= len(groups) - 1):
         st.session_state[index_key] = min(len(groups) - 1, current_index + 1)
-        _rerun()
+        st.rerun(scope="fragment")
 
 
 def _group_visible(group: dict, mode: str) -> bool:

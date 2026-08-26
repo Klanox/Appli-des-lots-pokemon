@@ -53,7 +53,7 @@ FILENAME_DATETIME_PATTERNS = (
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
-POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth"
+POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -968,8 +968,10 @@ def _ocr_signals_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def run_ocr_for_photo(path: str) -> dict[str, Any]:
-    cache_path = _ocr_cache_path(path)
+def run_ocr_for_photo(path: str, *, orientation_degrees: int = 0) -> dict[str, Any]:
+    orientation_degrees = int(orientation_degrees or 0) % 360
+    cache_source = path if orientation_degrees == 0 else f"{Path(path).resolve()}|orientation={orientation_degrees}"
+    cache_path = _ocr_cache_path(cache_source)
     if cache_path.exists():
         cached = load_json_file(cache_path, None)
         if isinstance(cached, dict):
@@ -980,6 +982,8 @@ def run_ocr_for_photo(path: str) -> dict[str, Any]:
     image = _load_image(path, max_side=1800)
     if image is None:
         return {"available": False, "rows": [], "name_texts": [], "number_texts": [], "raw_text": ""}
+    if orientation_degrees:
+        image = image.rotate(-orientation_degrees, expand=True)
     w, h = image.size
     base_crops = {
         "top_name": image.crop((0, 0, w, int(h * 0.24))).resize((w * 2, int(h * 0.24) * 2), Image.Resampling.LANCZOS),
@@ -1011,6 +1015,7 @@ def run_ocr_for_photo(path: str) -> dict[str, Any]:
         "collector_number_texts": signals["collector_number_texts"],
         "all_number_texts": signals["all_number_texts"],
         "raw_text": " | ".join(row["text"] for row in rows),
+        "orientation_degrees": orientation_degrees,
     }
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1233,9 +1238,16 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
     }
 
 
-def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_counts: dict[str, int] | None = None, *, back_type: str = ""):
+def match_front_photo_ocr(
+    path: str,
+    candidates: list[dict[str, Any]],
+    used_counts: dict[str, int] | None = None,
+    *,
+    back_type: str = "",
+    ocr_payload_override: dict[str, Any] | None = None,
+):
     used_counts = used_counts or {}
-    ocr_payload = run_ocr_for_photo(path)
+    ocr_payload = ocr_payload_override or run_ocr_for_photo(path)
     available_candidates = [
         candidate
         for candidate in candidates
@@ -1468,6 +1480,67 @@ def match_front_photo_ocr(path: str, candidates: list[dict[str, Any]], used_coun
         "ocr": ocr_payload,
         "candidates": top,
     }
+
+
+def _orientation_match_rank(match: dict[str, Any]) -> tuple[float, float, float, float]:
+    candidate_row = (match.get("candidates") or [{}])[0]
+    exact_number = 1.0 if candidate_row.get("number_kind") == "full_collector" else 0.0
+    name_similarity = _safe_float(candidate_row.get("name_similarity"), 0.0)
+    return (
+        exact_number,
+        name_similarity,
+        _safe_float(match.get("score"), 0.0),
+        _safe_float(match.get("margin"), 0.0),
+    )
+
+
+def match_front_photo_orientation_aware(
+    path: str,
+    candidates: list[dict[str, Any]],
+    used_counts: dict[str, int] | None = None,
+    *,
+    back_type: str = "",
+) -> dict[str, Any]:
+    """Try horizontal card orientations only for demonstrated special layouts."""
+    base = match_front_photo_ocr(path, candidates, used_counts, back_type=back_type)
+    title_text = _fold_text(" ".join((base.get("ocr") or {}).get("name_texts") or []))
+    top_candidate = (((base.get("candidates") or [{}])[0]).get("candidate") or {})
+    candidate_name = _fold_text(top_candidate.get("name") or "")
+    is_legend = "legende" in title_text or "legend" in title_text or "legende" in candidate_name or "legend" in candidate_name
+    if not is_legend:
+        base.setdefault("orientation_degrees", 0)
+        base.setdefault("layout_type", "V_UNION" if "vunion" in candidate_name else "standard")
+        return base
+
+    attempts = [(0, base)]
+    for degrees in (90, 270):
+        rotated_ocr = run_ocr_for_photo(path, orientation_degrees=degrees)
+        attempt = match_front_photo_ocr(
+            path,
+            candidates,
+            used_counts,
+            back_type=back_type,
+            ocr_payload_override=rotated_ocr,
+        )
+        attempts.append((degrees, attempt))
+    degrees, selected = max(attempts, key=lambda item: _orientation_match_rank(item[1]))
+    selected["orientation_degrees"] = degrees
+    selected["layout_type"] = "LEGEND_HALF"
+    selected["special_layout"] = True
+    selected["orientation_attempts"] = [
+        {
+            "orientation": orientation,
+            "score": attempt.get("score", 0.0),
+            "margin": attempt.get("margin", 0.0),
+            "candidate": ((((attempt.get("candidates") or [{}])[0]).get("candidate") or {}).get("name") or ""),
+        }
+        for orientation, attempt in attempts
+    ]
+    selected["diagnostic_reason"] = (
+        f"layout LEGEND_HALF · orientation retenue {degrees}° · "
+        + str(selected.get("diagnostic_reason") or "vérification requise")
+    )
+    return selected
 
 
 def _apply_v13_group_language_diagnostic(group: dict[str, Any]) -> None:
@@ -2405,7 +2478,7 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
         for match_entry in match_entries:
             klass = match_entry.get("classification", {})
             if ocr_available:
-                match = match_front_photo_ocr(
+                match = match_front_photo_orientation_aware(
                     match_entry["photo"].path,
                     candidates,
                     used_candidate_counts,
@@ -2419,6 +2492,17 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
                     reference_features,
                 )
                 match = visual_matches[0] if visual_matches else {"status": "unrecognized", "method": "visual", "candidates": []}
+            ocr_payload = match.get("ocr") or {}
+            if (
+                group.get("v14_generic_multi")
+                and not (ocr_payload.get("name_texts") or [])
+                and not (ocr_payload.get("collector_number_texts") or [])
+            ):
+                if match.get("status") == "recognized":
+                    match["status"] = "review"
+                match["v13_not_in_drop_confidence"] = match.get("v13_not_in_drop_confidence") or "possible"
+                match["v10_safety_reason"] = "multi-cartes: artwork plausible mais nom/numéro non confirmés dans le Drop"
+                match["diagnostic_reason"] = "carte absente du Drop possible — validation de la sous-carte requise"
             match["photo"] = match_entry["photo"]
             group["matches"].append(match)
             if match.get("status") == "recognized" and match.get("candidates"):
@@ -2426,6 +2510,37 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
                 if key:
                     used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
         statuses = [match.get("status") for match in group["matches"]]
+        recognized_cards = []
+        for match_index, match in enumerate(group["matches"]):
+            detail = detail_cards[match_index] if match_index < len(detail_cards) else {}
+            candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+            back_entry = detail.get("back") if detail else group.get("group_back")
+            back_classification = (back_entry or {}).get("classification") or {}
+            physical_japanese = (
+                back_classification.get("back_type") == "japanese"
+                or bool(candidate.get("japanese"))
+                or bool(group.get("jp_physical"))
+            )
+            recognized_cards.append(
+                {
+                    "front": detail.get("front") if detail else front,
+                    "back": back_entry,
+                    "candidate": candidate or None,
+                    "status": "not_in_drop"
+                    if match.get("v13_not_in_drop_confidence")
+                    else match.get("status"),
+                    "language": "JP" if physical_japanese else "FR",
+                    "variant": {
+                        key: bool(candidate.get(key))
+                        for key in ("japanese", "reverse", "stamp", "promo", "first_edition", "master_ball", "poke_ball")
+                        if candidate.get(key)
+                    },
+                    "score": match.get("score", 0.0),
+                    "margin": match.get("margin", 0.0),
+                    "not_in_drop_confidence": match.get("v13_not_in_drop_confidence") or "",
+                }
+            )
+        group["recognized_cards"] = recognized_cards
         grouping_review = group.get("grouping_status") == "review" and not force_grouping_trust
         if grouping_review:
             if statuses and any(status in ("recognized", "review") for status in statuses):
@@ -2808,6 +2923,63 @@ def save_poc_ground_truth(payload: dict[str, Any], path: str | Path = POC_GROUND
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _ground_truth_match_front_indices(group: dict[str, Any]) -> list[int]:
+    photos = group.get("photos", []) or []
+    detail_fronts = [
+        _safe_int(photo.get("capture_index"), 0)
+        for photo in photos
+        if photo.get("role") == "card_front"
+    ]
+    if detail_fronts:
+        return [index for index in detail_fronts if index > 0]
+    primary = next(
+        (_safe_int(photo.get("capture_index"), 0) for photo in photos if photo.get("role") == "primary_front"),
+        0,
+    )
+    return [primary] if primary > 0 else []
+
+
+def _merge_overlapping_ground_truth_groups(
+    detected: dict[str, Any],
+    overlapping: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Carry manual recognition truth across a corrected group boundary."""
+    validation_by_front = {}
+    prepared_by_front = {}
+    for source in overlapping:
+        front_indices = _ground_truth_match_front_indices(source)
+        validations = source.get("recognition_validation") or {}
+        for match_index, front_index in enumerate(front_indices):
+            validation = validations.get(str(match_index))
+            if isinstance(validation, dict):
+                validation_by_front[front_index] = dict(validation)
+        for match_index, prepared in (source.get("prepared_drop_additions") or {}).items():
+            index = _safe_int(match_index, -1)
+            if 0 <= index < len(front_indices):
+                prepared_by_front[front_indices[index]] = prepared
+
+    merged_validations = {}
+    merged_prepared = {}
+    for match_index, front_index in enumerate(_ground_truth_match_front_indices(detected)):
+        if front_index in validation_by_front:
+            merged_validations[str(match_index)] = validation_by_front[front_index]
+        if front_index in prepared_by_front:
+            merged_prepared[str(match_index)] = prepared_by_front[front_index]
+
+    notes = [str(group.get("notes") or "").strip() for group in overlapping]
+    merged = {
+        **detected,
+        "status": "corrected" if all(normalize_group_status(group.get("status")) in VALIDATED_GROUP_STATUSES for group in overlapping) else "unvalidated",
+        "jp_physical": any(bool(group.get("jp_physical")) for group in overlapping),
+        "notes": " · ".join(note for note in notes if note),
+        "recognition_validation": merged_validations,
+        "migrated_from_group_ids": [group.get("group_id") for group in overlapping if group.get("group_id")],
+    }
+    if merged_prepared:
+        merged["prepared_drop_additions"] = merged_prepared
+    return merged
+
+
 def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path: str | Path = POC_GROUND_TRUTH_PATH) -> dict[str, Any]:
     payload = load_poc_ground_truth(path)
     samples = payload.setdefault("samples", {})
@@ -2848,7 +3020,22 @@ def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path:
             if preserved.get("status") != existing.get("status") or preserved.get("group_id") != existing.get("group_id"):
                 changed = True
         else:
-            merged.append(detected)
+            detected_keys = {photo_key(photo) for photo in detected.get("photos", []) or []}
+            overlapping = [
+                group
+                for group in existing_groups
+                if detected_keys.intersection({photo_key(photo) for photo in group.get("photos", []) or []})
+            ]
+            overlapping_keys = {
+                photo_key(photo)
+                for group in overlapping
+                for photo in group.get("photos", []) or []
+            }
+            if overlapping and overlapping_keys == detected_keys:
+                merged.append(_merge_overlapping_ground_truth_groups(detected, overlapping))
+                matched_existing_ids.update(id(group) for group in overlapping)
+            else:
+                merged.append(detected)
             changed = True
 
     # Manual truth wins over a newly detected segmentation that overlaps it.
