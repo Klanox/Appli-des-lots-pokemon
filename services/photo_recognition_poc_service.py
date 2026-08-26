@@ -53,7 +53,7 @@ FILENAME_DATETIME_PATTERNS = (
 _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
-POC_ANALYSIS_PIPELINE_VERSION = "v13-jp-targeted-matching"
+POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1577,7 +1577,7 @@ def _entry_as_sequence_back(entry: dict[str, Any]) -> dict[str, Any]:
 
 def _new_group(index: int, entry: dict[str, Any]) -> dict[str, Any]:
     classification = entry.get("classification") or {}
-    expected_cards = max(1, min(4, _safe_int(classification.get("card_count_hint"), 1)))
+    expected_cards = max(1, min(12, _safe_int(classification.get("card_count_hint"), 1)))
     return {
         "announcement_index": index,
         "photos": [entry],
@@ -2052,22 +2052,76 @@ def _v12_combined_primary_signal(entry: dict[str, Any]) -> tuple[bool, float]:
     return best_fraction >= 0.34, best_fraction
 
 
+def _v14_primary_card_count(entry: dict[str, Any]) -> tuple[int, str]:
+    """Estimate N for a `primary + N x (front/back)` sequence.
+
+    The normal detector remains authoritative when it finds several regions.
+    A narrow dark gutter projection covers the real three-card horizontal case
+    where two adjacent cards were previously merged into one region.
+    """
+    classification = entry.get("classification") or {}
+    detected = max(1, _safe_int(classification.get("card_count_hint"), 1))
+    photo = entry.get("photo")
+    if photo is None:
+        return detected, "détecteur de zones"
+    image = _load_image(photo.path, max_side=768)
+    if image is None:
+        return detected, "détecteur de zones"
+
+    gray = np.asarray(image.convert("L"), dtype=np.uint8)
+    height, width = gray.shape
+    central = gray[int(height * 0.10) : int(height * 0.90)]
+    column_profile = np.mean(central, axis=0)
+    gutters = []
+    min_distance = max(18, int(width * 0.12))
+    for column in range(int(width * 0.14), int(width * 0.86)):
+        left = max(0, column - max(3, int(width * 0.012)))
+        right = min(width, column + max(4, int(width * 0.012)) + 1)
+        if column_profile[column] > 58 or column_profile[column] != np.min(column_profile[left:right]):
+            continue
+        if gutters and column - gutters[-1] < min_distance:
+            if column_profile[column] < column_profile[gutters[-1]]:
+                gutters[-1] = column
+            continue
+        gutters.append(column)
+    projected = len(gutters) + 1 if gutters else 1
+    if projected >= 2:
+        detected = max(detected, min(12, projected))
+        return detected, f"projection des séparations ({projected} cartes)"
+
+    has_horizontal_boundary, _score = _v12_combined_primary_signal(entry)
+    if has_horizontal_boundary:
+        return max(detected, 2), "séparation horizontale de deux demi-cartes"
+    return detected, "détecteur de zones"
+
+
 def _recover_v12_multi_groups(
     groups: list[dict[str, Any]],
     baseline_groups: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int]:
-    """Recover `primary + 2 x (front/back)` blocks without touching known anchors."""
+    """Recover generic `primary + N x (front/back)` blocks."""
     recovered = []
     recovered_count = 0
     index = 0
     while index < len(groups):
         current = groups[index]
-        following = groups[index + 1 : index + 3]
         current_photos = current.get("photos", []) or []
+        existing_cards = max(0, len(current.get("detail_cards") or []))
+        existing_is_multi = existing_cards > 0 and len(current_photos) == 1 + existing_cards * 2
+        if len(current_photos) != 1 and not existing_is_multi:
+            recovered.append(current)
+            index += 1
+            continue
+        primary_entry = current.get("primary_front") or (current_photos[0] if current_photos else None)
+        detected_cards, count_reason = _v14_primary_card_count(primary_entry) if primary_entry else (1, "")
+        cards_to_attach = detected_cards - existing_cards if existing_is_multi else detected_cards
+        following = groups[index + 1 : index + 1 + max(0, cards_to_attach)]
         can_test = (
-            len(current_photos) == 1
+            detected_cards > 1
+            and cards_to_attach > 0
+            and (len(current_photos) == 1 or existing_is_multi)
             and current.get("primary_front") is not None
-            and len(following) == 2
+            and len(following) == cards_to_attach
             and all(len(group.get("photos", []) or []) == 2 for group in following)
             and all(not group.get("v12_anchor") for group in following)
             and all(group.get("primary_front") is not None and group.get("group_back") is not None for group in following)
@@ -2076,35 +2130,40 @@ def _recover_v12_multi_groups(
         if can_test:
             combined_entries = [entry for group in [current, *following] for entry in group.get("photos", []) or []]
             capture_indices = [entry["photo"].capture_index for entry in combined_entries]
-            consecutive = capture_indices == list(range(capture_indices[0], capture_indices[0] + 5))
-            gap = _capture_gap_seconds(current_photos[0].get("photo"), following[0]["photos"][0].get("photo"))
+            expected_photo_count = 1 + detected_cards * 2
+            consecutive = capture_indices == list(range(capture_indices[0], capture_indices[0] + expected_photo_count))
+            gap = _capture_gap_seconds(current_photos[-1].get("photo"), following[0]["photos"][0].get("photo"))
             has_boundary, boundary_score = _v12_combined_primary_signal(current_photos[0])
-            if consecutive and (gap is None or gap <= 75) and has_boundary:
+            primary_is_multi = detected_cards > 2 or has_boundary or _safe_int((current_photos[0].get("classification") or {}).get("card_count_hint"), 1) > 1
+            if consecutive and (gap is None or gap <= 75) and primary_is_multi:
                 previous_layout = _v12_previous_layout(baseline_groups, set(capture_indices))
+                existing_details = list(current.get("detail_cards") or [])
                 recovered.append(
                     {
                         "announcement_index": 0,
                         "photos": combined_entries,
                         "primary_front": current_photos[0],
                         "group_back": None,
-                        "detail_cards": [
-                            {"front": following[0]["primary_front"], "back": following[0]["group_back"]},
-                            {"front": following[1]["primary_front"], "back": following[1]["group_back"]},
+                        "detail_cards": existing_details + [
+                            {"front": group["primary_front"], "back": group["group_back"]}
+                            for group in following
                         ],
-                        "expected_cards": 2,
+                        "expected_cards": detected_cards,
                         "grouping_status": "review",
                         "grouping_reasons": [
-                            "multi-cartes V12 récupéré : primary + 2×(front/back)",
-                            f"frontière horizontale du recto commun ({boundary_score:.0%})",
+                            f"multi-cartes V14 récupéré : primary + {detected_cards}×(front/back)",
+                            count_reason,
+                            f"signal de séparation du recto commun ({boundary_score:.0%})",
                             "validation prudente requise pour le bloc multi-cartes",
                         ],
                         "v12_recovered_multi": True,
+                        "v14_generic_multi": True,
                         "v12_changed": True,
                         "v12_previous_layout": previous_layout,
                     }
                 )
                 recovered_count += 1
-                index += 3
+                index += 1 + cards_to_attach
                 continue
         recovered.append(current)
         index += 1
