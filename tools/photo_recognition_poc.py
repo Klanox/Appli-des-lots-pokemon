@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import sys
 import hashlib
+import json
 import time
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -25,11 +27,16 @@ from PIL import Image, ImageOps
 from services.photo_recognition_poc_service import (
     PHOTO_ROLES,
     POC_ANALYSIS_PIPELINE_VERSION,
+    POC_MATCHING_REFRESH_VERSION,
     POC_DIR,
     POC_GROUND_TRUTH_PATH,
     VALIDATED_GROUP_STATUSES,
+    active_drop_candidates,
     analyze_ground_truth_sample,
     analyze_sample,
+    candidate_identity,
+    candidate_identity_key,
+    candidate_set_signature,
     ensure_ground_truth_sample,
     list_ordered_photos,
     load_poc_ground_truth,
@@ -39,6 +46,7 @@ from services.photo_recognition_poc_service import (
     stable_group_id_from_photos,
     update_ground_truth_sample,
     normalize_group_status,
+    refresh_result_candidates,
 )
 
 
@@ -69,6 +77,7 @@ VIEW_OPTIONS = [
     "Contrôle verts",
     "Vérification complète",
     "Cas sensibles",
+    "Propositions modifiées",
     "Validation des groupes",
     "Résultats / debug reconnaissance",
     "Erreurs uniquement",
@@ -127,6 +136,7 @@ def _analysis_meta_for(
     start_index: int,
     target_announcements: int,
     max_photos: int,
+    candidate_signature: str = "",
 ) -> dict:
     start_index = max(1, int(start_index or 1))
     max_photos = max(1, int(max_photos or 1))
@@ -146,6 +156,7 @@ def _analysis_meta_for(
         "max_photos": int(max_photos or 0),
         "photo_count": len(photo_window),
         "photo_signature": photo_signature,
+        "candidate_signature": candidate_signature,
     }
 
 
@@ -156,6 +167,8 @@ def _result_matches_analysis(result: dict | None, expected: dict) -> bool:
     if not isinstance(meta, dict):
         return False
     for key, value in expected.items():
+        if key == "candidate_signature":
+            continue
         if meta.get(key) != value:
             return False
     return True
@@ -250,25 +263,29 @@ def _manual_validation_summary(sample: dict, result: dict | None = None) -> dict
     green_checked = 0
     green_wrong = 0
     manual_choices = 0
-    level_by_group = {}
+    group_by_id = {}
     if result:
         for group in result.get("groups", []) or []:
             group_id = _result_group_id(group)
-            level_by_group[group_id] = group.get("confidence_level")
+            group_by_id[group_id] = group
     for group in sample.get("groups", []) or []:
         group_id = str(group.get("group_id") or "")
-        level = level_by_group.get(group_id)
-        for validation in (group.get("recognition_validation") or {}).values():
-            status = validation.get("status")
-            if not status:
+        result_group = group_by_id.get(group_id) or {}
+        level = result_group.get("confidence_level")
+        matches = result_group.get("matches", []) or []
+        for match_index, match in enumerate(matches):
+            validation = (group.get("recognition_validation") or {}).get(str(match_index)) or {}
+            state = _validation_state(validation, match)
+            if state.get("state") not in {"compatible", "explicit_truth"}:
                 continue
+            status = state.get("status")
             if level == "orange":
                 review_fixed += 1
             elif level == "red":
                 fail_fixed += 1
             elif level == "green":
                 green_checked += 1
-                if status == "wrong":
+                if not state.get("resolved_correct"):
                     green_wrong += 1
             if status == "manual_choice":
                 manual_choices += 1
@@ -301,7 +318,7 @@ def _validation_bilan(sample: dict, result: dict) -> dict:
         validations = source.get("recognition_validation") or {}
         matches = group.get("matches", []) or []
         group_level = str(group.get("confidence_level") or "")
-        if _recognition_is_done(sample, group_id, len(matches)):
+        if _recognition_is_done(sample, group_id, matches):
             controlled_groups += 1
         is_multi = len(matches) > 1 or int(group.get("expected_cards") or 1) > 1
         is_jp = bool(group.get("v13_japanese_candidate")) or str(group.get("v13_back_type") or "").startswith("back_japanese")
@@ -309,17 +326,18 @@ def _validation_bilan(sample: dict, result: dict) -> dict:
         group_done = bool(matches)
         for match_index, match in enumerate(matches):
             validation = validations.get(str(match_index)) or {}
-            status = validation.get("status")
-            if not status:
+            state = _validation_state(validation, match)
+            if state.get("state") not in {"compatible", "explicit_truth"}:
                 group_done = False
                 continue
-            group_wrong = group_wrong or status == "wrong"
+            status = state.get("status")
+            group_wrong = group_wrong or not state.get("resolved_correct")
             # The validation report describes the current V14 decision. Older
             # per-match status snapshots may predate V10/V13 safety overlays and
             # must not turn reviewed cases back into apparent automatic matches.
             if group_level == "green":
                 auto_checked += 1
-                if status == "wrong":
+                if not state.get("resolved_correct"):
                     auto_wrong += 1
                 else:
                     auto_correct += 1
@@ -367,7 +385,8 @@ def _ground_truth_error_rows(result: dict, sample: dict) -> list[dict]:
         validations = source.get("recognition_validation") or {}
         for match_index, match in enumerate(group.get("matches", []) or []):
             validation = validations.get(str(match_index)) or {}
-            if validation.get("status") != "wrong":
+            state = _validation_state(validation, match)
+            if state.get("state") not in {"compatible", "explicit_truth"} or state.get("resolved_correct"):
                 continue
             candidate = _match_primary_candidate(match)
             rows.append(
@@ -428,14 +447,19 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
             elif match.get("v13_not_in_drop_confidence") == "possible":
                 group_not_in_drop_possible = True
             validation = validations.get(str(match_index)) or {}
+            validation_state = _validation_state(validation, match)
             original_status = match.get("v10_original_status") or match.get("status")
-            if original_status == "recognized" and validation.get("status"):
+            if original_status == "recognized" and validation_state.get("state") in {"compatible", "explicit_truth"}:
                 checked_auto += 1
-                if validation.get("status") == "correct":
+                if validation_state.get("resolved_correct"):
                     correct_auto += 1
-                elif validation.get("status") == "wrong":
+                else:
                     wrong_auto += 1
-            if validation.get("status") == "wrong" and original_status == "recognized":
+            if (
+                validation_state.get("state") in {"compatible", "explicit_truth"}
+                and not validation_state.get("resolved_correct")
+                and original_status == "recognized"
+            ):
                 false_green_downgraded += 1
                 match["status"] = "review"
                 match["v10_safety_reason"] = "validation terrain: vert V9 faux, revue obligatoire"
@@ -443,7 +467,17 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
                 group["confidence_level"] = "orange"
         if group_has_jp:
             jp_detected += 1
-            if any((source.get("recognition_validation") or {}).get(str(idx), {}).get("status") == "wrong" for idx, _match in enumerate(group.get("matches", []) or [])):
+            if any(
+                not _validation_state(
+                    (source.get("recognition_validation") or {}).get(str(idx), {}) or {},
+                    current_match,
+                ).get("resolved_correct")
+                and _validation_state(
+                    (source.get("recognition_validation") or {}).get(str(idx), {}) or {},
+                    current_match,
+                ).get("state") in {"compatible", "explicit_truth"}
+                for idx, current_match in enumerate(group.get("matches", []) or [])
+            ):
                 jp_wrong += 1
         if group_has_special:
             special_layout += 1
@@ -519,6 +553,13 @@ def _render_full_summary(result: dict, sample: dict):
         st.caption(f"Précision observée : {manual['green_checked'] - manual['green_wrong']} / {manual['green_checked']} autos contrôlés.")
 
     st.markdown("#### Bilan de validation")
+    ground_truth_state = _ground_truth_state(sample, result)
+    st.caption("État du ground truth — seules les validations compatibles avec la proposition actuelle alimentent le bilan.")
+    gt1, gt2, gt3, gt4 = st.columns(4)
+    gt1.metric("Validations compatibles", ground_truth_state.get("compatible", 0))
+    gt2.metric("Vérités explicites", ground_truth_state.get("explicit_truth", 0))
+    gt3.metric("Validations stales", ground_truth_state.get("stale", 0))
+    gt4.metric("Cas restant à revoir", ground_truth_state.get("remaining", 0))
     bilan = _validation_bilan(sample, result)
     b1, b2, b3, b4, b5 = st.columns(5)
     b1.metric("Annonces contrôlées", f"{bilan['controlled_groups']} / {bilan['total_groups']}")
@@ -1093,12 +1134,124 @@ def _variant_label(candidate: dict) -> str:
     return " · ".join(variants) or "FR"
 
 
+def _match_candidate(match: dict | None) -> dict:
+    return ((((match or {}).get("candidates") or [{}])[0]).get("candidate") or {})
+
+
+def _proposal_signature(match: dict | None) -> str:
+    match = match or {}
+    photo = match.get("photo")
+    payload = {
+        "candidate": candidate_identity(_match_candidate(match)),
+        "photo": {
+            "filename": getattr(photo, "filename", ""),
+            "capture_index": getattr(photo, "capture_index", None),
+        },
+        "status": str(match.get("status") or ""),
+        "layout_type": str(match.get("layout_type") or "standard"),
+        "orientation_degrees": int(match.get("orientation_degrees") or 0),
+        "not_in_drop": str(match.get("v13_not_in_drop_confidence") or ""),
+    }
+    return hashlib.sha1(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _validation_payload(status: str, match: dict | None, **extra) -> dict:
+    candidate = _match_candidate(match)
+    payload = {
+        "status": status,
+        "proposal_signature": _proposal_signature(match),
+        "candidate_key": candidate_identity_key(candidate) if candidate else "",
+        "candidate_snapshot": candidate_identity(candidate),
+        "validated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    payload.update(extra)
+    return payload
+
+
 def _recognition_validation(sample: dict, group_id: str, match_index: int) -> dict:
     for group in sample.get("groups", []):
         if str(group.get("group_id")) == str(group_id):
-            validations = group.setdefault("recognition_validation", {})
-            return validations.setdefault(str(match_index), {})
+            validations = group.get("recognition_validation") or {}
+            return validations.get(str(match_index)) or {}
     return {}
+
+
+def _validation_state(validation: dict, match: dict | None) -> dict:
+    status = str((validation or {}).get("status") or "")
+    if not status:
+        return {
+            "state": "unvalidated",
+            "status": "",
+            "resolved_correct": False,
+            "resolved_for_workflow": False,
+        }
+    current_candidate = _match_candidate(match)
+    current_key = candidate_identity_key(current_candidate) if current_candidate else ""
+    current_keys = {
+        current_key,
+        str(current_candidate.get("card_uid") or ""),
+        str(current_candidate.get("drop_card_key") or ""),
+    }
+    expected_key = str(
+        validation.get("expected_candidate_key")
+        or validation.get("selected_key")
+        or validation.get("drop_card_key")
+        or (validation.get("expected_candidate") or {}).get("card_uid")
+        or ""
+    )
+    if expected_key:
+        matches_truth = bool(expected_key and expected_key in current_keys)
+        return {
+            "state": "explicit_truth",
+            "status": "correct" if matches_truth else "wrong",
+            "resolved_correct": matches_truth,
+            "resolved_for_workflow": True,
+            "expected_candidate_key": expected_key,
+        }
+    stored_signature = str(validation.get("proposal_signature") or "")
+    if not stored_signature:
+        return {
+            "state": "stale",
+            "status": status,
+            "resolved_correct": False,
+            "resolved_for_workflow": False,
+            "reason": "ancienne validation sans signature de proposition",
+        }
+    if stored_signature != _proposal_signature(match):
+        return {
+            "state": "stale",
+            "status": status,
+            "resolved_correct": False,
+            "resolved_for_workflow": False,
+            "reason": "la proposition a changé depuis cette validation",
+        }
+    return {
+        "state": "compatible",
+        "status": status,
+        "resolved_correct": status in {"correct", "manual_choice"},
+        "resolved_for_workflow": status in {"correct", "manual_choice"},
+    }
+
+
+def _ground_truth_state(sample: dict, result: dict) -> dict:
+    counts = {"compatible": 0, "explicit_truth": 0, "stale": 0, "unvalidated": 0}
+    stale_groups = []
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        group_stale = False
+        matches = group.get("matches", []) or [{}]
+        for match_index, match in enumerate(matches):
+            state = _validation_state(_recognition_validation(sample, group_id, match_index), match)
+            key = state.get("state") or "unvalidated"
+            counts[key] = counts.get(key, 0) + 1
+            group_stale = group_stale or key == "stale"
+        if group_stale:
+            stale_groups.append(group)
+    counts["stale_groups"] = stale_groups
+    counts["remaining"] = counts.get("stale", 0) + counts.get("unvalidated", 0)
+    return counts
 
 
 def _set_recognition_validation(
@@ -1151,16 +1304,17 @@ def _full_check_validation_callback(
     index_key: str,
     current_index: int,
     group_count: int,
-    match_count: int,
+    matches: list[dict],
+    match: dict,
 ):
     _set_recognition_validation(
         sample_key,
         group_id,
         match_index,
-        {"status": status},
+        _validation_payload(status, match),
         sample=sample,
     )
-    if _recognition_is_done(sample, group_id, match_count):
+    if _recognition_is_done(sample, group_id, matches):
         st.session_state[index_key] = min(current_index + 1, max(0, group_count - 1))
 
 
@@ -1217,12 +1371,13 @@ def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: st
                 st.image(artwork_crop, caption="crop artwork", width=320)
 
     validation = _recognition_validation(sample, group_id, match_index)
+    validation_state = _validation_state(validation, match)
     c1, c2, c3 = st.columns([1, 1, 2])
     if c1.button("✓ Correct", key=f"rec_ok_{group_id}_{match_index}"):
-        _set_recognition_validation(sample_key, group_id, match_index, {"status": "correct"})
+        _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("correct", match))
         _rerun()
     if c2.button("✕ Mauvais", key=f"rec_bad_{group_id}_{match_index}"):
-        _set_recognition_validation(sample_key, group_id, match_index, {"status": "wrong"})
+        _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("wrong", match))
         _rerun()
     candidate_options = _candidate_options(candidates)
     selected = c3.selectbox(
@@ -1232,16 +1387,30 @@ def _render_match_debug(match: dict, sample_key: str, sample: dict, group_id: st
         label_visibility="collapsed",
     )
     if selected and st.button("Enregistrer ce choix", key=f"rec_choose_save_{group_id}_{match_index}"):
+        selected_drop_key = candidate_options[selected]
+        selected_candidate = next(
+            (candidate for candidate in candidates if candidate.get("drop_card_key") == selected_drop_key),
+            {},
+        )
         _set_recognition_validation(
             sample_key,
             group_id,
             match_index,
-            {"status": "manual_choice", "drop_card_key": candidate_options[selected], "label": selected},
+            _validation_payload(
+                "manual_choice",
+                match,
+                drop_card_key=selected_drop_key,
+                expected_candidate_key=candidate_identity_key(selected_candidate),
+                expected_candidate=candidate_identity(selected_candidate),
+                label=selected,
+            ),
         )
         _rerun()
 
-    if validation:
-        st.caption("Validation POC : " + str(validation))
+    if validation_state.get("state") == "stale":
+        st.warning("Non validé depuis cette nouvelle proposition")
+    elif validation:
+        st.caption("Validation POC : " + str(validation_state.get("status") or validation.get("status")))
 
 
 def _render_match_readonly(match: dict, match_index: int):
@@ -1410,12 +1579,21 @@ def _render_full_check_match(
                 st.image(artwork_crop, caption="crop artwork", width=260)
 
 
-def _recognition_is_done(sample: dict, group_id: str, match_count: int) -> bool:
-    source = _source_group(sample, group_id)
-    validations = source.get("recognition_validation") or {}
-    total = max(1, match_count)
-    done_statuses = {"correct", "wrong", "manual_choice", "non_recognized", "unrecognized_manual"}
-    return all((validations.get(str(index)) or {}).get("status") in done_statuses for index in range(total))
+def _recognition_is_done(sample: dict, group_id: str, matches: list[dict]) -> bool:
+    matches = matches or [{}]
+    return all(
+        _validation_state(_recognition_validation(sample, group_id, index), match).get("state")
+        in {"compatible", "explicit_truth"}
+        for index, match in enumerate(matches)
+    )
+
+
+def _recognition_is_resolved_correct(sample: dict, group_id: str, matches: list[dict]) -> bool:
+    matches = matches or [{}]
+    return all(
+        _validation_state(_recognition_validation(sample, group_id, index), match).get("resolved_for_workflow")
+        for index, match in enumerate(matches)
+    )
 
 
 def _pending_groups(result: dict, sample: dict, levels: set[str]) -> list[dict]:
@@ -1424,7 +1602,7 @@ def _pending_groups(result: dict, sample: dict, levels: set[str]) -> list[dict]:
         if group.get("confidence_level") not in levels:
             continue
         group_id = _result_group_id(group)
-        if _recognition_is_done(sample, group_id, len(group.get("matches", []) or [])):
+        if _recognition_is_done(sample, group_id, group.get("matches", []) or []):
             continue
         pending.append(group)
     return pending
@@ -1474,23 +1652,31 @@ def _render_queue_view(
         if c1.button("Corriger le groupe", key=f"queue_group_fix_{queue_key}_{group_id}"):
             _request_view("Validation des groupes")
         if c2.button("Non reconnu confirmé", key=f"queue_unrecognized_empty_{queue_key}_{group_id}"):
-            _set_recognition_validation(sample_key, group_id, 0, {"status": "non_recognized"})
+            _set_recognition_validation(
+                sample_key,
+                group_id,
+                0,
+                _validation_payload("non_recognized", {}),
+            )
             _rerun()
         return
 
     candidates = result.get("candidates", [])
     for match_index, match in enumerate(matches):
         validation = _recognition_validation(sample, group_id, match_index)
-        if validation.get("status"):
-            st.caption(f"Zone {match_index + 1} déjà traitée : {validation}")
+        validation_state = _validation_state(validation, match)
+        if validation_state.get("state") in {"compatible", "explicit_truth"}:
+            st.caption(f"Zone {match_index + 1} déjà traitée : {validation_state.get('status')}")
             continue
+        if validation_state.get("state") == "stale":
+            st.warning("Non validé depuis cette nouvelle proposition")
         _render_match_readonly(match, match_index)
         action_cols = st.columns([1, 1.15, 1.2, 1])
         if allow_good_card and action_cols[0].button("✓ Bonne carte", key=f"queue_ok_{queue_key}_{group_id}_{match_index}"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "correct"})
+            _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("correct", match))
             _rerun()
         if action_cols[1].button("Non reconnu", key=f"queue_fail_{queue_key}_{group_id}_{match_index}"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "non_recognized"})
+            _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("non_recognized", match))
             _rerun()
         if action_cols[2].button("Corriger le groupe", key=f"queue_fix_{queue_key}_{group_id}_{match_index}"):
             _request_view("Validation des groupes")
@@ -1500,11 +1686,22 @@ def _render_queue_view(
 
         selected, drop_card_key = _queue_candidate_selector(candidates, f"queue_choose_{queue_key}_{group_id}_{match_index}")
         if selected and st.button("Valider ce choix", key=f"queue_choose_save_{queue_key}_{group_id}_{match_index}", type="primary"):
+            selected_candidate = next(
+                (candidate for candidate in candidates if candidate.get("drop_card_key") == drop_card_key),
+                {},
+            )
             _set_recognition_validation(
                 sample_key,
                 group_id,
                 match_index,
-                {"status": "manual_choice", "drop_card_key": drop_card_key, "label": selected},
+                _validation_payload(
+                    "manual_choice",
+                    match,
+                    drop_card_key=drop_card_key,
+                    expected_candidate_key=candidate_identity_key(selected_candidate),
+                    expected_candidate=candidate_identity(selected_candidate),
+                    label=selected,
+                ),
             )
             _rerun()
 
@@ -1514,7 +1711,7 @@ def _green_quality_groups(result: dict, sample: dict, target_count: int = 10) ->
     green_groups = [
         group
         for group in green_groups
-        if not _recognition_is_done(sample, _result_group_id(group), len(group.get("matches", []) or []))
+        if not _recognition_is_done(sample, _result_group_id(group), group.get("matches", []) or [])
     ]
     priority_groups = [
         group
@@ -1577,16 +1774,19 @@ def _render_green_quality_view(sample_key: str, sample: dict, result: dict):
     _render_group_photos({"photos": _group_photo_payloads(group)}, path_by_key, compact=True)
     for match_index, match in enumerate(group.get("matches", []) or []):
         validation = _recognition_validation(sample, group_id, match_index)
-        if validation.get("status"):
-            st.caption(f"Zone {match_index + 1} déjà contrôlée : {validation}")
+        validation_state = _validation_state(validation, match)
+        if validation_state.get("state") in {"compatible", "explicit_truth"}:
+            st.caption(f"Zone {match_index + 1} déjà contrôlée : {validation_state.get('status')}")
             continue
+        if validation_state.get("state") == "stale":
+            st.warning("Non validé depuis cette nouvelle proposition")
         _render_match_readonly(match, match_index)
         c1, c2, c3 = st.columns(3)
         if c1.button("✓ Correct", key=f"green_ok_{group_id}_{match_index}", type="primary"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "correct"})
+            _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("correct", match))
             _rerun()
         if c2.button("✕ Mauvais", key=f"green_bad_{group_id}_{match_index}"):
-            _set_recognition_validation(sample_key, group_id, match_index, {"status": "wrong"})
+            _set_recognition_validation(sample_key, group_id, match_index, _validation_payload("wrong", match))
             _rerun()
         if c3.button("Passer", key=f"green_skip_{group_id}_{match_index}"):
             st.session_state[index_key] = (current_index + 1) % max(1, len(groups))
@@ -1606,7 +1806,7 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
         if _recognition_is_done(
             sample,
             _result_group_id(candidate_group),
-            len(candidate_group.get("matches", []) or []),
+            candidate_group.get("matches", []) or [],
         )
     )
     st.caption(f"Annonces contrôlées : {completed} / {len(groups)}")
@@ -1628,7 +1828,7 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
             if not _recognition_is_done(
                 sample,
                 _result_group_id(candidate_group),
-                len(candidate_group.get("matches", []) or []),
+                candidate_group.get("matches", []) or [],
             )
         ]
         st.session_state[index_key] = pending_indices[0] if pending_indices else 0
@@ -1657,22 +1857,28 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
             group_id=group_id,
         )
         validation = _recognition_validation(sample, group_id, match_index)
-        if validation.get("status"):
-            st.success("Validation POC : " + str(validation.get("status")))
+        validation_state = _validation_state(validation, match)
+        if validation_state.get("state") in {"compatible", "explicit_truth"}:
+            if validation_state.get("resolved_correct"):
+                st.success("Validation POC : correct")
+            else:
+                st.error("Validation POC : wrong")
             continue
+        if validation_state.get("state") == "stale":
+            st.warning("Non validé depuis cette nouvelle proposition")
         c1, c2 = st.columns(2)
         c1.button(
             "✓ Correct",
             key=f"full_ok_{group_id}_{match_index}",
             type="primary",
             on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), len(matches)),
+            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), matches, match),
         )
         c2.button(
             "✕ Mauvais",
             key=f"full_bad_{group_id}_{match_index}",
             on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), len(matches)),
+            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), matches, match),
         )
     nav1, nav2 = st.columns(2)
     if nav1.button("← Précédente", key="full_prev", disabled=current_index == 0):
@@ -1726,11 +1932,36 @@ def _sensitive_reasons(group: dict) -> list[str]:
     return reasons
 
 
-def _sensitive_groups(result: dict, filter_name: str = "Tous") -> list[dict]:
+def _group_has_stale_validation(sample: dict, group: dict) -> bool:
+    group_id = _result_group_id(group)
+    return any(
+        _validation_state(_recognition_validation(sample, group_id, index), match).get("state") == "stale"
+        for index, match in enumerate(group.get("matches", []) or [{}])
+    )
+
+
+def _sensitive_groups(
+    result: dict,
+    sample: dict,
+    filter_name: str = "Tous",
+    *,
+    include_resolved=False,
+    stale_only=False,
+) -> list[dict]:
     groups = []
     for group in result.get("groups", []) or []:
         reasons = _sensitive_reasons(group)
-        if not reasons:
+        is_stale = _group_has_stale_validation(sample, group)
+        if stale_only:
+            if not is_stale:
+                continue
+        elif not reasons:
+            continue
+        if not include_resolved and _recognition_is_resolved_correct(
+            sample,
+            _result_group_id(group),
+            group.get("matches", []) or [],
+        ):
             continue
         if filter_name != "Tous":
             expected_reason = {
@@ -1752,13 +1983,27 @@ def _set_sensitive_filter(filter_name: str):
 
 
 @st.fragment
-def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
-    all_cases = _sensitive_groups(result)
+def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *, stale_only=False):
+    include_resolved = st.toggle(
+        "Afficher aussi les cas déjà validés",
+        value=False,
+        key="photo_poc_sensitive_include_resolved_stale" if stale_only else "photo_poc_sensitive_include_resolved",
+        disabled=stale_only,
+    )
+    all_cases = _sensitive_groups(
+        result,
+        sample,
+        include_resolved=include_resolved,
+        stale_only=stale_only,
+    )
     if not all_cases:
         st.success("Aucun cas sensible dans le résultat actuel.")
         return
 
-    st.markdown(f"### Cas sensibles : {len(all_cases)}")
+    heading = "Propositions modifiées à revalider" if stale_only else (
+        "Cas sensibles" if include_resolved else "Cas sensibles restants"
+    )
+    st.markdown(f"### {heading} : {len(all_cases)}")
     counters = {
         "JAP": sum("JAP" in _sensitive_reasons(group) for group in all_cases),
         "Multi": sum("MULTI" in _sensitive_reasons(group) for group in all_cases),
@@ -1778,12 +2023,18 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
         label_visibility="collapsed",
         key="photo_poc_sensitive_filter",
     )
-    groups = _sensitive_groups(result, filter_name)
+    groups = _sensitive_groups(
+        result,
+        sample,
+        filter_name,
+        include_resolved=include_resolved,
+        stale_only=stale_only,
+    )
     if not groups:
         st.info(f"Aucun cas sensible pour le filtre {filter_name}.")
         return
 
-    index_key = f"photo_poc_sensitive_index_{filter_name}"
+    index_key = f"photo_poc_sensitive_index_{'stale_' if stale_only else ''}{filter_name}"
     if index_key not in st.session_state:
         pending_indices = [
             index
@@ -1791,7 +2042,7 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
             if not _recognition_is_done(
                 sample,
                 _result_group_id(candidate_group),
-                len(candidate_group.get("matches", []) or []),
+                candidate_group.get("matches", []) or [],
             )
         ]
         st.session_state[index_key] = pending_indices[0] if pending_indices else 0
@@ -1806,7 +2057,7 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
         if _recognition_is_done(
             sample,
             _result_group_id(candidate_group),
-            len(candidate_group.get("matches", []) or []),
+            candidate_group.get("matches", []) or [],
         )
     )
     if completed >= len(groups):
@@ -1840,22 +2091,28 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
             group_id=group_id,
         )
         validation = _recognition_validation(sample, group_id, match_index)
-        if validation.get("status"):
-            st.success("Validation POC : " + str(validation.get("status")))
+        validation_state = _validation_state(validation, match)
+        if validation_state.get("state") in {"compatible", "explicit_truth"}:
+            if validation_state.get("resolved_correct"):
+                st.success("Validation POC : correct")
+            else:
+                st.error("Validation POC : wrong")
             continue
+        if validation_state.get("state") == "stale":
+            st.warning("Non validé depuis cette nouvelle proposition")
         action_left, action_right = st.columns(2)
         action_left.button(
             "✓ Correct",
             key=f"sensitive_ok_{group_id}_{match_index}",
             type="primary",
             on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), len(matches)),
+            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), matches, match),
         )
         action_right.button(
             "✕ Mauvais",
             key=f"sensitive_bad_{group_id}_{match_index}",
             on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), len(matches)),
+            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), matches, match),
         )
     nav_left, nav_right = st.columns(2)
     if nav_left.button("← Précédent", key=f"sensitive_prev_{filter_name}", disabled=current_index == 0):
@@ -1919,11 +2176,16 @@ def _render_results_view(sample_key: str, sample: dict, auto_result: dict, drop_
         validations = source_group.get("recognition_validation") or {}
         for match_index, match in enumerate(group.get("matches", []) or []):
             validation = validations.get(str(match_index)) or {}
-            if validation.get("status"):
+            state = _validation_state(validation, match)
+            if state.get("state") in {"compatible", "explicit_truth"}:
                 validated_matches += 1
-            if match.get("status") == "recognized" and validation.get("status") == "wrong":
+            if (
+                match.get("status") == "recognized"
+                and state.get("state") in {"compatible", "explicit_truth"}
+                and not state.get("resolved_correct")
+            ):
                 wrong_auto += 1
-            if validation.get("status") == "manual_choice":
+            if state.get("state") in {"compatible", "explicit_truth"} and validation.get("status") == "manual_choice":
                 manual_choices += 1
     if validated_matches:
         r1, r2, r3 = st.columns(3)
@@ -2081,6 +2343,9 @@ if run_all:
         target_announcements=analysis_target_announcements,
     )
 
+_selected_drop_snapshot, _selected_drop_candidates = active_drop_candidates(drop_id=selected_drop_id)
+_selected_candidate_signature = candidate_set_signature(_selected_drop_candidates)
+
 if bool(st.session_state.get("photo_poc_full_analysis")) and not run:
     expected_meta = _analysis_meta_for(
         folder=folder,
@@ -2089,6 +2354,7 @@ if bool(st.session_state.get("photo_poc_full_analysis")) and not run:
         start_index=1,
         max_photos=len(photos),
         target_announcements=len(photos),
+        candidate_signature=_selected_candidate_signature,
     )
 else:
     expected_meta = _analysis_meta_for(
@@ -2098,6 +2364,7 @@ else:
         start_index=analysis_start_index,
         max_photos=analysis_max_photos,
         target_announcements=analysis_target_announcements,
+        candidate_signature=_selected_candidate_signature,
     )
 
 if not (run or run_all) and "photo_poc_result" in st.session_state:
@@ -2142,6 +2409,32 @@ if run or run_all:
 
 result = st.session_state["photo_poc_result"]
 sample_key = st.session_state["photo_poc_sample_key"]
+_live_drop, _live_candidates = _selected_drop_snapshot, _selected_drop_candidates
+_live_candidate_signature = candidate_set_signature(_live_candidates)
+_result_candidate_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
+_drop_candidates_changed = (
+    _result_candidate_signature != _live_candidate_signature
+    or str((result.get("analysis_meta") or {}).get("matching_refresh_version") or "")
+    != POC_MATCHING_REFRESH_VERSION
+)
+if _drop_candidates_changed:
+    st.warning(
+        "Les cartes du Drop ou les garde-fous de matching ont changé depuis cette analyse. "
+        "Le grouping et l'OCR restent valides, mais les propositions doivent être actualisées."
+    )
+if st.button(
+    "Actualiser les cartes du Drop",
+    type="primary" if _drop_candidates_changed else "secondary",
+    help="Relit uniquement les candidats du Drop et recalcule leur matching. Aucun OCR ni grouping n'est relancé.",
+):
+    with st.spinner("Actualisation des candidats et des propositions..."):
+        result = refresh_result_candidates(result, drop_id=selected_drop_id)
+        st.session_state["photo_poc_result"] = result
+    st.toast(
+        f"Drop actualisé : {len(result.get('candidates', []) or [])} cartes · "
+        f"{(result.get('metrics') or {}).get('candidate_refresh_seconds', 0)} s"
+    )
+    _rerun()
 ground_truth = ensure_ground_truth_sample(result, sample_key)
 if sample_key in (ground_truth.get("samples") or {}):
     st.session_state[f"photo_poc_sample_{sample_key}"] = ground_truth["samples"][sample_key]
@@ -2190,6 +2483,8 @@ elif view == "Vérification complète":
     _render_full_check_view(sample_key, sample, result)
 elif view == "Cas sensibles":
     _render_sensitive_cases_view(sample_key, sample, result)
+elif view == "Propositions modifiées":
+    _render_sensitive_cases_view(sample_key, sample, result, stale_only=True)
 elif view == "Validation des groupes":
     _render_metrics(metrics)
     _render_validation_view(sample_key, sample, result)

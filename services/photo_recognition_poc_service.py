@@ -54,6 +54,7 @@ _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
+POC_MATCHING_REFRESH_VERSION = "v14.2-drop-validation-layout-1"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -210,6 +211,41 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
             card = card_by_ref.get((str(ref.get("lot_uid", "")), _safe_int(ref.get("card_idx"), -1)))
         merged = dict(card or {})
         merged.update({key: value for key, value in ref.items() if value not in (None, "")})
+        # Drop rows contain historical snapshots. Once the real card still
+        # exists, its current identity metadata must win so a POC refresh sees
+        # edits made in Pokestock without recreating the Drop row.
+        for key in (
+            "name",
+            "number",
+            "display_number",
+            "set",
+            "lang",
+            "language",
+            "japanese",
+            "is_japanese",
+            "reverse",
+            "is_reverse",
+            "first_edition",
+            "is_ed1",
+            "stamp",
+            "stamp_label",
+            "promo",
+            "is_promo",
+            "master_ball",
+            "is_master_ball",
+            "poke_ball",
+            "is_poke_ball",
+            "image_url",
+            "image_url_en",
+            "manual_image_path",
+            "manual_image_url",
+            "resolved_collection_image_url",
+        ):
+            if card is None or key not in card or card.get(key) is None:
+                continue
+            if key in {"name", "number", "display_number"} and card.get(key) == "":
+                continue
+            merged[key] = card.get(key)
         merged.setdefault("lot_name", (card or {}).get("lot_name", ""))
         merged.setdefault("identity_fingerprint", card_identity_fingerprint(merged))
         merged["_drop_card_key"] = drop_card_key(merged)
@@ -242,6 +278,50 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
             }
         )
     return drop, candidates
+
+
+def candidate_identity(candidate: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the candidate fields that can change matching or validation."""
+    candidate = candidate or {}
+    return {
+        "drop_card_key": str(candidate.get("drop_card_key") or candidate.get("_drop_card_key") or ""),
+        "card_uid": str(candidate.get("card_uid") or ""),
+        "lot_uid": str(candidate.get("lot_uid") or ""),
+        "name": str(candidate.get("name") or ""),
+        "number": str(candidate.get("number") or ""),
+        "set": str(candidate.get("set") or ""),
+        "japanese": bool(candidate.get("japanese")),
+        "reverse": bool(candidate.get("reverse")),
+        "first_edition": bool(candidate.get("first_edition")),
+        "stamp": str(candidate.get("stamp") or ""),
+        "promo": bool(candidate.get("promo")),
+        "master_ball": bool(candidate.get("master_ball")),
+        "poke_ball": bool(candidate.get("poke_ball")),
+    }
+
+
+def candidate_identity_key(candidate: dict[str, Any] | None) -> str:
+    identity = candidate_identity(candidate)
+    return identity["card_uid"] or identity["drop_card_key"] or hashlib.sha1(
+        json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def candidate_set_signature(candidates: list[dict[str, Any]]) -> str:
+    payload = sorted(
+        (
+            {
+                **candidate_identity(candidate),
+                "quantity": max(1, _safe_int(candidate.get("quantity"), 1)),
+                "image_url": str(candidate.get("image_url") or ""),
+            }
+            for candidate in candidates
+        ),
+        key=lambda item: (item["card_uid"], item["drop_card_key"], item["name"], item["number"]),
+    )
+    return hashlib.sha1(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _candidate_image_url(card: dict) -> str:
@@ -1426,18 +1506,37 @@ def match_front_photo_ocr(
         for candidate in available_candidates
         if "/" in _normalize_card_number(candidate.get("number") or "")
     )
+    full_ocr_locals = {value.split("/", 1)[0] for value in full_ocr_numbers if value}
+    compatible_local_name_available = any(
+        item.get("candidate_number_local") in full_ocr_locals
+        and float(item.get("name_similarity") or 0.0) >= 0.86
+        for item in scored
+    )
     not_in_drop_confidence = ""
     best_name_similarity = float(best.get("name_similarity") or 0.0) if best else 0.0
     plausible_name_texts = [
         value for value in (ocr_payload.get("name_texts") or [])
         if 3 <= len(_fold_text(value)) <= 32
     ]
+    same_name_version_absent = bool(
+        best
+        and full_ocr_numbers
+        and not exact_full_available
+        and not compatible_local_name_available
+        and best_name_similarity >= 0.86
+        and not best.get("number_match")
+        and bool(best.get("candidate_number_full"))
+    )
     if special_layout:
         not_in_drop_confidence = ""
-    elif full_ocr_numbers and not exact_full_available and plausible_name_texts and best_name_similarity < 0.55 and japanese_artwork_score < 35:
+    elif same_name_version_absent:
+        not_in_drop_confidence = "strong" if best_name_similarity >= 0.96 else "possible"
+    elif full_ocr_numbers and not exact_full_available and not compatible_local_name_available and plausible_name_texts and best_name_similarity < 0.55 and japanese_artwork_score < 60:
         not_in_drop_confidence = "strong"
-    elif full_ocr_numbers and not exact_full_available and plausible_name_texts and best_name_similarity < 0.68 and japanese_artwork_score < 50:
+    elif full_ocr_numbers and not exact_full_available and not compatible_local_name_available and plausible_name_texts and best_name_similarity < 0.68 and japanese_artwork_score < 70:
         not_in_drop_confidence = "possible"
+    if same_name_version_absent and status == "recognized":
+        status = "review"
 
     diagnostic_reason = "aucun signal OCR exploitable"
     if ocr_payload.get("number_texts") and not ocr_payload.get("name_texts"):
@@ -1456,7 +1555,10 @@ def match_front_photo_ocr(
         diagnostic_reason = f"JP : {japanese_signal} — vérification requise"
     if status != "recognized" and not_in_drop_confidence:
         label = "forte confiance" if not_in_drop_confidence == "strong" else "possible"
-        diagnostic_reason = f"carte absente du Drop {label}"
+        if same_name_version_absent:
+            diagnostic_reason = f"même nom présent, version exacte absente du Drop ({label})"
+        else:
+            diagnostic_reason = f"carte absente du Drop {label}"
     return {
         "region": {"box": [0, 0, 1, 1], "source": "ocr"},
         "status": status,
@@ -1474,6 +1576,7 @@ def match_front_photo_ocr(
         "v13_japanese_candidate": japanese_candidate,
         "v13_visual_jp_override": bool(best and best.get("v13_visual_jp_override")),
         "v13_not_in_drop_confidence": not_in_drop_confidence,
+        "v14_same_name_version_absent": same_name_version_absent,
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
@@ -1494,22 +1597,62 @@ def _orientation_match_rank(match: dict[str, Any]) -> tuple[float, float, float,
     )
 
 
+def _layout_geometry(path: str) -> dict[str, Any]:
+    image = _load_image(path, max_side=900)
+    if image is None:
+        return {"horizontal": False, "aspect": 0.0, "area_ratio": 0.0}
+    regions = detect_card_regions(image, max_regions=1)
+    region = regions[0] if regions else {}
+    aspect = _safe_float(region.get("aspect"), 0.0)
+    area_ratio = _safe_float(region.get("area_ratio"), 0.0)
+    return {
+        "horizontal": bool(aspect >= 1.18 and area_ratio >= 0.12),
+        "aspect": round(aspect, 3),
+        "area_ratio": round(area_ratio, 4),
+    }
+
+
 def match_front_photo_orientation_aware(
     path: str,
     candidates: list[dict[str, Any]],
     used_counts: dict[str, int] | None = None,
     *,
     back_type: str = "",
+    ocr_payload_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Try horizontal card orientations only for demonstrated special layouts."""
-    base = match_front_photo_ocr(path, candidates, used_counts, back_type=back_type)
+    base = match_front_photo_ocr(
+        path,
+        candidates,
+        used_counts,
+        back_type=back_type,
+        ocr_payload_override=ocr_payload_override,
+    )
     title_text = _fold_text(" ".join((base.get("ocr") or {}).get("name_texts") or []))
     top_candidate = (((base.get("candidates") or [{}])[0]).get("candidate") or {})
     candidate_name = _fold_text(top_candidate.get("name") or "")
-    is_legend = "legende" in title_text or "legend" in title_text or "legende" in candidate_name or "legend" in candidate_name
+    geometry = _layout_geometry(path)
+    text_legend = "legende" in title_text or "legend" in title_text
+    candidate_legend = "legende" in candidate_name or "legend" in candidate_name
+    is_v_union = "vunion" in candidate_name or "v union" in candidate_name
+    # A weak OCR/candidate guess must never rotate a normal vertical card into a
+    # LEGEND layout. Require compatible geometry and a second independent cue.
+    is_legend = bool(geometry["horizontal"] and (text_legend or candidate_legend))
     if not is_legend:
         base.setdefault("orientation_degrees", 0)
-        base.setdefault("layout_type", "V_UNION" if "vunion" in candidate_name else "standard")
+        if is_v_union:
+            base.setdefault("layout_type", "V_UNION")
+            base["special_layout"] = True
+        elif (text_legend or candidate_legend) and not geometry["horizontal"]:
+            base.setdefault("layout_type", "standard")
+            base["layout_review_reason"] = (
+                "signal LEGEND écarté : rectangle de carte vertical "
+                f"(ratio {geometry['aspect']:.2f})"
+            )
+            base["special_layout"] = False
+        else:
+            base.setdefault("layout_type", "standard")
+        base["layout_geometry"] = geometry
         return base
 
     attempts = [(0, base)]
@@ -1527,6 +1670,7 @@ def match_front_photo_orientation_aware(
     selected["orientation_degrees"] = degrees
     selected["layout_type"] = "LEGEND_HALF"
     selected["special_layout"] = True
+    selected["layout_geometry"] = geometry
     selected["orientation_attempts"] = [
         {
             "orientation": orientation,
@@ -2436,7 +2580,13 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
     return _reconcile_v12_sequence(v11_groups, classifications)
 
 
-def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, Any]], *, force_grouping_trust=False) -> tuple[bool, str, int]:
+def _recognize_groups(
+    groups: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    *,
+    force_grouping_trust=False,
+    cached_ocr_by_path: dict[str, dict[str, Any]] | None = None,
+) -> tuple[bool, str, int]:
     ocr_available, ocr_note = _ocr_status()
     reference_features = {} if ocr_available else build_reference_features(candidates)
     used_candidate_counts = {}
@@ -2483,6 +2633,7 @@ def _recognize_groups(groups: list[dict[str, Any]], candidates: list[dict[str, A
                     candidates,
                     used_candidate_counts,
                     back_type=back_type,
+                    ocr_payload_override=(cached_ocr_by_path or {}).get(match_entry["photo"].path),
                 )
             else:
                 visual_matches = match_front_photo(
@@ -2788,6 +2939,7 @@ def analyze_sample(
         ).encode("utf-8")
     ).hexdigest()
     drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
+    candidates_signature = candidate_set_signature(candidates)
     classifications = {}
     for photo in photo_window:
         classifications[photo.filename] = classify_photo(photo.path)
@@ -2818,6 +2970,8 @@ def analyze_sample(
             "max_photos": int(max_photos or 0),
             "photo_count": len(photo_window),
             "photo_signature": photo_signature,
+            "candidate_signature": candidates_signature,
+            "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
         },
         "drop": drop,
         "ordered_photos": ordered,
@@ -2827,6 +2981,64 @@ def analyze_sample(
         "classifications": classifications,
         "metrics": metrics,
     }
+
+
+def refresh_result_candidates(
+    result: dict[str, Any],
+    *,
+    data_path="data.json",
+    drops_path="vinted_drops.json",
+    drop_id: str | None = None,
+) -> dict[str, Any]:
+    """Rematch an existing POC result after the Drop candidate set changes.
+
+    Grouping, classifications, thumbnails and OCR crops stay untouched. Existing
+    OCR payloads are reused directly; only candidate-dependent scoring runs.
+    """
+    started = time.perf_counter()
+    resolved_drop_id = drop_id or (result.get("analysis_meta") or {}).get("drop_id")
+    drop, candidates = active_drop_candidates(
+        data_path=data_path,
+        drops_path=drops_path,
+        drop_id=resolved_drop_id,
+    )
+    previous_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
+    current_signature = candidate_set_signature(candidates)
+    cached_ocr_by_path = {}
+    for group in result.get("groups", []) or []:
+        for match in group.get("matches", []) or []:
+            photo = match.get("photo")
+            if photo and isinstance(match.get("ocr"), dict):
+                cached_ocr_by_path[str(photo.path)] = match["ocr"]
+
+    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(
+        result.get("groups", []) or [],
+        candidates,
+        cached_ocr_by_path=cached_ocr_by_path,
+    )
+    duration = time.perf_counter() - started
+    result["drop"] = drop
+    result["candidates"] = candidates
+    meta = result.setdefault("analysis_meta", {})
+    meta["candidate_signature_previous"] = previous_signature
+    meta["candidate_signature"] = current_signature
+    meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
+    meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
+    metrics = _metrics_for_groups(
+        ordered=result.get("ordered_photos", []) or [],
+        photo_window=result.get("sample_photos", []) or [],
+        candidates=candidates,
+        classifications=result.get("classifications", {}) or {},
+        groups=result.get("groups", []) or [],
+        duration=duration,
+        ocr_available=ocr_available,
+        ocr_note=ocr_note,
+        reference_images_loaded=reference_images_loaded,
+    )
+    metrics["candidate_refresh_seconds"] = round(duration, 3)
+    metrics["candidate_signature_changed"] = previous_signature != current_signature
+    result["metrics"] = metrics
+    return result
 
 
 def photo_identity(photo: PhotoInfo) -> dict[str, Any]:
