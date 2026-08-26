@@ -2562,11 +2562,25 @@ def ensure_ground_truth_sample(result: dict[str, Any], sample_key: str, *, path:
         manual_keys = {photo_key(photo) for photo in manual_group.get("photos", []) or []}
         if not manual_keys:
             continue
-        merged = [
-            group
-            for group in merged
-            if manual_keys.isdisjoint({photo_key(photo) for photo in group.get("photos", []) or []})
-        ]
+        without_overlap = []
+        for group in merged:
+            group_photos = group.get("photos", []) or []
+            remaining_photos = [photo for photo in group_photos if photo_key(photo) not in manual_keys]
+            if not remaining_photos:
+                continue
+            if len(remaining_photos) != len(group_photos):
+                remaining_group = {
+                    **group,
+                    "photos": remaining_photos,
+                    "status": "unvalidated",
+                    "notes": "Reliquat automatique après priorité au ground truth manuel",
+                }
+                remaining_group["photo_signature"] = group_photo_signature(remaining_photos)
+                remaining_group["group_id"] = stable_group_id_from_photos(remaining_photos)
+                without_overlap.append(remaining_group)
+            else:
+                without_overlap.append(group)
+        merged = without_overlap
         merged.append(manual_group)
         changed = True
     merged.sort(
