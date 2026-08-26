@@ -68,6 +68,7 @@ VIEW_OPTIONS = [
     "File non reconnus",
     "Contrôle verts",
     "Vérification complète",
+    "Cas sensibles",
     "Validation des groupes",
     "Résultats / debug reconnaissance",
     "Erreurs uniquement",
@@ -1682,6 +1683,189 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
         st.rerun(scope="fragment")
 
 
+SENSITIVE_FILTERS = ("Tous", "JAP", "Multi", "LÉGENDE", "Not in Drop", "Fails", "Grouping")
+
+
+def _sensitive_reasons(group: dict) -> list[str]:
+    matches = group.get("matches", []) or []
+    is_multi = len(matches) > 1 or int(group.get("expected_cards") or 1) > 1
+    has_japanese = (
+        bool(group.get("jp_physical"))
+        or bool(group.get("v13_japanese_candidate"))
+        or str(group.get("v13_back_type") or "").startswith("back_japanese")
+    )
+    has_special_layout = any(
+        bool(match.get("special_layout"))
+        or str(match.get("layout_type") or "standard") != "standard"
+        or int(match.get("orientation_degrees") or 0) != 0
+        for match in matches
+    )
+    has_not_in_drop = any(bool(match.get("v13_not_in_drop_confidence")) for match in matches)
+    has_fail = group.get("confidence_level") == "red" or any(
+        match.get("status") in {"unrecognized", "fail"} for match in matches
+    )
+    has_grouping_review = group.get("grouping_status") == "review"
+    has_multi_review = is_multi and any(
+        match.get("status") in {"review", "unrecognized", "fail"} for match in matches
+    )
+    reasons = []
+    if has_japanese:
+        reasons.append("JAP")
+    if is_multi:
+        reasons.append("MULTI")
+    if has_special_layout:
+        reasons.append("LÉGENDE")
+    if has_not_in_drop:
+        reasons.append("NOT IN DROP")
+    if has_fail:
+        reasons.append("FAIL")
+    if has_grouping_review:
+        reasons.append("GROUPING")
+    if has_multi_review:
+        reasons.append("REVIEW")
+    return reasons
+
+
+def _sensitive_groups(result: dict, filter_name: str = "Tous") -> list[dict]:
+    groups = []
+    for group in result.get("groups", []) or []:
+        reasons = _sensitive_reasons(group)
+        if not reasons:
+            continue
+        if filter_name != "Tous":
+            expected_reason = {
+                "Multi": "MULTI",
+                "LÉGENDE": "LÉGENDE",
+                "Not in Drop": "NOT IN DROP",
+                "Fails": "FAIL",
+                "Grouping": "GROUPING",
+            }.get(filter_name, filter_name.upper())
+            if expected_reason not in reasons:
+                continue
+        groups.append(group)
+    return groups
+
+
+def _set_sensitive_filter(filter_name: str):
+    st.session_state["photo_poc_sensitive_filter"] = filter_name
+    st.session_state.pop(f"photo_poc_sensitive_index_{filter_name}", None)
+
+
+@st.fragment
+def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict):
+    all_cases = _sensitive_groups(result)
+    if not all_cases:
+        st.success("Aucun cas sensible dans le résultat actuel.")
+        return
+
+    st.markdown(f"### Cas sensibles : {len(all_cases)}")
+    counters = {
+        "JAP": sum("JAP" in _sensitive_reasons(group) for group in all_cases),
+        "Multi": sum("MULTI" in _sensitive_reasons(group) for group in all_cases),
+        "LÉGENDE": sum("LÉGENDE" in _sensitive_reasons(group) for group in all_cases),
+        "Not in Drop": sum("NOT IN DROP" in _sensitive_reasons(group) for group in all_cases),
+        "Fails": sum("FAIL" in _sensitive_reasons(group) for group in all_cases),
+        "Grouping": sum("GROUPING" in _sensitive_reasons(group) for group in all_cases),
+    }
+    counter_cols = st.columns(6)
+    for column, (label, count) in zip(counter_cols, counters.items()):
+        column.metric(label, count)
+
+    filter_name = st.radio(
+        "Filtrer les cas sensibles",
+        SENSITIVE_FILTERS,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="photo_poc_sensitive_filter",
+    )
+    groups = _sensitive_groups(result, filter_name)
+    if not groups:
+        st.info(f"Aucun cas sensible pour le filtre {filter_name}.")
+        return
+
+    index_key = f"photo_poc_sensitive_index_{filter_name}"
+    if index_key not in st.session_state:
+        pending_indices = [
+            index
+            for index, candidate_group in enumerate(groups)
+            if not _recognition_is_done(
+                sample,
+                _result_group_id(candidate_group),
+                len(candidate_group.get("matches", []) or []),
+            )
+        ]
+        st.session_state[index_key] = pending_indices[0] if pending_indices else 0
+    st.session_state[index_key] = min(int(st.session_state.get(index_key, 0) or 0), len(groups) - 1)
+    current_index = st.session_state[index_key]
+    group = groups[current_index]
+    group_id = _result_group_id(group)
+    matches = group.get("matches", []) or []
+    completed = sum(
+        1
+        for candidate_group in groups
+        if _recognition_is_done(
+            sample,
+            _result_group_id(candidate_group),
+            len(candidate_group.get("matches", []) or []),
+        )
+    )
+    if completed >= len(groups):
+        st.success("✅ Vérification des cas sensibles terminée")
+        end_left, end_right = st.columns(2)
+        if end_left.button("Voir le bilan", type="primary", key=f"sensitive_summary_{filter_name}"):
+            _request_view("Synthèse complète")
+        end_right.button(
+            "Revoir les cas mauvais",
+            key=f"sensitive_bad_{filter_name}",
+            on_click=_set_sensitive_filter,
+            args=("Fails",),
+        )
+
+    st.markdown(f"### Cas sensible — {current_index + 1} / {len(groups)}")
+    reasons = _sensitive_reasons(group)
+    badges = " · ".join(reasons)
+    st.caption(
+        f"Annonce #{group.get('announcement_index')} · {badges} · "
+        f"{STATUS_LABELS.get(group.get('confidence_level'), '🔴 Non reconnu')}"
+    )
+    _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
+    if len(matches) > 1:
+        st.markdown(f"**{len(matches)} sous-cartes physiques — validation indépendante**")
+    for match_index, match in enumerate(matches):
+        _render_full_check_match(
+            match,
+            match_index,
+            sample_key=sample_key,
+            sample=sample,
+            group_id=group_id,
+        )
+        validation = _recognition_validation(sample, group_id, match_index)
+        if validation.get("status"):
+            st.success("Validation POC : " + str(validation.get("status")))
+            continue
+        action_left, action_right = st.columns(2)
+        action_left.button(
+            "✓ Correct",
+            key=f"sensitive_ok_{group_id}_{match_index}",
+            type="primary",
+            on_click=_full_check_validation_callback,
+            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), len(matches)),
+        )
+        action_right.button(
+            "✕ Mauvais",
+            key=f"sensitive_bad_{group_id}_{match_index}",
+            on_click=_full_check_validation_callback,
+            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), len(matches)),
+        )
+    nav_left, nav_right = st.columns(2)
+    if nav_left.button("← Précédent", key=f"sensitive_prev_{filter_name}", disabled=current_index == 0):
+        st.session_state[index_key] = max(0, current_index - 1)
+        st.rerun(scope="fragment")
+    if nav_right.button("Suivant →", key=f"sensitive_next_{filter_name}", disabled=current_index >= len(groups) - 1):
+        st.session_state[index_key] = min(len(groups) - 1, current_index + 1)
+        st.rerun(scope="fragment")
+
+
 def _group_visible(group: dict, mode: str) -> bool:
     level = group.get("confidence_level", "red")
     if mode == "Tous":
@@ -2004,6 +2188,8 @@ elif view == "Contrôle verts":
     _render_green_quality_view(sample_key, sample, result)
 elif view == "Vérification complète":
     _render_full_check_view(sample_key, sample, result)
+elif view == "Cas sensibles":
+    _render_sensitive_cases_view(sample_key, sample, result)
 elif view == "Validation des groupes":
     _render_metrics(metrics)
     _render_validation_view(sample_key, sample, result)
