@@ -54,7 +54,7 @@ _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
-POC_MATCHING_REFRESH_VERSION = "v14.2-drop-validation-layout-1"
+POC_MATCHING_REFRESH_VERSION = "v14.4-current-result-subcards-vunion-2"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1033,14 +1033,21 @@ def _ocr_signals_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     number_texts = []
     collector_number_texts = []
     all_number_texts = []
-    collector_regions = {"bottom_collector", "bottom_edge"}
+    collector_regions = {
+        "bottom_collector",
+        "bottom_edge",
+        "v_union_top",
+        "v_union_bottom",
+        "v_union_left",
+        "v_union_right",
+    }
     for row in rows:
         text = row["text"]
         tokens = _extract_number_tokens(text) if re.search(r"\d", text) else []
         all_number_texts.extend(tokens)
         if row["region"] == "bottom_number":
             number_texts.extend(tokens)
-        if row["region"] in collector_regions or any("/" in _normalize_card_number(token) for token in tokens):
+        if row["region"] in collector_regions or str(row["region"]).startswith("v_union_") or any("/" in _normalize_card_number(token) for token in tokens):
             collector_number_texts.extend(tokens)
     return {
         "name_texts": name_texts,
@@ -1098,6 +1105,87 @@ def run_ocr_for_photo(path: str, *, orientation_degrees: int = 0) -> dict[str, A
         "all_number_texts": signals["all_number_texts"],
         "raw_text": " | ".join(row["text"] for row in rows),
         "orientation_degrees": orientation_degrees,
+    }
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return payload
+
+
+def run_v_union_edge_ocr(path: str, *, base_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Read collector numbers from every edge of a V-UNION physical card."""
+    cache_source = f"{Path(path).resolve()}|v_union_edges=4"
+    cache_path = _ocr_cache_path(cache_source)
+    if cache_path.exists():
+        cached = load_json_file(cache_path, None)
+        if isinstance(cached, dict):
+            return cached
+    engine = _get_ocr_engine()
+    image = _load_image(path, max_side=1800)
+    if engine is None or image is None:
+        return base_payload or {
+            "available": False,
+            "rows": [],
+            "name_texts": [],
+            "number_texts": [],
+            "collector_number_texts": [],
+            "all_number_texts": [],
+            "raw_text": "",
+        }
+
+    regions = detect_card_regions(image, max_regions=1)
+    card_image = _crop_region(image, regions[0]) if regions else image
+    w, h = card_image.size
+    edge_crops = {
+        "v_union_top": card_image.crop((0, 0, w, max(1, int(h * 0.22)))),
+        "v_union_bottom": card_image.crop((0, int(h * 0.78), w, h)),
+        "v_union_left": card_image.crop((0, 0, max(1, int(w * 0.24)), h)).rotate(90, expand=True),
+        "v_union_right": card_image.crop((int(w * 0.76), 0, w, h)).rotate(270, expand=True),
+        "v_union_left_narrow": card_image.crop((0, 0, max(1, int(w * 0.16)), h)).rotate(90, expand=True),
+        "v_union_right_narrow": card_image.crop((int(w * 0.84), 0, w, h)).rotate(270, expand=True),
+    }
+    rows = list((base_payload or {}).get("rows") or [])
+    for region_name, crop in edge_crops.items():
+        scaled = crop.resize((max(1, crop.width * 3), max(1, crop.height * 3)), Image.Resampling.LANCZOS)
+        rows.extend(_ocr_image_array(engine, scaled, region_name))
+        if region_name.endswith("_narrow"):
+            contrasted = ImageOps.autocontrast(ImageOps.grayscale(scaled))
+            rows.extend(_ocr_image_array(engine, contrasted, region_name + "_contrast"))
+    for degrees in (90, 270):
+        rotated_payload = run_ocr_for_photo(path, orientation_degrees=degrees)
+        for row in rotated_payload.get("rows") or []:
+            rows.append({**row, "region": f"v_union_rot{degrees}_{row.get('region') or 'full'}"})
+    signals = _ocr_signals_from_rows(rows)
+    edge_numbers = set()
+    for row in rows:
+        if not str(row.get("region") or "").startswith("v_union_"):
+            continue
+        compact = re.sub(r"[^A-Z0-9]", "", str(row.get("text") or "").upper().replace("O", "0"))
+        match = re.search(r"(?:S?WSH)\d{3}", compact)
+        if match:
+            value = match.group(0)
+            edge_numbers.add(value if value.startswith("SWSH") else "S" + value)
+            continue
+        partial = re.search(r"(?:[S5]?H)(\d{3})", compact)
+        if partial:
+            edge_numbers.add("SWSH" + partial.group(1))
+    normalized_edge_numbers = {_normalize_card_number(value) for value in edge_numbers}
+    signals["collector_number_texts"] = sorted(set(signals["collector_number_texts"]) | normalized_edge_numbers)
+    signals["all_number_texts"] = sorted(set(signals["all_number_texts"]) | normalized_edge_numbers)
+    payload = {
+        **(base_payload or {}),
+        "available": True,
+        "engine": "rapidocr_onnxruntime",
+        "rows": rows,
+        "name_texts": signals["name_texts"],
+        "number_texts": signals["number_texts"],
+        "collector_number_texts": signals["collector_number_texts"],
+        "all_number_texts": signals["all_number_texts"],
+        "raw_text": " | ".join(row["text"] for row in rows),
+        "v_union_edge_ocr": True,
+        "v_union_edge_numbers": sorted(edge_numbers),
     }
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1232,7 +1320,13 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, fa, fb).ratio()
 
 
-def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, Any], *, back_type: str = "") -> dict[str, Any]:
+def _candidate_score_from_ocr(
+    ocr_payload: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    back_type: str = "",
+    family_hint: str = "",
+) -> dict[str, Any]:
     candidate_number = str(candidate.get("number") or "")
     cand_num_full = _normalize_card_number(candidate_number)
     cand_num_local = _number_local(candidate_number)
@@ -1300,8 +1394,20 @@ def _candidate_score_from_ocr(ocr_payload: dict[str, Any], candidate: dict[str, 
     if back_type == "japanese":
         language_points = 10.0 if candidate.get("japanese") else 2.0
 
-    total = number_score + name_points + language_points
-    reasons = [reason for reason in (number_reason, name_reason, "signal verso JP" if language_points else "") if reason]
+    family_points = 0.0
+    if family_hint and _fold_text(candidate.get("name") or "") == _fold_text(family_hint):
+        family_points = 14.0
+    total = number_score + name_points + language_points + family_points
+    reasons = [
+        reason
+        for reason in (
+            number_reason,
+            name_reason,
+            "signal verso JP" if language_points else "",
+            f"famille V-UNION du groupe : {family_hint}" if family_points else "",
+        )
+        if reason
+    ]
     return {
         "candidate": candidate,
         "score": round(min(total, 100.0), 2),
@@ -1327,6 +1433,7 @@ def match_front_photo_ocr(
     *,
     back_type: str = "",
     ocr_payload_override: dict[str, Any] | None = None,
+    family_hint: str = "",
 ):
     used_counts = used_counts or {}
     ocr_payload = ocr_payload_override or run_ocr_for_photo(path)
@@ -1335,7 +1442,15 @@ def match_front_photo_ocr(
         for candidate in candidates
         if used_counts.get(candidate.get("drop_card_key", ""), 0) < max(1, _safe_int(candidate.get("quantity"), 1))
     ]
-    scored = [_candidate_score_from_ocr(ocr_payload, candidate, back_type=back_type) for candidate in available_candidates]
+    scored = [
+        _candidate_score_from_ocr(
+            ocr_payload,
+            candidate,
+            back_type=back_type,
+            family_hint=family_hint,
+        )
+        for candidate in available_candidates
+    ]
     exact_name_count = sum(1 for item in scored if item.get("name_similarity", 0.0) >= 0.96)
     full_number_counts = {}
     local_number_counts = {}
@@ -1540,6 +1655,35 @@ def match_front_photo_ocr(
     if same_name_version_absent and status == "recognized":
         status = "review"
 
+    same_name_debug = []
+    if not_in_drop_confidence and plausible_name_texts:
+        for candidate in available_candidates:
+            name_similarity = max(
+                (_similarity(text, str(candidate.get("name") or "")) for text in plausible_name_texts),
+                default=0.0,
+            )
+            if name_similarity < 0.86:
+                continue
+            candidate_number = _normalize_card_number(candidate.get("number") or "")
+            number_compatible = bool(
+                candidate_number
+                and (
+                    candidate_number in full_ocr_numbers
+                    or _number_local(candidate_number) in full_ocr_locals
+                )
+            )
+            same_name_debug.append(
+                {
+                    "card_uid": candidate.get("card_uid"),
+                    "name": candidate.get("name"),
+                    "number": candidate.get("number"),
+                    "set": candidate.get("set"),
+                    "name_similarity": round(name_similarity, 3),
+                    "number_compatible": number_compatible,
+                    "rejection_reason": "numéro/set incompatible" if not number_compatible else "score global insuffisant",
+                }
+            )
+
     diagnostic_reason = "aucun signal OCR exploitable"
     if ocr_payload.get("number_texts") and not ocr_payload.get("name_texts"):
         diagnostic_reason = "nom OCR absent"
@@ -1579,6 +1723,7 @@ def match_front_photo_ocr(
         "v13_visual_jp_override": bool(best and best.get("v13_visual_jp_override")),
         "v13_not_in_drop_confidence": not_in_drop_confidence,
         "v14_same_name_version_absent": same_name_version_absent,
+        "v14_same_name_candidates": same_name_debug[:8],
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
@@ -1621,14 +1766,20 @@ def match_front_photo_orientation_aware(
     *,
     back_type: str = "",
     ocr_payload_override: dict[str, Any] | None = None,
+    layout_hint: str = "",
+    family_hint: str = "",
 ) -> dict[str, Any]:
     """Try horizontal card orientations only for demonstrated special layouts."""
+    if layout_hint == "V_UNION":
+        base_ocr = ocr_payload_override or run_ocr_for_photo(path)
+        ocr_payload_override = run_v_union_edge_ocr(path, base_payload=base_ocr)
     base = match_front_photo_ocr(
         path,
         candidates,
         used_counts,
         back_type=back_type,
         ocr_payload_override=ocr_payload_override,
+        family_hint=family_hint,
     )
     title_text = _fold_text(" ".join((base.get("ocr") or {}).get("name_texts") or []))
     top_candidate = (((base.get("candidates") or [{}])[0]).get("candidate") or {})
@@ -1636,7 +1787,7 @@ def match_front_photo_orientation_aware(
     geometry = _layout_geometry(path)
     text_legend = "legende" in title_text or "legend" in title_text
     candidate_legend = "legende" in candidate_name or "legend" in candidate_name
-    is_v_union = "vunion" in candidate_name or "v union" in candidate_name
+    is_v_union = layout_hint == "V_UNION" or "vunion" in candidate_name or "v union" in candidate_name
     # A weak OCR/candidate guess must never rotate a normal vertical card into a
     # LEGEND layout. Require compatible geometry and a second independent cue.
     is_legend = bool(geometry["horizontal"] and (text_legend or candidate_legend))
@@ -1645,6 +1796,10 @@ def match_front_photo_orientation_aware(
         if is_v_union:
             base.setdefault("layout_type", "V_UNION")
             base["special_layout"] = True
+            edge_numbers = (base.get("ocr") or {}).get("v_union_edge_numbers") or []
+            if edge_numbers:
+                base["v_union_edge_numbers"] = edge_numbers
+                base["v_union_ocr_reason"] = "numéro V-UNION lu sur un bord : " + ", ".join(edge_numbers)
         elif (text_legend or candidate_legend) and not geometry["horizontal"]:
             base.setdefault("layout_type", "standard")
             base["layout_review_reason"] = (
@@ -1666,6 +1821,7 @@ def match_front_photo_orientation_aware(
             used_counts,
             back_type=back_type,
             ocr_payload_override=rotated_ocr,
+            family_hint=family_hint,
         )
         attempts.append((degrees, attempt))
     degrees, selected = max(attempts, key=lambda item: _orientation_match_rank(item[1]))
@@ -2627,7 +2783,18 @@ def _recognize_groups(
         else:
             match_entries.append(front)
         group["matches"] = []
-        for match_entry in match_entries:
+        group_expected_cards = max(1, _safe_int(group.get("expected_cards"), 1))
+        group_layout_hint = "V_UNION" if group_expected_cards == 4 and len(detail_cards) == 4 else ""
+        group_photo_payloads = [
+            photo_identity(entry["photo"])
+            for entry in group.get("photos", []) or []
+            if entry.get("photo") is not None
+        ]
+        physical_group_id = str(group.get("ground_truth_group_id") or stable_group_id_from_photos(group_photo_payloads))
+        v_union_family_hint = ""
+        for match_index, match_entry in enumerate(match_entries):
+            detail = detail_cards[match_index] if match_index < len(detail_cards) else {}
+            back_entry = detail.get("back") if detail else group.get("group_back")
             klass = match_entry.get("classification", {})
             if ocr_available:
                 match = match_front_photo_orientation_aware(
@@ -2636,6 +2803,8 @@ def _recognize_groups(
                     used_candidate_counts,
                     back_type=back_type,
                     ocr_payload_override=(cached_ocr_by_path or {}).get(match_entry["photo"].path),
+                    layout_hint=group_layout_hint,
+                    family_hint=v_union_family_hint,
                 )
             else:
                 visual_matches = match_front_photo(
@@ -2657,11 +2826,84 @@ def _recognize_groups(
                 match["v10_safety_reason"] = "multi-cartes: artwork plausible mais nom/numéro non confirmés dans le Drop"
                 match["diagnostic_reason"] = "carte absente du Drop possible — validation de la sous-carte requise"
             match["photo"] = match_entry["photo"]
+            front_key = photo_key(match_entry["photo"])
+            back_key = photo_key(back_entry["photo"]) if back_entry and back_entry.get("photo") else ""
+            # A subcard is a physical front/back pair inside a stable photo group.
+            # Candidate order can change freely without moving its validation.
+            physical_payload = f"group={physical_group_id}|front={front_key}|back={back_key}"
+            match["subcard_id"] = "subcard_" + hashlib.sha1(physical_payload.encode("utf-8")).hexdigest()[:16]
+            match["subcard_photos"] = {"front": front_key, "back": back_key}
+            match["physical_group_id"] = physical_group_id
             group["matches"].append(match)
+            if group_layout_hint == "V_UNION" and not v_union_family_hint:
+                top_candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+                top_name = str(top_candidate.get("name") or "")
+                if "vunion" in _fold_text(top_name) and (
+                    (match.get("ocr") or {}).get("v_union_edge_numbers")
+                    or float(match.get("score") or 0.0) >= 72
+                ):
+                    v_union_family_hint = top_name
+                    group["v_union_family"] = top_name
             if match.get("status") == "recognized" and match.get("candidates"):
                 key = ((match["candidates"][0].get("candidate") or {}).get("drop_card_key") or "")
                 if key:
                     used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
+        if group_layout_hint == "V_UNION" and v_union_family_hint:
+            family_candidates = [
+                candidate
+                for candidate in candidates
+                if _fold_text(candidate.get("name") or "") == _fold_text(v_union_family_hint)
+            ]
+            family_numbers = {
+                _normalize_card_number(candidate.get("number") or "")
+                for candidate in family_candidates
+                if _normalize_card_number(candidate.get("number") or "")
+            }
+            observed_numbers = {
+                _normalize_card_number(number)
+                for current_match in group["matches"]
+                for number in ((current_match.get("ocr") or {}).get("v_union_edge_numbers") or [])
+                if _normalize_card_number(number) in family_numbers
+            }
+            missing_numbers = family_numbers - observed_numbers
+            missing_matches = [
+                (index, current_match)
+                for index, current_match in enumerate(group["matches"])
+                if not ((current_match.get("ocr") or {}).get("v_union_edge_numbers") or [])
+            ]
+            if len(missing_numbers) == 1 and len(missing_matches) == 1:
+                missing_number = next(iter(missing_numbers))
+                display_number = "S" + missing_number if re.fullmatch(r"WSH\d{3}", missing_number) else missing_number
+                match_index, previous_match = missing_matches[0]
+                augmented_ocr = dict(previous_match.get("ocr") or {})
+                augmented_ocr["collector_number_texts"] = sorted(
+                    set(augmented_ocr.get("collector_number_texts") or []) | {display_number}
+                )
+                augmented_ocr["all_number_texts"] = sorted(
+                    set(augmented_ocr.get("all_number_texts") or []) | {display_number}
+                )
+                augmented_ocr["v_union_inferred_number"] = display_number
+                rematched = match_front_photo_ocr(
+                    previous_match["photo"].path,
+                    candidates,
+                    used_candidate_counts,
+                    back_type=back_type,
+                    ocr_payload_override=augmented_ocr,
+                    family_hint=v_union_family_hint,
+                )
+                rematched["photo"] = previous_match["photo"]
+                rematched["subcard_id"] = previous_match.get("subcard_id")
+                rematched["subcard_photos"] = previous_match.get("subcard_photos") or {}
+                rematched["physical_group_id"] = previous_match.get("physical_group_id")
+                rematched["layout_type"] = "V_UNION"
+                rematched["special_layout"] = True
+                rematched["v_union_inferred_number"] = display_number
+                if rematched.get("status") == "recognized":
+                    rematched["status"] = "review"
+                rematched["diagnostic_reason"] = (
+                    f"V-UNION : numéro {display_number} déduit des trois autres morceaux; validation requise"
+                )
+                group["matches"][match_index] = rematched
         statuses = [match.get("status") for match in group["matches"]]
         recognized_cards = []
         for match_index, match in enumerate(group["matches"]):
@@ -2691,6 +2933,8 @@ def _recognize_groups(
                     "score": match.get("score", 0.0),
                     "margin": match.get("margin", 0.0),
                     "not_in_drop_confidence": match.get("v13_not_in_drop_confidence") or "",
+                    "subcard_id": match.get("subcard_id"),
+                    "subcard_photos": match.get("subcard_photos") or {},
                 }
             )
         group["recognized_cards"] = recognized_cards
