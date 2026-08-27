@@ -245,15 +245,33 @@ def toggle_drop_card_posted(data, drop_id, card_key, posted=None):
     return False
 
 
-def launch_drop(data, drop_id):
+def launch_drop(data, drop_id, mode="workflow"):
+    """Launch a drop once, using the regular or manual publication workflow."""
     drop = find_drop(data, drop_id)
-    if not drop:
+    if not drop or drop.get("drop_launched_at"):
         return False
+    cards = drop.get("cards", []) or []
+    if not cards:
+        return False
+
+    mode = str(mode or "workflow").strip().lower()
+    if mode not in {"workflow", "manual"}:
+        return False
+    if mode == "manual" and not is_vinted_channel(drop.get("channel", "")):
+        return False
+
     now = _now_iso()
-    if not drop.get("drop_launched_at"):
-        drop["drop_launched_at"] = now
-    for ref in drop.get("cards", []):
-        if drop_item_status(ref) == "draft_ready":
+    drop["drop_launched_at"] = now
+    if mode == "manual":
+        # The listings already exist on Vinted: publish every unsold drop item
+        # directly, without manufacturing draft metadata.
+        drop["launch_mode"] = "manual"
+
+    for ref in cards:
+        status = drop_item_status(ref)
+        should_publish = mode == "manual" and status != "sold"
+        should_publish = should_publish or (mode == "workflow" and status == "draft_ready")
+        if should_publish:
             ref["status"] = "online"
             ref["online_at"] = ref.get("online_at") or now
             ref["listing_posted"] = True

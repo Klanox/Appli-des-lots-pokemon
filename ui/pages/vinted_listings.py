@@ -1669,30 +1669,92 @@ def _render_drop_placeholder(title, body):
     )
 
 
-def _render_launch_drop_panel(drops_data, active_drop, fp_func):
+def _drop_launch_value_summary(drop, available_cards):
+    resolved_cards, missing_cards = resolve_drop_cards_from_data(drop, available_cards)
+    total = 0.0
+    without_price = 0
+    for card in resolved_cards:
+        quantity = max(1, _safe_int(card.get("drop_quantity", card.get("quantity", 1)), 1))
+        price = _safe_float(suggested_price(card))
+        total += price * quantity
+        if price <= 0:
+            without_price += quantity
+    for ref in missing_cards:
+        quantity = max(1, _safe_int(ref.get("quantity"), 1))
+        price = _safe_float(ref.get("price_at_add"))
+        total += price * quantity
+        if price <= 0:
+            without_price += quantity
+    return total, without_price
+
+
+def _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func):
     counts = _drop_status_counts(active_drop)
     total_cards = sum(max(1, _safe_int(ref.get("quantity"), 1)) for ref in active_drop.get("cards", []) or [])
     ready = counts.get("draft_ready", 0)
-    online = counts.get("online", 0)
     st.markdown(f"**{ready} / {total_cards} brouillons prêts**")
     if active_drop.get("drop_launched_at"):
-        st.success(f"Drop lancé le {active_drop.get('drop_launched_at')}")
+        launch_mode = " · Publication manuelle" if active_drop.get("launch_mode") == "manual" else ""
+        st.success(f"🟢 Drop en ligne depuis le {active_drop.get('drop_launched_at')}{launch_mode}")
         return
-    if ready <= 0:
-        st.caption("Prépare au moins un brouillon avant de lancer le drop.")
-        return
-    with st.expander("🚀 Le drop est maintenant en ligne", expanded=False):
-        channel = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
+
+    channel = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
+    if ready > 0:
+        with st.expander("🚀 Le drop est maintenant en ligne", expanded=False):
+            st.write(f"Drop : **{active_drop.get('name', 'Drop sans nom')}**")
+            st.write(f"Canal : **{channel}**")
+            st.write(f"Brouillons prêts : **{ready}**")
+            confirm_key = f"confirm_launch_drop_{active_drop.get('id')}"
+            confirm = st.checkbox("Je confirme que ces brouillons sont en ligne", key=confirm_key)
+            if st.button("Confirmer le lancement", key=f"launch_drop_{active_drop.get('id')}", disabled=not confirm, width="stretch"):
+                if launch_drop(drops_data, active_drop.get("id"), mode="workflow"):
+                    save_vinted_drops(drops_data)
+                    st.success("Drop lancé.")
+                    st.rerun()
+    else:
+        st.caption("Aucun brouillon prêt pour le lancement classique.")
+
+    with st.expander("Publication manuelle", expanded=False):
+        st.caption("Les annonces ont été créées directement sur Vinted ? Marque le Drop comme publié pour démarrer son suivi.")
+        value, without_price = _drop_launch_value_summary(active_drop, available_cards)
         st.write(f"Drop : **{active_drop.get('name', 'Drop sans nom')}**")
         st.write(f"Canal : **{channel}**")
-        st.write(f"Brouillons prêts : **{ready}**")
-        confirm_key = f"confirm_launch_drop_{active_drop.get('id')}"
-        confirm = st.checkbox("Je confirme que ces brouillons sont en ligne", key=confirm_key)
-        if st.button("Confirmer le lancement", key=f"launch_drop_{active_drop.get('id')}", disabled=not confirm, width="stretch"):
-            if launch_drop(drops_data, active_drop.get("id")):
-                save_vinted_drops(drops_data)
-                st.success("Drop lancé.")
-                st.rerun()
+        st.write(f"Cartes concernées : **{total_cards}**")
+        st.write(f"Valeur publiée : **{fp_func(value) if value else 'à définir'}**")
+        if without_price:
+            st.caption(f"{without_price} carte(s) sans prix exploitable : elles seront publiées, mais exclues de la valeur calculée.")
+
+        can_launch = total_cards > 0 and channel != "Non défini"
+        if not can_launch:
+            st.warning("Renseigne un canal Vinted et ajoute au moins une carte au Drop avant de le publier.")
+        request_key = f"request_manual_launch_drop_{active_drop.get('id')}"
+        if st.button(
+            "🚀 Marquer le Drop comme publié",
+            key=f"manual_launch_drop_request_{active_drop.get('id')}",
+            disabled=not can_launch,
+            width="stretch",
+        ):
+            st.session_state[request_key] = True
+
+        if st.session_state.get(request_key):
+            st.info("Heure de lancement : maintenant. Les cartes non vendues passeront en ligne sans créer de brouillon.")
+            confirm_key = f"confirm_manual_launch_drop_{active_drop.get('id')}"
+            confirm = st.checkbox("Je confirme la mise en ligne manuelle de ce Drop", key=confirm_key)
+            if st.button(
+                "Confirmer la mise en ligne du Drop",
+                key=f"manual_launch_drop_confirm_{active_drop.get('id')}",
+                disabled=not confirm,
+                type="primary",
+                width="stretch",
+            ):
+                if launch_drop(drops_data, active_drop.get("id"), mode="manual"):
+                    save_vinted_drops(drops_data)
+                    st.session_state.pop(request_key, None)
+                    st.session_state.pop(confirm_key, None)
+                    st.success("Drop marqué comme publié.")
+                    st.rerun()
+                else:
+                    st.error("Le Drop ne peut pas être publié : vérifie son canal, ses cartes ou son état de lancement.")
 
 
 _DROP_PREPARATION_STATUSES = {"to_photograph", "needs_review", "sorted", "to_prepare"}
@@ -2254,8 +2316,10 @@ def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_i
 
     if not workflow_cards:
         st.caption("Aucune carte à préparer dans ce drop.")
-        _render_launch_drop_panel(drops_data, active_drop, fp_func)
+        _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
         return
+
+    _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
 
     if not _render_drop_photo_direction_choice(drops_data, active_drop, ready_qty):
         return
@@ -2322,7 +2386,6 @@ def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_i
         st.success("✅ Tous les brouillons sont prêts")
 
     _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_img_func, fp_func, mobile)
-    _render_launch_drop_panel(drops_data, active_drop, fp_func)
 
 
 def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
