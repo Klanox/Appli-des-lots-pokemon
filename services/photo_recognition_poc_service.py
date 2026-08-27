@@ -54,7 +54,7 @@ _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
-POC_MATCHING_REFRESH_VERSION = "v14.4-current-result-subcards-vunion-2"
+POC_MATCHING_REFRESH_VERSION = "v14.5-vunion-family-current-1"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1794,8 +1794,11 @@ def match_front_photo_orientation_aware(
     if not is_legend:
         base.setdefault("orientation_degrees", 0)
         if is_v_union:
-            base.setdefault("layout_type", "V_UNION")
-            base["special_layout"] = True
+            # V-UNION is a known multi-card layout, not a LEGEND/special-layout
+            # warning. Keeping the types exclusive prevents stale LEGEND badges.
+            base["layout_type"] = "V_UNION"
+            base["special_layout"] = False
+            base["v_union_layout"] = True
             edge_numbers = (base.get("ocr") or {}).get("v_union_edge_numbers") or []
             if edge_numbers:
                 base["v_union_edge_numbers"] = edge_numbers
@@ -1843,6 +1846,84 @@ def match_front_photo_orientation_aware(
         + str(selected.get("diagnostic_reason") or "vérification requise")
     )
     return selected
+
+
+def _is_v_union_candidate(candidate: dict[str, Any]) -> bool:
+    name = _fold_text(candidate.get("name") or "")
+    return "vunion" in name or "v union" in name
+
+
+def _v_union_family_for_group(
+    matches: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    primary_ocr: dict[str, Any] | None = None,
+) -> tuple[str, list[dict[str, Any]], str]:
+    """Select a V-UNION family from group-level evidence, conservatively."""
+    families: dict[str, list[dict[str, Any]]] = {}
+    family_labels: dict[str, str] = {}
+    for candidate in candidates:
+        if not _is_v_union_candidate(candidate):
+            continue
+        key = _fold_text(candidate.get("name") or "")
+        if not key:
+            continue
+        families.setdefault(key, []).append(candidate)
+        family_labels.setdefault(key, str(candidate.get("name") or ""))
+    if not families:
+        return "", [], "aucune famille V-UNION dans le Drop"
+    observed_numbers = {
+        _normalize_card_number(number)
+        for match in matches
+        for number in ((match.get("ocr") or {}).get("v_union_edge_numbers") or [])
+        if _normalize_card_number(number)
+    }
+    primary_names = list((primary_ocr or {}).get("name_texts") or [])
+    primary_raw = str((primary_ocr or {}).get("raw_text") or "")
+    ranked = []
+    for key, family_candidates in families.items():
+        family_numbers = {
+            _normalize_card_number(candidate.get("number") or "")
+            for candidate in family_candidates
+            if _normalize_card_number(candidate.get("number") or "")
+        }
+        exact_numbers = len(observed_numbers & family_numbers)
+        top_votes = 0
+        best_score = 0.0
+        for match in matches:
+            top = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+            if _fold_text(top.get("name") or "") == key:
+                top_votes += 1
+                best_score = max(best_score, _safe_float(match.get("score"), 0.0))
+        label = family_labels[key]
+        primary_name_score = max(
+            [_similarity(value, label) for value in primary_names]
+            + ([_similarity(primary_raw, label)] if primary_raw else [])
+            + [0.0]
+        )
+        ranked.append((exact_numbers, primary_name_score, top_votes, best_score, key))
+    ranked.sort(reverse=True)
+    best = ranked[0]
+    second = ranked[1] if len(ranked) > 1 else (0, 0.0, 0, 0.0, "")
+    if best[0] > second[0] and best[0] >= 1:
+        reason = f"famille confirmée par {best[0]} numéro(s) de bord"
+    elif best[1] >= 0.72 and best[1] > second[1] + 0.05:
+        reason = f"famille lue sur le recto commun ({best[1]:.0%})"
+    elif best[2] >= 2 and best[2] > second[2]:
+        reason = f"famille confirmée par {best[2]} sous-cartes"
+    else:
+        return "", [], "famille V-UNION ambiguë"
+    key = best[4]
+    return family_labels[key], families[key], reason
+
+
+def _preserve_physical_match_identity(target: dict[str, Any], source: dict[str, Any]) -> None:
+    target["photo"] = source.get("photo")
+    target["subcard_id"] = source.get("subcard_id")
+    target["subcard_photos"] = source.get("subcard_photos") or {}
+    target["physical_group_id"] = source.get("physical_group_id")
+    target["layout_type"] = "V_UNION"
+    target["special_layout"] = False
+    target["v_union_layout"] = True
 
 
 def _apply_v13_group_language_diagnostic(group: dict[str, Any]) -> None:
@@ -2791,7 +2872,6 @@ def _recognize_groups(
             if entry.get("photo") is not None
         ]
         physical_group_id = str(group.get("ground_truth_group_id") or stable_group_id_from_photos(group_photo_payloads))
-        v_union_family_hint = ""
         for match_index, match_entry in enumerate(match_entries):
             detail = detail_cards[match_index] if match_index < len(detail_cards) else {}
             back_entry = detail.get("back") if detail else group.get("group_back")
@@ -2804,7 +2884,6 @@ def _recognize_groups(
                     back_type=back_type,
                     ocr_payload_override=(cached_ocr_by_path or {}).get(match_entry["photo"].path),
                     layout_hint=group_layout_hint,
-                    family_hint=v_union_family_hint,
                 )
             else:
                 visual_matches = match_front_photo(
@@ -2835,25 +2914,58 @@ def _recognize_groups(
             match["subcard_photos"] = {"front": front_key, "back": back_key}
             match["physical_group_id"] = physical_group_id
             group["matches"].append(match)
-            if group_layout_hint == "V_UNION" and not v_union_family_hint:
-                top_candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
-                top_name = str(top_candidate.get("name") or "")
-                if "vunion" in _fold_text(top_name) and (
-                    (match.get("ocr") or {}).get("v_union_edge_numbers")
-                    or float(match.get("score") or 0.0) >= 72
-                ):
-                    v_union_family_hint = top_name
-                    group["v_union_family"] = top_name
-            if match.get("status") == "recognized" and match.get("candidates"):
+            if not group_layout_hint and match.get("status") == "recognized" and match.get("candidates"):
                 key = ((match["candidates"][0].get("candidate") or {}).get("drop_card_key") or "")
                 if key:
                     used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
-        if group_layout_hint == "V_UNION" and v_union_family_hint:
-            family_candidates = [
-                candidate
-                for candidate in candidates
-                if _fold_text(candidate.get("name") or "") == _fold_text(v_union_family_hint)
-            ]
+        if group_layout_hint == "V_UNION":
+            primary_ocr = (cached_ocr_by_path or {}).get(front["photo"].path) or run_ocr_for_photo(
+                front["photo"].path
+            )
+            v_union_family_hint, family_candidates, family_reason = _v_union_family_for_group(
+                group["matches"], candidates, primary_ocr
+            )
+            group["v_union_primary_ocr"] = primary_ocr
+            group["v_union_family"] = v_union_family_hint
+            group["v_union_family_reason"] = family_reason
+            if family_candidates:
+                rematched_children = []
+                for previous_match in group["matches"]:
+                    rematched = match_front_photo_ocr(
+                        previous_match["photo"].path,
+                        family_candidates,
+                        used_candidate_counts,
+                        back_type=back_type,
+                        ocr_payload_override=previous_match.get("ocr") or {},
+                        family_hint=v_union_family_hint,
+                    )
+                    _preserve_physical_match_identity(rematched, previous_match)
+                    rematched["v_union_family_reason"] = family_reason
+                    family_numbers = {
+                        _normalize_card_number(candidate.get("number") or "")
+                        for candidate in family_candidates
+                        if _normalize_card_number(candidate.get("number") or "")
+                    }
+                    edge_number_values = list(
+                        (previous_match.get("ocr") or {}).get("v_union_edge_numbers") or []
+                    )
+                    edge_numbers = {
+                        _normalize_card_number(number)
+                        for number in edge_number_values
+                        if _normalize_card_number(number)
+                    }
+                    if edge_numbers and not (edge_numbers & family_numbers):
+                        observed = ", ".join(sorted(set(map(str, edge_number_values))))
+                        rematched["status"] = "review"
+                        rematched["v13_not_in_drop_confidence"] = "strong"
+                        rematched["v14_same_name_version_absent"] = True
+                        rematched["v14_not_in_drop_diagnostic"] = "version_exacte_absente"
+                        rematched["diagnostic_reason"] = (
+                            f"même famille V-UNION, mais numéro {observed} absent du Drop"
+                        )
+                    rematched_children.append(rematched)
+                group["matches"] = rematched_children
+
             family_numbers = {
                 _normalize_card_number(candidate.get("number") or "")
                 for candidate in family_candidates
@@ -2885,18 +2997,13 @@ def _recognize_groups(
                 augmented_ocr["v_union_inferred_number"] = display_number
                 rematched = match_front_photo_ocr(
                     previous_match["photo"].path,
-                    candidates,
+                    family_candidates,
                     used_candidate_counts,
                     back_type=back_type,
                     ocr_payload_override=augmented_ocr,
                     family_hint=v_union_family_hint,
                 )
-                rematched["photo"] = previous_match["photo"]
-                rematched["subcard_id"] = previous_match.get("subcard_id")
-                rematched["subcard_photos"] = previous_match.get("subcard_photos") or {}
-                rematched["physical_group_id"] = previous_match.get("physical_group_id")
-                rematched["layout_type"] = "V_UNION"
-                rematched["special_layout"] = True
+                _preserve_physical_match_identity(rematched, previous_match)
                 rematched["v_union_inferred_number"] = display_number
                 if rematched.get("status") == "recognized":
                     rematched["status"] = "review"
@@ -2904,6 +3011,11 @@ def _recognize_groups(
                     f"V-UNION : numéro {display_number} déduit des trois autres morceaux; validation requise"
                 )
                 group["matches"][match_index] = rematched
+            for match in group["matches"]:
+                if match.get("status") == "recognized" and match.get("candidates"):
+                    key = ((match["candidates"][0].get("candidate") or {}).get("drop_card_key") or "")
+                    if key:
+                        used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
         statuses = [match.get("status") for match in group["matches"]]
         recognized_cards = []
         for match_index, match in enumerate(group["matches"]):

@@ -439,7 +439,11 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
                 or bool(source.get("jp_physical"))
                 or str(group.get("v13_back_type") or "").startswith("back_japanese")
             )
-            group_has_special = group_has_special or bool(match.get("special_layout"))
+            layout_type = str(match.get("layout_type") or "standard").upper()
+            group_has_special = group_has_special or (
+                layout_type in {"LEGEND_HALF", "UNKNOWN_SPECIAL"}
+                or (bool(match.get("special_layout")) and layout_type != "V_UNION")
+            )
             if match.get("v13_not_in_drop_confidence") == "strong":
                 group_not_in_drop_strong = True
             elif match.get("v13_not_in_drop_confidence") == "possible":
@@ -918,6 +922,46 @@ def _source_group(sample: dict, group_id: str) -> dict:
     return next((group for group in sample.get("groups", []) or [] if str(group.get("group_id")) == str(group_id)), {})
 
 
+def _sync_current_result_index(result: dict) -> dict:
+    """Expose one candidate/status object per physical subcard for every view."""
+    current_index = {}
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        matches = group.get("matches", []) or []
+        recognized_cards = group.get("recognized_cards", []) or []
+        for match_index, match in enumerate(matches):
+            subcard_id = _subcard_id(match, match_index)
+            key = f"{group_id}:{subcard_id}"
+            if key in current_index:
+                raise ValueError(f"Sous-carte physique dupliquée dans le résultat courant : {key}")
+            candidate = _match_candidate(match)
+            current_status = (
+                "not_in_drop" if match.get("v13_not_in_drop_confidence") else str(match.get("status") or "fail")
+            )
+            current_index[key] = {
+                "group_id": group_id,
+                "subcard_id": subcard_id,
+                "candidate_card_uid": str(candidate.get("card_uid") or ""),
+                "status": current_status,
+                "layout": str(match.get("layout_type") or "standard"),
+                "not_in_drop": str(match.get("v13_not_in_drop_confidence") or ""),
+            }
+            if match_index < len(recognized_cards):
+                recognized_cards[match_index]["candidate"] = candidate or None
+                recognized_cards[match_index]["status"] = current_status
+                recognized_cards[match_index]["not_in_drop_confidence"] = str(
+                    match.get("v13_not_in_drop_confidence") or ""
+                )
+                recognized_cards[match_index]["subcard_id"] = subcard_id
+        if len(recognized_cards) != len(matches):
+            raise ValueError(
+                f"Structure multi incohérente pour {group_id}: {len(matches)} match(es), "
+                f"{len(recognized_cards)} sous-carte(s)"
+            )
+    result["current_match_index"] = current_index
+    return current_index
+
+
 def _move_photo(sample: dict, group_index: int, photo_index: int, direction: int):
     groups = sample.get("groups", [])
     target_index = group_index + direction
@@ -1253,6 +1297,13 @@ def _recognition_validation(sample: dict, group_id: str, match_index: int, match
             bound_subcard = str(legacy_validation.get("subcard_id") or "")
             if bound_subcard and bound_subcard != stable_key:
                 return {}
+            # A numeric child index is not a physical identity. On a multi-card
+            # group it may move after a refresh, so only accept it when it carries
+            # matching photo evidence (or has already been bound above).
+            is_multi_group = int(group.get("expected_cards") or 1) > 1
+            if not bound_subcard and is_multi_group:
+                if not _same_physical_subcard(legacy_validation, match):
+                    return {}
             return legacy_validation
     return {}
 
@@ -1355,7 +1406,9 @@ def _migrate_semantic_validation_baseline(sample_key: str, sample: dict, result:
                     None,
                 )
             if not isinstance(validation, dict):
-                validation = validations.get(str(index))
+                numeric_validation = validations.get(str(index))
+                if len(matches) == 1 or _same_physical_subcard(numeric_validation or {}, match):
+                    validation = numeric_validation
             if not isinstance(validation, dict) or not validation.get("status"):
                 continue
             if stable_id not in validations:
@@ -2125,9 +2178,15 @@ def _sensitive_reasons(group: dict) -> list[str]:
         or str(group.get("v13_back_type") or "").startswith("back_japanese")
     )
     has_special_layout = any(
-        bool(match.get("special_layout"))
-        or str(match.get("layout_type") or "standard") != "standard"
-        or int(match.get("orientation_degrees") or 0) != 0
+        str(match.get("layout_type") or "standard").upper() in {"LEGEND_HALF", "UNKNOWN_SPECIAL"}
+        or (
+            bool(match.get("special_layout"))
+            and str(match.get("layout_type") or "standard").upper() != "V_UNION"
+        )
+        or (
+            int(match.get("orientation_degrees") or 0) != 0
+            and str(match.get("layout_type") or "standard").upper() != "V_UNION"
+        )
         for match in matches
     )
     has_not_in_drop = any(bool(match.get("v13_not_in_drop_confidence")) for match in matches)
@@ -2225,13 +2284,15 @@ def _sensitive_groups(
         if stale_only:
             if not is_stale:
                 continue
-        elif not reasons:
+        elif not reasons and not is_stale:
             continue
-        if not include_resolved and _recognition_is_resolved_correct(
+        resolved_correct = _recognition_is_resolved_correct(
             sample,
             _result_group_id(group),
             group.get("matches", []) or [],
-        ):
+        )
+        has_current_structural_issue = "GROUPING" in reasons
+        if not include_resolved and resolved_correct and not has_current_structural_issue and not is_stale:
             continue
         if filter_name != "Tous":
             expected_reason = {
@@ -2344,6 +2405,8 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
 
     st.markdown(f"### Cas sensible — {current_index + 1} / {len(groups)}")
     reasons = _sensitive_reasons(group)
+    if _group_has_stale_validation(sample, group):
+        reasons = [*reasons, "PROPOSITION MODIFIÉE"]
     badges = " · ".join(reasons)
     st.caption(
         f"Annonce #{group.get('announcement_index')} · {badges} · "
@@ -2707,6 +2770,7 @@ if sample_key in (ground_truth.get("samples") or {}):
 sample = _load_sample(sample_key)
 sample = _migrate_semantic_validation_baseline(sample_key, sample, result)
 _apply_v10_ground_truth_overlay(result, sample)
+_sync_current_result_index(result)
 metrics = result["metrics"]
 drop = result.get("drop") or {}
 
