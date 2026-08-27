@@ -247,7 +247,9 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
                 continue
             merged[key] = card.get(key)
         merged.setdefault("lot_name", (card or {}).get("lot_name", ""))
-        merged.setdefault("identity_fingerprint", card_identity_fingerprint(merged))
+        # Identity corrections in Lots apply to the live card.  A Drop keeps its
+        # workflow fields, but must not keep an obsolete identity fingerprint.
+        merged["identity_fingerprint"] = card_identity_fingerprint(merged)
         merged["_drop_card_key"] = drop_card_key(merged)
         key = merged.get("_drop_card_key")
         if key in seen_keys:

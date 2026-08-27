@@ -293,7 +293,8 @@ def resolve_drop_cards_from_data(drop, available_cards):
             enriched["photo_order"] = ref.get("photo_order", "")
             enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
             enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
-            enriched["identity_fingerprint"] = ref.get("identity_fingerprint") or card_identity_fingerprint(enriched)
+            # The source card remains authoritative for visible identity fields.
+            enriched["identity_fingerprint"] = card_identity_fingerprint(enriched)
             enriched["_drop_available"] = True
             if ref.get("display_number"):
                 enriched["display_number"] = ref.get("display_number")

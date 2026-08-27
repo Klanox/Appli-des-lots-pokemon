@@ -11,7 +11,8 @@ import os
 import re
 
 from core.brocante import lot_reimbursement
-from services.custom_card_image_service import register_custom_card_image, resolve_custom_card_image
+from services.card_identity import card_identity_fingerprint
+from services.custom_card_image_service import is_custom_image_ref, register_custom_card_image, resolve_custom_card_image
 from ui.badges import card_is_japanese, card_variant_badges, status_badge
 from ui.lot_image_upload_bridge import render_lot_image_upload_bridge
 from ui.mobile_scan import render_assisted_scan
@@ -889,6 +890,84 @@ def render_lots_page(context):
                     register_custom_card_image(cdd["lots"][ix]["cards"][real_cix], image_ref, source="lots_upload")
                     sd(cdd)
                     return True, "Image mise à jour."
+
+                def update_card_identity(
+                    *,
+                    card_uid,
+                    card_idx,
+                    name,
+                    number,
+                    set_name,
+                    refresh_official_image=False,
+                ):
+                    """Correct visible identity only; stock and economic history stay untouched."""
+                    cdd = ld()
+                    _li, _ci, _lot, target_card = resolve_card_ref(
+                        cdd,
+                        {
+                            "lot_idx": ix,
+                            "card_idx": card_idx,
+                            "lot_uid": lt.get("lot_uid"),
+                            "card_uid": card_uid,
+                        },
+                    )
+                    if target_card is None:
+                        return False, "Carte introuvable.", False, False
+
+                    # A registry-only custom image would otherwise stop resolving
+                    # after its identity fingerprint changes. Keep its explicit ref.
+                    existing_image = str(target_card.get("image_url") or "").strip()
+                    resolved_custom_image = resolve_custom_card_image(target_card)
+                    if not existing_image and is_custom_image_ref(resolved_custom_image):
+                        target_card["image_url"] = resolved_custom_image
+                        existing_image = resolved_custom_image
+
+                    target_card["name"] = str(name or "").strip()
+                    target_card["number"] = str(number or "").strip()
+                    target_card["set"] = str(set_name or "").strip()
+                    target_card["identity_fingerprint"] = card_identity_fingerprint(target_card)
+
+                    image_updated = False
+                    current_image = existing_image
+                    if refresh_official_image and not is_custom_image_ref(current_image):
+                        try:
+                            wanted_name = normalize_name(target_card.get("name", ""))
+                            wanted_number = str(target_card.get("number", "") or "").strip()
+                            wanted_set = normalize_name(target_card.get("set", ""))
+                            candidates = search_in_cache(target_card.get("name", ""), wanted_number)
+                            exact_match = next(
+                                (
+                                    (candidate, candidate_set)
+                                    for candidate, candidate_set in candidates
+                                    if normalize_name(candidate.get("name", "")) == wanted_name
+                                    and str(candidate.get("localId") or candidate.get("number") or "").strip() == wanted_number
+                                    and (not wanted_set or normalize_name(candidate_set) == wanted_set)
+                                ),
+                                None,
+                            )
+                            if exact_match:
+                                enriched = ecd(
+                                    exact_match[0],
+                                    exact_match[1],
+                                    lang="ja" if card_is_japanese(target_card) else "fr",
+                                )
+                                official_image = str(enriched.get("image_url") or "").strip()
+                                if official_image:
+                                    target_card["image_url"] = official_image
+                                    target_card["image_url_en"] = str(enriched.get("image_url_en") or "").strip()
+                                    target_card["id"] = enriched.get("id") or target_card.get("id", "")
+                                    image_updated = True
+                        except Exception:
+                            # The manual image action remains available when no exact local reference exists.
+                            image_updated = False
+
+                    duplicate_exists = any(
+                        other.get("card_uid") != target_card.get("card_uid")
+                        and card_identity_fingerprint(other) == target_card["identity_fingerprint"]
+                        for other in (_lot or {}).get("cards", []) or []
+                    )
+                    sd(cdd)
+                    return True, "Identité enregistrée.", duplicate_exists, image_updated
                 
                 def render_card_grid(card_list_with_idx, sold=False, collection=False, storage=False, grid_scope="active", row_index_offset=0):
                     safe_lot_key = str(lt.get("lot_uid") or ix).replace(" ", "_").replace("/", "_")
@@ -1063,6 +1142,81 @@ def render_lots_page(context):
                                             args=(not japanese_value,),
                                             help="Indique uniquement que la carte physique est japonaise. Ne change pas la recherche, l'image, le nom, le numéro ou le prix.",
                                         )
+
+                                    with st.expander("Corriger l'identité", expanded=False):
+                                        st.caption("Corrige les métadonnées visibles sans recréer la carte ni modifier son historique.")
+                                        identity_name = st.text_input(
+                                            "Nom",
+                                            value=str(crd.get("name") or ""),
+                                            key=f"identity_name_{widget_key}",
+                                        )
+                                        identity_number = st.text_input(
+                                            "Numéro",
+                                            value=str(crd.get("number") or ""),
+                                            key=f"identity_number_{widget_key}",
+                                        )
+                                        identity_set = st.text_input(
+                                            "Set / extension",
+                                            value=str(crd.get("set") or ""),
+                                            key=f"identity_set_{widget_key}",
+                                        )
+
+                                        identity_draft = dict(crd)
+                                        identity_draft.update(
+                                            name=identity_name.strip(),
+                                            number=identity_number.strip(),
+                                            set=identity_set.strip(),
+                                        )
+                                        draft_fingerprint = card_identity_fingerprint(identity_draft)
+                                        duplicate = next(
+                                            (
+                                                other
+                                                for other in lt.get("cards", []) or []
+                                                if other.get("card_uid") != crd.get("card_uid")
+                                                and card_identity_fingerprint(other) == draft_fingerprint
+                                            ),
+                                            None,
+                                        )
+                                        if duplicate:
+                                            st.warning(
+                                                "Cette correction correspond déjà à "
+                                                f"{duplicate.get('name', 'une autre carte')} · "
+                                                f"{duplicate.get('number', '')}. Les entrées resteront séparées."
+                                            )
+
+                                        current_identity_image = crd.get("image_url") or resolve_custom_card_image(crd)
+                                        if current_identity_image:
+                                            st.image(proxy_img(current_identity_image), width=108, caption="Image actuelle")
+                                        st.markdown(
+                                            '<button type="button" class="ps-lot-inline-image-btn" '
+                                            f'data-lot-idx="{ix}" data-card-idx="{real_cix}" '
+                                            'title="Remplacer l’image" aria-label="Remplacer l’image">🖼️ Remplacer l’image</button>',
+                                            unsafe_allow_html=True,
+                                        )
+                                        if is_custom_image_ref(str(crd.get("image_url") or "")):
+                                            st.caption("Image personnalisée conservée. Elle ne sera jamais remplacée automatiquement.")
+                                        else:
+                                            st.caption("Une image officielle exacte sera recherchée lors de l'enregistrement si elle existe dans le cache local.")
+
+                                        if st.button("Enregistrer l'identité", key=f"save_identity_{widget_key}", width="stretch"):
+                                            ok, message, has_duplicate, image_updated = update_card_identity(
+                                                card_uid=crd.get("card_uid"),
+                                                card_idx=real_cix,
+                                                name=identity_name,
+                                                number=identity_number,
+                                                set_name=identity_set,
+                                                refresh_official_image=True,
+                                            )
+                                            if ok:
+                                                if has_duplicate:
+                                                    st.warning("Identité mise à jour : un doublon existe, aucune fusion n'a été effectuée.")
+                                                elif image_updated:
+                                                    st.success("Identité et image officielle mises à jour.")
+                                                else:
+                                                    st.success(message)
+                                                st.rerun()
+                                            else:
+                                                st.error(message)
 
                                     if not is_sold_card and not is_collection_card:
                                         min_total_quantity = max(
