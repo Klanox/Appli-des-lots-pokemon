@@ -1212,6 +1212,24 @@ def _proposal_signature(match: dict | None) -> str:
     ).hexdigest()
 
 
+def _current_proposal_snapshot(result: dict) -> dict:
+    """Capture only semantic proposal state before a candidate refresh.
+
+    Scores, OCR wording and run metadata intentionally do not belong here: a
+    candidate needs revalidation only when its identity/status/variant or its
+    physical multi-card structure actually changes.
+    """
+    subcards = {}
+    group_counts = {}
+    for group in result.get("groups", []) or []:
+        group_id = _result_group_id(group)
+        matches = group.get("matches", []) or []
+        group_counts[group_id] = len(matches)
+        for index, match in enumerate(matches):
+            subcards[f"{group_id}:{_subcard_id(match, index)}"] = _semantic_proposal(match)
+    return {"subcards": subcards, "group_counts": group_counts}
+
+
 def _subcard_id(match: dict | None, match_index: int | None = None) -> str:
     match = match or {}
     photos = match.get("subcard_photos") or {}
@@ -1462,6 +1480,9 @@ def _proposal_change_reason(before: dict, after: dict, *, structure_changed=Fals
 
 def _proposal_change_rows(sample: dict, result: dict) -> list[dict]:
     rows = []
+    refresh_snapshot = ((result.get("analysis_meta") or {}).get("proposal_snapshot_previous") or {})
+    previous_subcards = refresh_snapshot.get("subcards") or {}
+    previous_group_counts = refresh_snapshot.get("group_counts") or {}
     for group in result.get("groups", []) or []:
         group_id = _result_group_id(group)
         source = _source_group(sample, group_id)
@@ -1471,7 +1492,11 @@ def _proposal_change_rows(sample: dict, result: dict) -> list[dict]:
         legacy_current_ids = [_legacy_front_subcard_id(match) for match in matches]
         previous_ids = source.get("semantic_subcard_ids")
         previous_id_set = set(map(str, previous_ids)) if isinstance(previous_ids, list) else set()
-        structure_changed = (
+        refresh_structure_changed = (
+            group_id in previous_group_counts
+            and int(previous_group_counts[group_id]) != len(matches)
+        )
+        structure_changed = refresh_structure_changed or (
             previous_count is not None
             and int(previous_count) != len(matches)
         ) or (
@@ -1482,10 +1507,25 @@ def _proposal_change_rows(sample: dict, result: dict) -> list[dict]:
         for index, match in enumerate(matches):
             validation = _recognition_validation(sample, group_id, index, match)
             state = _validation_state(validation, match)
-            if state.get("state") != "stale" and not structure_changed:
-                continue
-            before = validation.get("semantic_proposal") or {}
             after = _semantic_proposal(match)
+            snapshot_key = f"{group_id}:{_subcard_id(match, index)}"
+            has_refresh_before = snapshot_key in previous_subcards
+            before = previous_subcards.get(snapshot_key) if has_refresh_before else (validation.get("semantic_proposal") or {})
+            semantic_changed = before != after
+            if has_refresh_before:
+                if not semantic_changed and not refresh_structure_changed:
+                    # A second identical refresh must not enqueue compatible
+                    # proposals, but it must keep a genuinely stale human
+                    # validation visible until that exact proposal is checked.
+                    if state.get("state") != "stale":
+                        continue
+                    before = validation.get("semantic_proposal") or before
+                # Once the current proposal has been checked, it no longer
+                # belongs in the targeted revalidation queue.
+                if state.get("state") in {"compatible", "explicit_truth"} and not refresh_structure_changed:
+                    continue
+            elif state.get("state") != "stale" and not structure_changed:
+                continue
             rows.append({
                 "group": group,
                 "group_id": group_id,
@@ -2227,11 +2267,13 @@ def _format_semantic_proposal(proposal: dict) -> str:
     proposal = proposal or {}
     card_uid = str(proposal.get("candidate_card_uid") or "").strip()
     status = str(proposal.get("candidate_status") or "fail")
+    # The candidate object is the current rendering source. A stale historical
+    # not_in_drop status must never hide it as "Aucun candidat".
+    if card_uid:
+        return f"{card_uid} ({status})"
     if status == "not_in_drop":
         return "Aucun candidat dans le Drop"
-    if not card_uid:
-        return f"Aucun candidat ({status})"
-    return f"{card_uid} ({status})"
+    return f"Aucun candidat ({status})"
 
 
 @st.fragment
@@ -2250,6 +2292,9 @@ def _render_changed_proposals_view(sample_key: str, sample: dict, result: dict):
     group_id = change["group_id"]
     match_index = change["match_index"]
     match = (group.get("matches") or [{}])[match_index]
+    # ``after`` and the large card below must come from the same current match.
+    # This avoids displaying an old not-in-Drop label beside a new candidate.
+    change = {**change, "after": _semantic_proposal(match)}
     st.caption(f"Annonce #{group.get('announcement_index')} · sous-carte {match_index + 1} · raison : {change['reason']}")
     before_col, after_col = st.columns(2)
     before_col.info("Avant : " + _format_semantic_proposal(change["before"]))
@@ -2757,7 +2802,9 @@ if st.button(
     help="Relit uniquement les candidats du Drop et recalcule leur matching. Aucun OCR ni grouping n'est relancé.",
 ):
     with st.spinner("Actualisation des candidats et des propositions..."):
+        previous_snapshot = _current_proposal_snapshot(result)
         result = refresh_result_candidates(result, drop_id=selected_drop_id)
+        result.setdefault("analysis_meta", {})["proposal_snapshot_previous"] = previous_snapshot
         st.session_state[CURRENT_RESULT_KEY] = result
     st.toast(
         f"Drop actualisé : {len(result.get('candidates', []) or [])} cartes · "

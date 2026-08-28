@@ -58,7 +58,7 @@ _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
-POC_MATCHING_REFRESH_VERSION = "v14.5-vunion-family-current-1"
+POC_MATCHING_REFRESH_VERSION = "v14.6-candidate-index-vunion-series-1"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -1839,22 +1839,180 @@ def _is_v_union_candidate(candidate: dict[str, Any]) -> bool:
     return "vunion" in name or "v union" in name
 
 
+def _candidate_number_index(candidates: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        number = _normalize_card_number(candidate.get("number") or "")
+        if number:
+            index.setdefault(number, []).append(candidate)
+    return index
+
+
+def _v_union_series_index(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group V-UNION candidates by their real contiguous number series.
+
+    A Pokémon can have several V-UNION releases with the same name.  The
+    number series is therefore part of the family identity, not just its name.
+    """
+    buckets: dict[tuple[str, str, bool, str], list[tuple[int, dict[str, Any]]]] = {}
+    unnumbered: dict[tuple[str, str, bool], list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        if not _is_v_union_candidate(candidate):
+            continue
+        base = (
+            _fold_text(candidate.get("name") or ""),
+            _fold_text(candidate.get("set") or ""),
+            bool(candidate.get("japanese")),
+        )
+        number = _normalize_card_number(candidate.get("number") or "")
+        match = re.fullmatch(r"([A-Z]*)(\d+)", number)
+        if not match:
+            unnumbered.setdefault(base, []).append(candidate)
+            continue
+        prefix, value = match.groups()
+        buckets.setdefault((*base, prefix), []).append((int(value), candidate))
+
+    families = []
+    for (*base, prefix), numbered in buckets.items():
+        by_number: dict[int, list[dict[str, Any]]] = {}
+        for value, candidate in numbered:
+            by_number.setdefault(value, []).append(candidate)
+        series: list[list[int]] = []
+        for value in sorted(by_number):
+            if not series or value - series[-1][-1] > 4:
+                series.append([value])
+            else:
+                series[-1].append(value)
+        for values in series:
+            family_candidates = [
+                candidate
+                for value in values
+                for candidate in by_number[value]
+            ]
+            numbers = sorted(
+                {
+                    _normalize_card_number(candidate.get("number") or "")
+                    for candidate in family_candidates
+                    if _normalize_card_number(candidate.get("number") or "")
+                }
+            )
+            first = f"{prefix}{values[0]}"
+            last = f"{prefix}{values[-1]}"
+            label = str(family_candidates[0].get("name") or "V-UNION")
+            families.append(
+                {
+                    "key": "|".join([*map(str, base), prefix, str(values[0]), str(values[-1])]),
+                    "label": f"{label} · {first}–{last}",
+                    "name_key": base[0],
+                    "candidates": family_candidates,
+                    "numbers": numbers,
+                }
+            )
+
+    for base, family_candidates in unnumbered.items():
+        matching = [family for family in families if family.get("name_key") == base[0]]
+        if len(matching) == 1:
+            matching[0]["candidates"].extend(family_candidates)
+            matching[0]["numbers"] = sorted(
+                {
+                    _normalize_card_number(candidate.get("number") or "")
+                    for candidate in matching[0]["candidates"]
+                    if _normalize_card_number(candidate.get("number") or "")
+                }
+            )
+        else:
+            families.append(
+                {
+                    "key": "|".join([*map(str, base), "unnumbered"]),
+                    "label": str(family_candidates[0].get("name") or "V-UNION"),
+                    "name_key": base[0],
+                    "candidates": family_candidates,
+                    "numbers": [],
+                }
+            )
+    return families
+
+
+def _candidate_indexes(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "by_card_uid": {
+            str(candidate.get("card_uid") or ""): candidate
+            for candidate in candidates
+            if str(candidate.get("card_uid") or "")
+        },
+        "by_number": _candidate_number_index(candidates),
+        "v_union_families": _v_union_series_index(candidates),
+    }
+
+
+def _candidate_index_debug(indexes: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "numbers": {
+            number: [
+                {
+                    "card_uid": candidate.get("card_uid", ""),
+                    "name": candidate.get("name", ""),
+                    "number": candidate.get("number", ""),
+                    "set": candidate.get("set", ""),
+                    "drop_card_key": candidate.get("drop_card_key", ""),
+                    "identity_fingerprint": candidate.get("identity_fingerprint", ""),
+                }
+                for candidate in rows
+            ]
+            for number, rows in (indexes.get("by_number") or {}).items()
+        },
+        "v_union_families": [
+            {
+                "key": family.get("key", ""),
+                "label": family.get("label", ""),
+                "numbers": list(family.get("numbers") or []),
+                "candidates": [
+                    {
+                        "card_uid": candidate.get("card_uid", ""),
+                        "number": candidate.get("number", ""),
+                        "set": candidate.get("set", ""),
+                        "drop_card_key": candidate.get("drop_card_key", ""),
+                    }
+                    for candidate in family.get("candidates", [])
+                ],
+            }
+            for family in indexes.get("v_union_families", [])
+        ],
+    }
+
+
+def _ocr_with_v_union_edge_numbers(ocr: dict[str, Any] | None) -> dict[str, Any]:
+    """Promote V-UNION edge numbers to the normal collector-number signal.
+
+    V-UNION pieces put their reference on different borders.  OCR already
+    discovers those values, but the generic scorer only reads the collector
+    number fields.  Keeping the raw edge values and adding them to those
+    fields lets the existing scorer prefer SWSH287 over another Morpeko
+    V-UNION series without special-case card names.
+    """
+    payload = dict(ocr or {})
+    edge_numbers = [
+        str(value)
+        for value in (payload.get("v_union_edge_numbers") or [])
+        if _normalize_card_number(value)
+    ]
+    if not edge_numbers:
+        return payload
+    for field in ("number_texts", "collector_number_texts", "all_number_texts"):
+        payload[field] = sorted({*map(str, payload.get(field) or []), *edge_numbers})
+    return payload
+
+
 def _v_union_family_for_group(
     matches: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
     primary_ocr: dict[str, Any] | None = None,
+    *,
+    candidate_indexes: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]], str]:
     """Select a V-UNION family from group-level evidence, conservatively."""
-    families: dict[str, list[dict[str, Any]]] = {}
-    family_labels: dict[str, str] = {}
-    for candidate in candidates:
-        if not _is_v_union_candidate(candidate):
-            continue
-        key = _fold_text(candidate.get("name") or "")
-        if not key:
-            continue
-        families.setdefault(key, []).append(candidate)
-        family_labels.setdefault(key, str(candidate.get("name") or ""))
+    indexes = candidate_indexes or _candidate_indexes(candidates)
+    families = list(indexes.get("v_union_families") or [])
     if not families:
         return "", [], "aucune famille V-UNION dans le Drop"
     observed_numbers = {
@@ -1866,40 +2024,40 @@ def _v_union_family_for_group(
     primary_names = list((primary_ocr or {}).get("name_texts") or [])
     primary_raw = str((primary_ocr or {}).get("raw_text") or "")
     ranked = []
-    for key, family_candidates in families.items():
-        family_numbers = {
-            _normalize_card_number(candidate.get("number") or "")
-            for candidate in family_candidates
-            if _normalize_card_number(candidate.get("number") or "")
-        }
+    for family in families:
+        family_candidates = family.get("candidates") or []
+        family_numbers = set(family.get("numbers") or [])
         exact_numbers = len(observed_numbers & family_numbers)
         top_votes = 0
         best_score = 0.0
         for match in matches:
             top = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
-            if _fold_text(top.get("name") or "") == key:
+            if any(
+                str(top.get("card_uid") or "") == str(candidate.get("card_uid") or "")
+                for candidate in family_candidates
+            ):
                 top_votes += 1
                 best_score = max(best_score, _safe_float(match.get("score"), 0.0))
-        label = family_labels[key]
+        label = str(family.get("label") or "")
         primary_name_score = max(
             [_similarity(value, label) for value in primary_names]
             + ([_similarity(primary_raw, label)] if primary_raw else [])
             + [0.0]
         )
-        ranked.append((exact_numbers, primary_name_score, top_votes, best_score, key))
+        ranked.append((exact_numbers, primary_name_score, top_votes, best_score, str(family.get("key") or ""), family))
     ranked.sort(reverse=True)
     best = ranked[0]
-    second = ranked[1] if len(ranked) > 1 else (0, 0.0, 0, 0.0, "")
+    second = ranked[1] if len(ranked) > 1 else (0, 0.0, 0, 0.0, "", {})
     if best[0] > second[0] and best[0] >= 1:
         reason = f"famille confirmée par {best[0]} numéro(s) de bord"
-    elif best[1] >= 0.72 and best[1] > second[1] + 0.05:
+    elif len(families) == 1 and best[1] >= 0.72:
         reason = f"famille lue sur le recto commun ({best[1]:.0%})"
     elif best[2] >= 2 and best[2] > second[2]:
         reason = f"famille confirmée par {best[2]} sous-cartes"
     else:
         return "", [], "famille V-UNION ambiguë"
-    key = best[4]
-    return family_labels[key], families[key], reason
+    family = best[5]
+    return str(family.get("label") or ""), list(family.get("candidates") or []), reason
 
 
 def _preserve_physical_match_identity(target: dict[str, Any], source: dict[str, Any]) -> None:
@@ -2811,9 +2969,12 @@ def _recognize_groups(
     *,
     force_grouping_trust=False,
     cached_ocr_by_path: dict[str, dict[str, Any]] | None = None,
+    candidate_indexes: dict[str, Any] | None = None,
 ) -> tuple[bool, str, int]:
     ocr_available, ocr_note = _ocr_status()
     reference_features = {} if ocr_available else build_reference_features(candidates)
+    candidate_indexes = candidate_indexes or _candidate_indexes(candidates)
+    candidate_numbers = set((candidate_indexes.get("by_number") or {}).keys())
     used_candidate_counts = {}
     for group in groups:
         front = group.get("primary_front")
@@ -2909,11 +3070,23 @@ def _recognize_groups(
                 front["photo"].path
             )
             v_union_family_hint, family_candidates, family_reason = _v_union_family_for_group(
-                group["matches"], candidates, primary_ocr
+                group["matches"],
+                candidates,
+                primary_ocr,
+                candidate_indexes=candidate_indexes,
             )
             group["v_union_primary_ocr"] = primary_ocr
             group["v_union_family"] = v_union_family_hint
             group["v_union_family_reason"] = family_reason
+            group["v_union_family_candidates"] = [
+                {
+                    "card_uid": candidate.get("card_uid", ""),
+                    "number": candidate.get("number", ""),
+                    "set": candidate.get("set", ""),
+                    "drop_card_key": candidate.get("drop_card_key", ""),
+                }
+                for candidate in family_candidates
+            ]
             if family_candidates:
                 rematched_children = []
                 for previous_match in group["matches"]:
@@ -2922,7 +3095,7 @@ def _recognize_groups(
                         family_candidates,
                         used_candidate_counts,
                         back_type=back_type,
-                        ocr_payload_override=previous_match.get("ocr") or {},
+                        ocr_payload_override=_ocr_with_v_union_edge_numbers(previous_match.get("ocr")),
                         family_hint=v_union_family_hint,
                     )
                     _preserve_physical_match_identity(rematched, previous_match)
@@ -2940,7 +3113,13 @@ def _recognize_groups(
                         for number in edge_number_values
                         if _normalize_card_number(number)
                     }
-                    if edge_numbers and not (edge_numbers & family_numbers):
+                    current_number_exists = bool(edge_numbers & candidate_numbers)
+                    if current_number_exists:
+                        rematched.pop("v13_not_in_drop_confidence", None)
+                        rematched.pop("v14_same_name_version_absent", None)
+                        rematched.pop("v14_not_in_drop_diagnostic", None)
+                        rematched["v14_candidate_number_guard"] = "numéro V-UNION présent dans l'index candidat courant"
+                    elif edge_numbers and not (edge_numbers & family_numbers):
                         observed = ", ".join(sorted(set(map(str, edge_number_values))))
                         rematched["status"] = "review"
                         rematched["v13_not_in_drop_confidence"] = "strong"
@@ -3290,7 +3469,12 @@ def analyze_sample(
     grouping_started = time.perf_counter()
     groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
     grouping_duration = time.perf_counter() - grouping_started
-    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(groups, candidates)
+    candidate_indexes = _candidate_indexes(candidates)
+    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(
+        groups,
+        candidates,
+        candidate_indexes=candidate_indexes,
+    )
     duration = time.perf_counter() - started
     metrics = _metrics_for_groups(
         ordered=ordered,
@@ -3321,10 +3505,35 @@ def analyze_sample(
         "ordered_photos": ordered,
         "sample_photos": photo_window,
         "candidates": candidates,
+        "candidate_indexes": _candidate_index_debug(candidate_indexes),
         "groups": groups,
         "classifications": classifications,
         "metrics": metrics,
     }
+
+
+_CANDIDATE_DERIVED_GROUP_FIELDS = (
+    "matches",
+    "recognized_cards",
+    "confidence_level",
+    "v_union_primary_ocr",
+    "v_union_family",
+    "v_union_family_reason",
+    "v_union_family_candidates",
+    "v13_back_type",
+    "v13_back_reason",
+    "v13_back_scores",
+    "v13_japanese_candidate",
+    "v13_japanese_top_candidate",
+    "v13_language_conflict",
+)
+
+
+def _clear_candidate_derived_group_state(groups: list[dict[str, Any]]) -> None:
+    """Clear only match data; grouping, photos and cached OCR remain intact."""
+    for group in groups:
+        for field in _CANDIDATE_DERIVED_GROUP_FIELDS:
+            group.pop(field, None)
 
 
 def refresh_result_candidates(
@@ -3350,19 +3559,31 @@ def refresh_result_candidates(
     current_signature = candidate_set_signature(candidates)
     cached_ocr_by_path = {}
     for group in result.get("groups", []) or []:
+        primary = group.get("primary_front") or {}
+        primary_photo = primary.get("photo")
+        primary_ocr = group.get("v_union_primary_ocr")
+        if primary_photo and isinstance(primary_ocr, dict):
+            cached_ocr_by_path[str(primary_photo.path)] = primary_ocr
         for match in group.get("matches", []) or []:
             photo = match.get("photo")
             if photo and isinstance(match.get("ocr"), dict):
                 cached_ocr_by_path[str(photo.path)] = match["ocr"]
 
+    candidate_indexes = _candidate_indexes(candidates)
+    # A refresh is deliberately a new matching snapshot.  Do not let an old
+    # V-UNION family, not-in-Drop diagnostic or recognised-card projection
+    # survive beside freshly resolved Drop identities.
+    _clear_candidate_derived_group_state(result.get("groups", []) or [])
     ocr_available, ocr_note, reference_images_loaded = _recognize_groups(
         result.get("groups", []) or [],
         candidates,
         cached_ocr_by_path=cached_ocr_by_path,
+        candidate_indexes=candidate_indexes,
     )
     duration = time.perf_counter() - started
     result["drop"] = drop
     result["candidates"] = candidates
+    result["candidate_indexes"] = _candidate_index_debug(candidate_indexes)
     meta = result.setdefault("analysis_meta", {})
     meta["candidate_signature_previous"] = previous_signature
     meta["candidate_signature"] = current_signature
