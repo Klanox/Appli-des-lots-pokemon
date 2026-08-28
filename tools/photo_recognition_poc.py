@@ -150,10 +150,9 @@ st.markdown(
       --poc-orange:#f97316; --poc-rose:#e11d48; --poc-amber:#f59e0b; }
     .stApp { background:var(--poc-bg); color:var(--poc-ink); }
     [data-testid="stHeader"] { background:rgba(248,250,252,0.96); }
-    .block-container { max-width:1480px; padding-top:1.15rem; padding-bottom:2rem; }
-    .poc-shell { background:#fff; border:1px solid var(--poc-line); border-top:4px solid var(--poc-violet);
-      padding:1rem 1.2rem; margin:0 0 .85rem; }
-    .poc-shell h1 { margin:0; color:var(--poc-ink); font-size:1.35rem; font-weight:800; letter-spacing:0; }
+    .block-container { max-width:1600px; padding:1.3rem 1.6rem 2.25rem; }
+    .poc-shell { background:transparent; border:0; padding:0; margin:0; }
+    .poc-shell h1 { margin:0; color:var(--poc-ink); font-size:1.5rem; font-weight:800; letter-spacing:0; }
     .poc-shell p { margin:.18rem 0 0; color:var(--poc-muted); font-size:.84rem; }
     .poc-eyebrow { color:var(--poc-violet); font-weight:800; font-size:.71rem; letter-spacing:.08em; text-transform:uppercase; }
     .poc-chip { display:inline-flex; align-items:center; border-radius:4px; padding:.16rem .45rem;
@@ -161,11 +160,11 @@ st.markdown(
     .poc-green { color:#15803d; background:#fff; } .poc-orange { color:#c2410c; background:#fff; }
     .poc-red, .poc-rose { color:#be123c; background:#fff; } .poc-violet { color:var(--poc-violet); background:#fff; }
     .poc-cyan { color:#0891b2; background:#fff; } .poc-amber { color:#b45309; background:#fff; }
-    .poc-kpi { background:#fff; border:1px solid var(--poc-line); border-top:3px solid var(--poc-line);
+    .poc-kpi { background:#fff; border:1px solid var(--poc-line); border-top:1px solid var(--poc-line);
       padding:.66rem .75rem; min-height:82px; }
-    .poc-kpi[data-tone="violet"] { border-top-color:var(--poc-violet); } .poc-kpi[data-tone="green"] { border-top-color:var(--poc-green); }
-    .poc-kpi[data-tone="orange"] { border-top-color:var(--poc-orange); } .poc-kpi[data-tone="rose"] { border-top-color:var(--poc-rose); }
-    .poc-kpi[data-tone="blue"] { border-top-color:var(--poc-blue); } .poc-kpi[data-tone="cyan"] { border-top-color:var(--poc-cyan); }
+    .poc-kpi[data-tone="violet"] { border-left:3px solid var(--poc-violet); } .poc-kpi[data-tone="green"] { border-left:3px solid var(--poc-green); }
+    .poc-kpi[data-tone="orange"] { border-left:3px solid var(--poc-orange); } .poc-kpi[data-tone="rose"] { border-left:3px solid var(--poc-rose); }
+    .poc-kpi[data-tone="blue"] { border-left:3px solid var(--poc-blue); } .poc-kpi[data-tone="cyan"] { border-left:3px solid var(--poc-cyan); }
     .poc-kpi-label { color:var(--poc-muted); font-size:.71rem; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
     .poc-kpi-value { color:var(--poc-ink); font-size:1.42rem; font-weight:850; line-height:1.2; margin-top:.18rem; }
     .poc-card { background:#fff; border:1px solid var(--poc-line); border-radius:6px; padding:.82rem; margin:.45rem 0; }
@@ -190,10 +189,20 @@ st.markdown(
     div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { border-radius:5px; border-color:#d1d5db; }
     div[data-testid="stSelectbox"] [data-baseweb="select"] > div { border-radius:5px; border-color:#d1d5db; }
     div[data-testid="stExpander"] details { border:1px solid var(--poc-line); border-radius:5px; background:#fff; }
-    [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); }
-    [data-testid="stSidebar"] .block-container { padding-top:1rem; }
+    .poc-product-meta { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.6rem 0 .85rem; }
+    .poc-product-meta span { color:var(--poc-muted); font-size:.82rem; }
+    .poc-product-meta .poc-product-drop { color:var(--poc-ink); font-weight:760; }
+    [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); min-width:220px; }
+    [data-testid="stSidebar"] .block-container { padding:1.25rem .72rem 1rem; }
+    .poc-nav-brand { font-size:1.22rem; font-weight:850; color:var(--poc-ink); padding:.1rem .55rem 1.5rem; }
+    .poc-nav-brand span { color:var(--poc-violet); }
+    .poc-nav-section { color:var(--poc-muted); font-size:.67rem; font-weight:800; letter-spacing:.06em; padding:.15rem .55rem .5rem; }
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button { justify-content:flex-start; text-align:left; border:0; box-shadow:none; background:transparent; color:#374151; min-height:2.55rem; padding:.45rem .6rem; }
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover { background:#f3f4f6; color:var(--poc-ink); }
+    [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] { background:#f3f0ff; color:var(--poc-violet); border-left:3px solid var(--poc-violet); border-radius:4px; }
+    .poc-nav-hint { color:var(--poc-muted); font-size:.72rem; line-height:1.45; padding:.8rem .55rem; border-top:1px solid var(--poc-line); margin-top:1rem; }
     @media (max-width: 700px) {
-      .block-container { padding: .75rem .7rem 1.5rem; }
+      .block-container { padding: .85rem .8rem 1.5rem; }
       .poc-shell { padding:.8rem .85rem; } .poc-shell h1 { font-size:1.15rem; }
       .poc-kpi { min-height:70px; padding:.55rem; } .poc-kpi-value { font-size:1.16rem; }
       .poc-setup { padding:.85rem; margin-top:.7rem; } .poc-setup-grid { grid-template-columns:1fr; }
@@ -1295,30 +1304,14 @@ def _workflow_stage(result: dict, sample: dict) -> tuple[str, int]:
 
 
 def _render_premium_header(result: dict, sample: dict, *, drop_candidates_changed: bool):
-    metrics = result.get("metrics") or {}
-    drop = result.get("drop") or {}
     stage, pending = _workflow_stage(result, sample)
     freshness = "Cartes du Drop à actualiser" if drop_candidates_changed else "Cache à jour"
     freshness_tone = "poc-orange" if drop_candidates_changed else "poc-green"
-    header_left, header_right = st.columns([4, 1.25])
-    with header_left:
-        st.markdown(
-            f"""
-            <div class="poc-shell">
-              <div class="poc-eyebrow">POKÉSTOCK · DROP VINTED</div>
-              <h1>Reconnaissance photos</h1>
-              <p>{drop.get('name') or 'Drop non défini'} · {metrics.get('photos_analyzed', 0)} photos · {len(drop.get('cards', []) or [])} cartes dans le Drop · {metrics.get('announcements_detected', 0)} annonces</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with header_right:
-        st.markdown(
-            f'<div class="poc-card-subtle"><span class="poc-chip {freshness_tone}">{freshness}</span>'
-            f'<div class="poc-mini" style="margin-top:.5rem">Étape actuelle · {stage}'
-            f'{f" · {pending} restant(s)" if pending else ""}</div></div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f'<div class="poc-product-meta"><span class="poc-chip {freshness_tone}">{freshness}</span>'
+        f'<span>Étape actuelle · {stage}{f" · {pending} restant(s)" if pending else ""}</span></div>',
+        unsafe_allow_html=True,
+    )
 
     stages = ["Import", "Analyse", "Vérification", "Prêt"]
     active_index = stages.index(stage) if stage in stages else 1
@@ -1356,6 +1349,72 @@ def _render_initial_header(*, drop_name: str, photo_count: int, drop_card_count:
         '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Vérification</span>'
         '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Prêt</span></div>',
         unsafe_allow_html=True,
+    )
+
+
+def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, int, int, int, bool]:
+    """Render the product header and return the small set of configuration inputs."""
+    drop_options = {
+        f"{drop.get('name', 'Drop sans nom')} · {len(drop.get('cards', []) or [])} cartes": drop.get("id")
+        for drop in drops
+    }
+    header_left, header_right = st.columns([5, 1])
+    with header_left:
+        st.markdown(
+            "<div class='poc-shell'><div class='poc-eyebrow'>POKÉSTOCK · DROP VINTED</div>"
+            "<h1>Reconnaissance photos</h1></div>",
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        with st.popover(":material/tune: Paramètres", use_container_width=True):
+            st.caption("Source et réglages d’analyse")
+            folder = st.text_input("Dossier photos", value=str(POC_DIR), key="photo_poc_folder")
+            photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
+            selected_drop_label = st.selectbox(
+                "Drop candidat",
+                list(drop_options) or ["Aucun drop"],
+                key="photo_poc_drop_label",
+                disabled=not bool(drop_options),
+            )
+            with st.expander("Paramètres avancés", expanded=False):
+                start_index = st.number_input(
+                    "capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1,
+                )
+                target_announcements = st.number_input(
+                    "annonces visées", min_value=5, max_value=35, value=30, step=1,
+                )
+                max_photos = st.number_input(
+                    "photos max à analyser", min_value=10, max_value=max(10, len(photos)),
+                    value=min(75, max(10, len(photos))), step=5,
+                )
+                force_rebuild = st.checkbox(
+                    "Forcer une reconstruction complète",
+                    value=False,
+                    help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
+                )
+
+    # A widget value is available on the same rerun; resolve the display data once.
+    folder = st.session_state.get("photo_poc_folder", str(POC_DIR))
+    photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
+    selected_drop_label = st.session_state.get("photo_poc_drop_label", next(iter(drop_options), "Aucun drop"))
+    selected_drop_id = drop_options.get(selected_drop_label)
+    selected_drop = next((drop for drop in drops if drop.get("id") == selected_drop_id), {})
+    st.markdown(
+        "<div class='poc-product-meta'>"
+        f"<span class='poc-product-drop'>{selected_drop.get('name') or 'Drop non défini'}</span>"
+        f"<span>· {len(photos)} photos détectées</span>"
+        f"<span>· {len(selected_drop.get('cards', []) or [])} cartes dans le Drop</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    return (
+        folder,
+        photos,
+        selected_drop_id,
+        int(start_index),
+        int(target_announcements),
+        int(max_photos),
+        bool(force_rebuild),
     )
 
 
@@ -3302,24 +3361,42 @@ _apply_pending_view()
 run = False
 run_all = False
 with st.sidebar:
-    st.markdown("### Source")
-    folder = st.text_input("Dossier photos", value=str(POC_DIR))
-    photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
-    st.caption(f"{len(photos)} photo(s) détectée(s)")
-    drops_data = load_vinted_drops()
-    drops = drops_data.get("drops", []) or []
-    drop_options = {f"{drop.get('name', 'Drop sans nom')} · {len(drop.get('cards', []) or [])} cartes": drop.get("id") for drop in drops}
-    selected_drop_label = st.selectbox("Drop candidat", list(drop_options) or ["Aucun drop"], disabled=not bool(drop_options))
-    selected_drop_id = drop_options.get(selected_drop_label)
-    with st.expander("Paramètres avancés", expanded=False):
-        start_index = st.number_input("capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1)
-        target_announcements = st.number_input("annonces visées", min_value=5, max_value=35, value=30, step=1)
-        max_photos = st.number_input("photos max à analyser", min_value=10, max_value=max(10, len(photos)), value=min(75, max(10, len(photos))), step=5)
-        force_rebuild = st.checkbox(
-            "Forcer une reconstruction complète",
-            value=False,
-            help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
+    st.markdown("<div class='poc-nav-brand'><span>◉</span> PokéStock</div>", unsafe_allow_html=True)
+    st.markdown("<div class='poc-nav-section'>WORKFLOW PHOTO</div>", unsafe_allow_html=True)
+    active_view = st.session_state.get("photo_poc_view", "Vue d’ensemble")
+    nav_items = [
+        ("Vue d’ensemble", ":material/dashboard:"),
+        ("À vérifier", ":material/fact_check:"),
+        ("Cas sensibles", ":material/warning_amber:"),
+        ("Validés", ":material/task_alt:"),
+        ("Grouping", ":material/account_tree:"),
+        ("Diagnostic", ":material/monitoring:"),
+    ]
+    for nav_label, nav_icon in nav_items:
+        st.button(
+            f"{nav_icon} {nav_label}",
+            key=f"photo_poc_nav_{nav_label}",
+            type="primary" if active_view == nav_label else "secondary",
+            use_container_width=True,
+            on_click=_navigate_view_callback,
+            args=(nav_label,),
         )
+    st.markdown(
+        "<div class='poc-nav-hint'>La source, le Drop et les paramètres d’analyse sont accessibles dans le panneau Paramètres.</div>",
+        unsafe_allow_html=True,
+    )
+
+drops_data = load_vinted_drops()
+drops = drops_data.get("drops", []) or []
+(
+    folder,
+    photos,
+    selected_drop_id,
+    start_index,
+    target_announcements,
+    max_photos,
+    force_rebuild,
+) = _render_workspace_topbar(drops)
 
 if not photos:
     st.warning("Aucune photo compatible trouvée dans le dossier POC.")
@@ -3427,16 +3504,14 @@ if not (run or run_all) and CURRENT_RESULT_KEY not in st.session_state:
     selected_drop = next((drop for drop in drops if drop.get("id") == selected_drop_id), {})
     selected_drop_name = str(selected_drop.get("name") or "Drop non défini")
     selected_drop_card_count = len(selected_drop.get("cards", []) or [])
-    _render_initial_header(
-        drop_name=selected_drop_name,
-        photo_count=len(photos),
-        drop_card_count=selected_drop_card_count,
+    st.markdown(
+        '<div class="poc-workflow"><span class="poc-workflow-step active">Import</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Analyse</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Vérification</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Prêt</span></div>',
+        unsafe_allow_html=True,
     )
-    initial_view_default = st.session_state.get("photo_poc_view", "Vue d’ensemble")
-    initial_nav_kwargs = {"key": "photo_poc_view", "horizontal": True, "label_visibility": "collapsed"}
-    if "photo_poc_view" not in st.session_state:
-        initial_nav_kwargs["index"] = VIEW_OPTIONS.index(initial_view_default) if initial_view_default in VIEW_OPTIONS else 0
-    initial_view = st.radio("Navigation", VIEW_OPTIONS, **initial_nav_kwargs)
+    initial_view = st.session_state.get("photo_poc_view", "Vue d’ensemble")
     run, run_all = _render_empty_state(
         folder=folder,
         photo_count=len(photos),
@@ -3536,11 +3611,10 @@ if refresh_requested:
     )
     _rerun()
 
-view_default = st.session_state.get("photo_poc_view", "Vue d’ensemble")
-view_radio_kwargs = {"key": "photo_poc_view", "horizontal": True, "label_visibility": "collapsed"}
-if "photo_poc_view" not in st.session_state:
-    view_radio_kwargs["index"] = VIEW_OPTIONS.index(view_default) if view_default in VIEW_OPTIONS else 0
-view = st.radio("Navigation", VIEW_OPTIONS, **view_radio_kwargs)
+view = st.session_state.get("photo_poc_view", "Vue d’ensemble")
+if view not in VIEW_OPTIONS:
+    view = "Vue d’ensemble"
+    st.session_state["photo_poc_view"] = view
 
 if view == "Vue d’ensemble":
     _render_overview(result, sample)
