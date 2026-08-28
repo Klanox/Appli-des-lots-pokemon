@@ -839,7 +839,7 @@ def _card_static_html(
 """
 
 
-def _available_cards(d, card_available_qty_func, is_collection_system_lot_func):
+def _available_cards(d, card_available_qty_func, is_collection_system_lot_func, *, include_unavailable=False):
     options = []
     for lot_idx, lot in enumerate(d.get("lots", [])):
         if is_collection_system_lot_func(lot):
@@ -851,7 +851,7 @@ def _available_cards(d, card_available_qty_func, is_collection_system_lot_func):
                 available_qty = int(card_available_qty_func(card))
             except Exception:
                 available_qty = int(card.get("quantity", 0) or 0)
-            if available_qty <= 0:
+            if available_qty <= 0 and not include_unavailable:
                 continue
 
             item = dict(card)
@@ -2388,7 +2388,7 @@ def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_i
     _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_img_func, fp_func, mobile)
 
 
-def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
+def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
     with st.expander("+ Nouveau drop", expanded=not bool(drops_data.get("drops"))):
         new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
         new_channel = st.selectbox("Canal Vinted", list(VINTED_CHANNELS), key="new_vinted_drop_channel")
@@ -2419,7 +2419,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
         return
 
     total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in active_drop.get("cards", []))
-    total_value = _drop_total_value(active_drop, available_cards)
+    total_value = _drop_total_value(active_drop, source_cards)
     channel_label = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
     channel_class = _drop_channel_class(channel_label)
     st.markdown(
@@ -2462,7 +2462,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
             _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
         if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
-            _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
+            _render_drop_grid(drops_data, active_drop, source_cards, proxy_img_func, fp_func, mobile)
     elif step == "Tri des photos":
         _render_drop_placeholder(
             "Tri des photos",
@@ -2474,7 +2474,7 @@ def _render_drops_manager(drops_data, available_cards, proxy_img_func, fp_func, 
             "La vérification automatique des photos sera ajoutée ensuite. Les cartes et annonces existantes restent inchangées.",
         )
     elif step == "Création des annonces":
-        _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile)
+        _render_drop_creation_step(drops_data, active_drop, source_cards, proxy_img_func, fp_func, run_html_func, mobile)
     elif step == "Analyse des drops":
         _render_drop_analytics(
             drops_data,
@@ -2573,10 +2573,16 @@ def render_vinted_listings_page(
 
     d = ld_func()
     cards = _available_cards(d, card_available_qty_func, is_collection_system_lot_func)
+    source_cards = _available_cards(
+        d,
+        card_available_qty_func,
+        is_collection_system_lot_func,
+        include_unavailable=True,
+    )
     if perf_count_func:
         perf_count_func("vinted_cards_available", len(cards))
 
-    if not cards:
+    if page_mode == "individual" and not cards:
         st.info("Aucune carte disponible à la vente pour le moment.")
         return
 
@@ -2590,6 +2596,7 @@ def render_vinted_listings_page(
     _render_drops_manager(
         drops_data,
         cards,
+        source_cards,
         proxy_img_func,
         fp_func,
         mobile,

@@ -37,7 +37,11 @@ except Exception:  # pragma: no cover - optional at runtime
 from services.card_identity import card_identity_fingerprint
 from services.card_identity import card_language_key
 from services.custom_card_image_service import resolve_custom_card_image
-from services.vinted_drops_service import drop_card_key, load_vinted_drops
+from services.vinted_drops_service import (
+    drop_card_key,
+    load_vinted_drops,
+    resolve_drop_item_card_identity,
+)
 
 
 POC_DIR = Path("photo_recognition_poc")
@@ -210,45 +214,8 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
         if card is None:
             card = card_by_ref.get((str(ref.get("lot_uid", "")), _safe_int(ref.get("card_idx"), -1)))
         merged = dict(card or {})
-        merged.update({key: value for key, value in ref.items() if value not in (None, "")})
-        # Drop rows contain historical snapshots. Once the real card still
-        # exists, its current identity metadata must win so a POC refresh sees
-        # edits made in Pokestock without recreating the Drop row.
-        for key in (
-            "name",
-            "number",
-            "display_number",
-            "set",
-            "lang",
-            "language",
-            "japanese",
-            "is_japanese",
-            "reverse",
-            "is_reverse",
-            "first_edition",
-            "is_ed1",
-            "stamp",
-            "stamp_label",
-            "promo",
-            "is_promo",
-            "master_ball",
-            "is_master_ball",
-            "poke_ball",
-            "is_poke_ball",
-            "image_url",
-            "image_url_en",
-            "manual_image_path",
-            "manual_image_url",
-            "resolved_collection_image_url",
-        ):
-            if card is None or key not in card or card.get(key) is None:
-                continue
-            if key in {"name", "number", "display_number"} and card.get(key) == "":
-                continue
-            merged[key] = card.get(key)
+        merged.update(resolve_drop_item_card_identity(ref, card))
         merged.setdefault("lot_name", (card or {}).get("lot_name", ""))
-        # Identity corrections in Lots apply to the live card.  A Drop keeps its
-        # workflow fields, but must not keep an obsolete identity fingerprint.
         merged["identity_fingerprint"] = card_identity_fingerprint(merged)
         merged["_drop_card_key"] = drop_card_key(merged)
         key = merged.get("_drop_card_key")
@@ -327,7 +294,26 @@ def candidate_set_signature(candidates: list[dict[str, Any]]) -> str:
 
 
 def _candidate_image_url(card: dict) -> str:
-    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url", "image_url", "image_url_en", "image"):
+    for key in (
+        "manual_image_path",
+        "manual_image_url",
+        "local_image",
+        "local_image_path",
+        "image_path",
+        "photo_path",
+        "cached_image_path",
+        "resolved_collection_image_url",
+        "image_url_ja",
+        "image_url_jp",
+        "image_url_japanese",
+        "image_ja",
+        "image_jp",
+        "image_url",
+        "image_url_en",
+        "image_en",
+        "image",
+        "imageUrl",
+    ):
         value = str(card.get(key) or "").strip()
         if not value or value == "__placeholder__":
             continue

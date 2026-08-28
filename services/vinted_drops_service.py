@@ -23,6 +23,73 @@ DROP_ITEM_STATUSES = {
     "sold": "Vendue",
 }
 
+DROP_CARD_IDENTITY_FIELDS = (
+    "name",
+    "number",
+    "num",
+    "localId",
+    "full_number",
+    "display_number",
+    "collector_number",
+    "printed_number",
+    "card_number",
+    "set",
+    "serie",
+    "extension",
+    "set_name",
+    "set_id",
+    "card_id",
+    "lang",
+    "language",
+    "japanese",
+    "is_japanese",
+    "reverse",
+    "is_reverse",
+    "first_edition",
+    "is_ed1",
+    "firstEdition",
+    "stamp",
+    "stamp_label",
+    "is_stamp",
+    "promo",
+    "is_promo",
+    "master_ball",
+    "is_master_ball",
+    "poke_ball",
+    "is_poke_ball",
+    "variant",
+    "version",
+    "finish",
+    "foil",
+    "special",
+    "special_tag",
+    "rarity",
+    "category",
+    "tags",
+    "metadata_tags",
+    "card_tags",
+    "subtypes",
+    "types",
+    "manual_image_path",
+    "manual_image_url",
+    "local_image",
+    "local_image_path",
+    "image_path",
+    "photo_path",
+    "cached_image_path",
+    "resolved_collection_image_url",
+    "image_url_ja",
+    "image_url_jp",
+    "image_url_japanese",
+    "image_ja",
+    "image_jp",
+    "image_url",
+    "image_url_en",
+    "image_en",
+    "image",
+    "imageUrl",
+)
+
 
 def default_drops_data():
     return {"drops": []}
@@ -102,6 +169,30 @@ def find_drop(data, drop_id):
         if drop.get("id") == drop_id:
             return drop
     return None
+
+
+def resolve_drop_item_card_identity(drop_item, source_card=None):
+    """Return a Drop item with its current source-card identity when UID matches.
+
+    Workflow state, dates, listing prices and sales links intentionally remain
+    on the Drop item. Old rows without a reliable card UID keep their snapshot.
+    """
+    item = dict(drop_item or {})
+    source = source_card if isinstance(source_card, dict) else {}
+    item_uid = str(item.get("card_uid") or "").strip()
+    source_uid = str(source.get("card_uid") or "").strip()
+    if not item_uid or item_uid != source_uid:
+        return item
+
+    for field in DROP_CARD_IDENTITY_FIELDS:
+        if field in source:
+            item[field] = source[field]
+
+    display_number = full_card_number(source)
+    if display_number:
+        item["display_number"] = display_number
+    item["identity_fingerprint"] = card_identity_fingerprint(item)
+    return item
 
 
 def drop_card_key(card_ref):
@@ -299,6 +390,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
         card = by_uid.get((ref_lot_uid, ref_uid)) or by_uid.get(("", ref_uid)) or by_key.get(key)
         if card:
             enriched = dict(card)
+            enriched.update(resolve_drop_item_card_identity(ref, card))
             enriched["_drop_ref_key"] = key
             enriched["listing_posted"] = bool(ref.get("listing_posted", False))
             enriched["listing_posted_at"] = ref.get("listing_posted_at", "")
@@ -311,11 +403,8 @@ def resolve_drop_cards_from_data(drop, available_cards):
             enriched["photo_order"] = ref.get("photo_order", "")
             enriched["drop_quantity"] = max(1, int(ref.get("quantity", 1) or 1))
             enriched["price_at_add"] = ref.get("price_at_add", card.get("suggested_price", 0))
-            # The source card remains authoritative for visible identity fields.
             enriched["identity_fingerprint"] = card_identity_fingerprint(enriched)
             enriched["_drop_available"] = True
-            if ref.get("display_number"):
-                enriched["display_number"] = ref.get("display_number")
             resolved.append(enriched)
         else:
             ref = dict(ref)
