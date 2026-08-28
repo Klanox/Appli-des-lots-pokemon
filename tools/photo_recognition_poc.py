@@ -10,9 +10,11 @@ datasets, but never writes to Pokestock business data.
 from __future__ import annotations
 
 import sys
+import math
 import hashlib
 import json
 import time
+import unicodedata
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -69,21 +71,44 @@ STATUS_LABELS = {
 }
 
 VIEW_OPTIONS = [
-    "Synthèse complète",
-    "Cas japonais",
-    "Nouveaux autos V13",
-    "Carte du grouping",
-    "Singles / grouping reviews",
-    "File à vérifier",
-    "File non reconnus",
-    "Contrôle verts",
-    "Vérification complète",
+    "Vue d’ensemble",
+    "À vérifier",
     "Cas sensibles",
-    "Propositions modifiées",
-    "Validation des groupes",
+    "Validés",
+    "Grouping",
+    "Diagnostic",
+]
+
+DIAGNOSTIC_OPTIONS = [
+    "Diagnostic ciblé",
     "Résultats / debug reconnaissance",
     "Erreurs uniquement",
+    "Propositions modifiées",
+    "Cas japonais",
+    "Nouveaux autos",
+    "Validation des groupes",
+    "Contrôle verts",
+    "Vérification complète",
+    "Métriques historiques",
+    "Ordre de capture",
 ]
+
+LEGACY_VIEW_ROUTES = {
+    "Synthèse complète": ("Vue d’ensemble", None),
+    "File à vérifier": ("À vérifier", None),
+    "File non reconnus": ("À vérifier", None),
+    "Cas sensibles": ("Cas sensibles", None),
+    "Carte du grouping": ("Grouping", None),
+    "Singles / grouping reviews": ("Grouping", None),
+    "Résultats / debug reconnaissance": ("Diagnostic", "Résultats / debug reconnaissance"),
+    "Erreurs uniquement": ("Diagnostic", "Erreurs uniquement"),
+    "Propositions modifiées": ("Diagnostic", "Propositions modifiées"),
+    "Cas japonais": ("Diagnostic", "Cas japonais"),
+    "Nouveaux autos V13": ("Diagnostic", "Nouveaux autos"),
+    "Validation des groupes": ("Diagnostic", "Validation des groupes"),
+    "Contrôle verts": ("Diagnostic", "Contrôle verts"),
+    "Vérification complète": ("Diagnostic", "Vérification complète"),
+}
 
 CURRENT_RESULT_KEY = "photo_poc_current_result"
 
@@ -107,6 +132,11 @@ def _photo_folder_token(folder: str) -> str:
     return hashlib.sha1("|".join(sorted(rows)).encode("utf-8")).hexdigest()
 
 
+def _fold_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in normalized if not unicodedata.combining(char)).casefold()
+
+
 @st.cache_data(show_spinner=False)
 def _cached_ordered_photos(folder: str, folder_token: str):
     del folder_token
@@ -115,23 +145,51 @@ def _cached_ordered_photos(folder: str, folder_token: str):
 st.markdown(
     """
     <style>
-    .poc-hero {
-        background:#fff;border:1px solid #ddd6fe;border-left:5px solid #6d28d9;
-        border-radius:14px;padding:1rem 1.15rem;margin-bottom:1rem;
-        box-shadow:0 8px 20px rgba(15,23,42,0.06);
+    :root { --poc-bg:#f8fafc; --poc-ink:#111827; --poc-muted:#64748b; --poc-line:#e5e7eb;
+      --poc-violet:#6d28d9; --poc-blue:#2563eb; --poc-cyan:#06b6d4; --poc-green:#16a34a;
+      --poc-orange:#f97316; --poc-rose:#e11d48; --poc-amber:#f59e0b; }
+    .stApp { background:var(--poc-bg); color:var(--poc-ink); }
+    [data-testid="stHeader"] { background:rgba(248,250,252,0.96); }
+    .block-container { max-width:1480px; padding-top:1.15rem; padding-bottom:2rem; }
+    .poc-shell { background:#fff; border:1px solid var(--poc-line); border-top:4px solid var(--poc-violet);
+      padding:1rem 1.2rem; margin:0 0 .85rem; }
+    .poc-shell h1 { margin:0; color:var(--poc-ink); font-size:1.35rem; font-weight:800; letter-spacing:0; }
+    .poc-shell p { margin:.18rem 0 0; color:var(--poc-muted); font-size:.84rem; }
+    .poc-eyebrow { color:var(--poc-violet); font-weight:800; font-size:.71rem; letter-spacing:.08em; text-transform:uppercase; }
+    .poc-chip { display:inline-flex; align-items:center; border-radius:4px; padding:.16rem .45rem;
+      font-size:.69rem; font-weight:800; border:1px solid currentColor; margin-right:.25rem; }
+    .poc-green { color:#15803d; background:#fff; } .poc-orange { color:#c2410c; background:#fff; }
+    .poc-red, .poc-rose { color:#be123c; background:#fff; } .poc-violet { color:var(--poc-violet); background:#fff; }
+    .poc-cyan { color:#0891b2; background:#fff; } .poc-amber { color:#b45309; background:#fff; }
+    .poc-kpi { background:#fff; border:1px solid var(--poc-line); border-top:3px solid var(--poc-line);
+      padding:.66rem .75rem; min-height:82px; }
+    .poc-kpi[data-tone="violet"] { border-top-color:var(--poc-violet); } .poc-kpi[data-tone="green"] { border-top-color:var(--poc-green); }
+    .poc-kpi[data-tone="orange"] { border-top-color:var(--poc-orange); } .poc-kpi[data-tone="rose"] { border-top-color:var(--poc-rose); }
+    .poc-kpi[data-tone="blue"] { border-top-color:var(--poc-blue); } .poc-kpi[data-tone="cyan"] { border-top-color:var(--poc-cyan); }
+    .poc-kpi-label { color:var(--poc-muted); font-size:.71rem; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
+    .poc-kpi-value { color:var(--poc-ink); font-size:1.42rem; font-weight:850; line-height:1.2; margin-top:.18rem; }
+    .poc-card { background:#fff; border:1px solid var(--poc-line); border-radius:6px; padding:.82rem; margin:.45rem 0; }
+    .poc-card-subtle { background:#fff; border-left:3px solid var(--poc-violet); border-top:1px solid var(--poc-line); border-right:1px solid var(--poc-line); border-bottom:1px solid var(--poc-line); padding:.8rem .9rem; }
+    .poc-muted { color:var(--poc-muted); font-size:.81rem; } .poc-mini { color:var(--poc-muted); font-size:.74rem; }
+    .poc-section-title { color:var(--poc-ink); font-size:1rem; font-weight:850; margin:1rem 0 .35rem; }
+    .poc-validated { color:var(--poc-green); font-weight:850; }
+    .poc-workflow { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap; margin:0 0 .9rem; }
+    .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.28rem .42rem; font-size:.75rem; font-weight:800; }
+    .poc-workflow-step.active { color:var(--poc-violet); border-bottom-color:var(--poc-violet); }
+    .poc-workflow-arrow { color:#94a3b8; font-size:.75rem; }
+    .poc-photo-grid img { border:1px solid var(--poc-line); border-radius:4px; }
+    div[data-testid="stButton"] > button { border-radius:5px; border-color:#d1d5db; font-weight:750; min-height:2.15rem; }
+    div[data-testid="stButton"] > button[kind="primary"] { background:var(--poc-violet); border-color:var(--poc-violet); }
+    div[data-testid="stButton"] > button[kind="secondary"]:hover { border-color:var(--poc-violet); color:var(--poc-violet); }
+    div[data-testid="stRadio"] label { font-size:.82rem; font-weight:700; }
+    [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); }
+    [data-testid="stSidebar"] .block-container { padding-top:1rem; }
+    @media (max-width: 700px) {
+      .block-container { padding: .75rem .7rem 1.5rem; }
+      .poc-shell { padding:.8rem .85rem; } .poc-shell h1 { font-size:1.15rem; }
+      .poc-kpi { min-height:70px; padding:.55rem; } .poc-kpi-value { font-size:1.16rem; }
+      div[data-testid="stHorizontalBlock"] { gap:.45rem; }
     }
-    .poc-hero h1 {margin:0;color:#111827;font-size:1.35rem;}
-    .poc-hero p {margin:0.25rem 0 0;color:#64748b;}
-    .poc-chip {display:inline-flex;align-items:center;gap:0.25rem;border-radius:999px;
-        padding:0.18rem 0.55rem;font-size:0.75rem;font-weight:800;border:1px solid #e5e7eb;}
-    .poc-green {background:#dcfce7;color:#166534;border-color:#86efac;}
-    .poc-orange {background:#ffedd5;color:#9a3412;border-color:#fdba74;}
-    .poc-red {background:#fee2e2;color:#991b1b;border-color:#fca5a5;}
-    .poc-card {background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:0.7rem 0.85rem;margin:0.5rem 0;}
-    .poc-muted {color:#64748b;font-size:0.82rem;}
-    .poc-mini {font-size:0.76rem;color:#64748b;}
-    .poc-section-title {font-size:1rem;font-weight:850;color:#111827;margin:1rem 0 0.35rem;}
-    .poc-validated {color:#166534;font-weight:900;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -143,15 +201,36 @@ def _rerun():
 
 
 def _request_view(view_name: str):
-    if view_name in VIEW_OPTIONS:
-        st.session_state["photo_poc_pending_view"] = view_name
+    _stage_view(view_name)
     _rerun()
 
 
+def _stage_view(view_name: str):
+    """Stage a view change; callbacks get their normal Streamlit rerun for free."""
+    primary_view, diagnostic_view = LEGACY_VIEW_ROUTES.get(view_name, (view_name, None))
+    if primary_view in VIEW_OPTIONS:
+        st.session_state["photo_poc_pending_view"] = primary_view
+        if diagnostic_view:
+            st.session_state["photo_poc_pending_diagnostic"] = diagnostic_view
+
+
+def _navigate_view_callback(view_name: str):
+    _stage_view(view_name)
+
+
 def _apply_pending_view():
+    current = st.session_state.get("photo_poc_view")
+    if current in LEGACY_VIEW_ROUTES:
+        primary_view, diagnostic_view = LEGACY_VIEW_ROUTES[current]
+        st.session_state["photo_poc_view"] = primary_view
+        if diagnostic_view:
+            st.session_state["photo_poc_diagnostic_view"] = diagnostic_view
     pending = st.session_state.pop("photo_poc_pending_view", None)
     if pending in VIEW_OPTIONS:
         st.session_state["photo_poc_view"] = pending
+    pending_diagnostic = st.session_state.pop("photo_poc_pending_diagnostic", None)
+    if pending_diagnostic in DIAGNOSTIC_OPTIONS:
+        st.session_state["photo_poc_diagnostic_view"] = pending_diagnostic
 
 
 def _analysis_meta_for(
@@ -547,6 +626,253 @@ def _apply_v10_ground_truth_overlay(result: dict, sample: dict):
     metrics["diagnostic_causes"] = diagnostic_causes
 
 
+def _render_overview(result: dict, sample: dict):
+    metrics = result.get("metrics") or {}
+    bilan = _validation_bilan(sample, result)
+    total = max(1, int(metrics.get("announcements_detected") or 0))
+    pending = sum(
+        1
+        for group in result.get("groups", []) or []
+        if group.get("confidence_level") != "green"
+        and not _recognition_is_done(sample, _result_group_id(group), group.get("matches", []) or [])
+    )
+    kpis = [
+        ("Photos", metrics.get("photos_analyzed", 0), "violet"),
+        ("Annonces", metrics.get("announcements_detected", 0), "blue"),
+        ("Auto", metrics.get("auto_recognized", 0), "green"),
+        ("À vérifier", metrics.get("to_review", 0), "orange"),
+        ("Non reconnus", metrics.get("unrecognized", 0), "rose"),
+    ]
+    cols = st.columns(5)
+    for column, (label, value, tone) in zip(cols, kpis):
+        with column:
+            _render_kpi(label, value, tone=tone)
+
+    secondary = st.columns(4)
+    secondary[0].caption(f"JP · {metrics.get('v13_japanese_candidate_groups', metrics.get('v10_jp_candidate_groups', 0))}")
+    secondary[1].caption(f"Multi · {metrics.get('v10_multi_card_groups', metrics.get('multi_card_fronts', 0))}")
+    secondary[2].caption(f"Grouping reviews · {metrics.get('grouping_to_review', 0)}")
+    secondary[3].caption(
+        f"Not in Drop · {metrics.get('v13_not_in_drop_strong', 0) + metrics.get('v13_not_in_drop_possible', 0)}"
+    )
+
+    progress = min(1.0, bilan["controlled_groups"] / total)
+    st.markdown("<div class='poc-section-title'>Progression de contrôle</div>", unsafe_allow_html=True)
+    st.progress(progress, text=f"{bilan['controlled_groups']} / {total} annonces contrôlées")
+
+    action_left, action_right = st.columns([3, 1])
+    with action_left:
+        st.markdown(
+            f"<div class='poc-card-subtle'><strong>À faire maintenant</strong><div class='poc-muted'>"
+            f"{pending} cas nécessitent encore ton attention. Les résultats reconnus restent consultables sans alourdir la file.</div></div>",
+            unsafe_allow_html=True,
+        )
+    with action_right:
+        st.button("Continuer la vérification", type="primary", use_container_width=True, on_click=_navigate_view_callback, args=("À vérifier",))
+
+
+def _review_workspace_groups(result: dict, sample: dict) -> list[dict]:
+    return [
+        group
+        for group in result.get("groups", []) or []
+        if group.get("confidence_level") in {"orange", "red"}
+        and not _recognition_is_done(sample, _result_group_id(group), group.get("matches", []) or [])
+    ]
+
+
+@st.fragment
+def _render_review_workspace(sample_key: str, sample: dict, result: dict):
+    groups = _review_workspace_groups(result, sample)
+    if not groups:
+        st.success("Toutes les annonces à vérifier sont traitées.")
+        st.button("Voir la vue d’ensemble", on_click=_navigate_view_callback, args=("Vue d’ensemble",))
+        return
+    index_key = "photo_poc_review_workspace_index"
+    st.session_state[index_key] = min(int(st.session_state.get(index_key, 0) or 0), len(groups) - 1)
+    current_index = st.session_state[index_key]
+    group = groups[current_index]
+    group_id = _result_group_id(group)
+    matches = group.get("matches", []) or []
+    st.markdown(f"<div class='poc-section-title'>À vérifier <span class='poc-muted'>· {current_index + 1} / {len(groups)}</span></div>", unsafe_allow_html=True)
+    st.caption(f"Annonce #{group.get('announcement_index')} · {group.get('expected_cards', 1)} carte(s)")
+
+    photos_col, proposal_col = st.columns([1.22, 1], gap="large")
+    with photos_col:
+        st.markdown("**Photos de l’annonce**")
+        _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
+        if group.get("grouping_reasons"):
+            st.caption("Grouping · " + " · ".join(group.get("grouping_reasons") or []))
+    with proposal_col:
+        if not matches:
+            st.warning("Recto ou zone carte indisponible pour cette annonce.")
+        elif len(matches) == 1:
+            _render_status_chip(group.get("confidence_level", "red"))
+            st.markdown("<div class='poc-section-title'>Carte proposée</div>", unsafe_allow_html=True)
+            _render_candidate_summary(
+                matches[0], sample_key=sample_key, sample=sample, group_id=group_id, match_index=0,
+            )
+            _render_match_actions(
+                sample_key, sample, group_id, 0, matches[0], index_key=index_key,
+                current_index=current_index, group_count=len(groups), matches=matches, key_prefix="review",
+            )
+            _render_recognition_details(matches[0], sample_key, sample, group_id, 0, result.get("candidates", []))
+        else:
+            _render_status_chip("orange")
+            st.markdown(f"<div class='poc-section-title'>{len(matches)} sous-cartes</div>", unsafe_allow_html=True)
+            card_cols = st.columns(min(2, len(matches)))
+            for match_index, match in enumerate(matches):
+                with card_cols[match_index % len(card_cols)]:
+                    st.markdown(f"**Carte {match_index + 1}**")
+                    _render_candidate_summary(
+                        match, compact=True, sample_key=sample_key, sample=sample,
+                        group_id=group_id, match_index=match_index,
+                    )
+                    _render_match_actions(
+                        sample_key, sample, group_id, match_index, match, index_key=index_key,
+                        current_index=current_index, group_count=len(groups), matches=matches,
+                        key_prefix="review_multi", show_next=False,
+                    )
+            st.button(
+                "Suivant →", key=f"review_multi_next_{group_id}", use_container_width=True,
+                on_click=_set_queue_index, args=(index_key, min(len(groups) - 1, current_index + 1)),
+            )
+            if st.toggle("Détails de reconnaissance", key=f"review_multi_details_{group_id}"):
+                for match_index, match in enumerate(matches):
+                    _render_match_debug(match, sample_key, sample, group_id, match_index, result.get("candidates", []))
+
+    previous_col, next_col = st.columns(2)
+    previous_col.button(
+        "← Précédent", key="review_workspace_previous", disabled=current_index == 0,
+        on_click=_set_queue_index, args=(index_key, current_index - 1),
+    )
+    next_col.button(
+        "Suivant →", key="review_workspace_next", disabled=current_index >= len(groups) - 1,
+        on_click=_set_queue_index, args=(index_key, min(len(groups) - 1, current_index + 1)),
+    )
+
+
+def _validated_groups(result: dict, sample: dict, query: str) -> list[dict]:
+    query = _fold_text(query)
+    rows = []
+    for group in result.get("groups", []) or []:
+        matches = group.get("matches", []) or []
+        if not matches or not _recognition_is_resolved_correct(sample, _result_group_id(group), matches):
+            continue
+        candidate_text = " ".join(
+            f"{_match_primary_candidate(match).get('name', '')} {_match_primary_candidate(match).get('number', '')}"
+            for match in matches
+        )
+        if query and query not in _fold_text(candidate_text):
+            continue
+        rows.append(group)
+    return rows
+
+
+def _render_validated_view(sample: dict, result: dict):
+    st.markdown("<div class='poc-section-title'>Validés</div>", unsafe_allow_html=True)
+    query = st.text_input("Rechercher une carte validée", placeholder="Nom ou numéro", key="photo_poc_validated_query")
+    groups = _validated_groups(result, sample, query)
+    st.caption(f"{len(groups)} annonce(s) validée(s)")
+    page_size = 18
+    max_page = max(1, math.ceil(len(groups) / page_size))
+    page = st.number_input("Page", min_value=1, max_value=max_page, value=1, key="photo_poc_validated_page")
+    visible = groups[(int(page) - 1) * page_size : int(page) * page_size]
+    path_by_key = _photo_path_by_key(result)
+    for group in visible:
+        group_id = _result_group_id(group)
+        match = (group.get("matches") or [{}])[0]
+        candidate = _match_primary_candidate(match)
+        row = st.columns([0.5, 2.2, 1.1, 0.8])
+        with row[0]:
+            photo = match.get("photo")
+            if photo and (path := path_by_key.get(photo_key(photo))):
+                st.image(_thumbnail_bytes(path, 120), width=58)
+        row[1].markdown(f"**{candidate.get('name') or 'Carte'}**  \\n{candidate.get('number') or '—'} · {candidate.get('set') or '—'}")
+        row[2].caption(_variant_label(candidate))
+        with row[3]:
+            st.markdown('<span class="poc-chip poc-green">Validé</span>', unsafe_allow_html=True)
+        st.divider()
+
+
+def _render_grouping_workspace(result: dict):
+    st.markdown("<div class='poc-section-title'>Grouping</div>", unsafe_allow_html=True)
+    filter_name = st.radio("Filtre grouping", ["Tous", "Reviews", "Multi"], horizontal=True, label_visibility="collapsed")
+    groups = result.get("groups", []) or []
+    if filter_name == "Reviews":
+        groups = [group for group in groups if group.get("grouping_status") == "review"]
+    elif filter_name == "Multi":
+        groups = [group for group in groups if int(group.get("expected_cards") or 1) > 1]
+    st.caption(f"{len(groups)} groupe(s) affiché(s)")
+    path_by_key = _photo_path_by_key(result)
+    for group in groups:
+        photo_payloads = _group_photo_payloads(group)
+        captures = [photo.get("capture_index") for photo in photo_payloads]
+        status = "GROUPING" if group.get("grouping_status") == "review" else "OK"
+        kind = "MULTI" if int(group.get("expected_cards") or 1) > 1 else ""
+        row = st.columns([0.6, 2.6, 1, 0.9])
+        row[0].markdown(f"**#{group.get('announcement_index')}**")
+        row[1].markdown(" ".join(f"`{value}`" for value in captures))
+        row[2].markdown(f'<span class="poc-chip {"poc-orange" if status == "GROUPING" else "poc-green"}">{status}</span>', unsafe_allow_html=True)
+        row[3].markdown(f'<span class="poc-chip poc-violet">{kind or "SIMPLE"}</span>', unsafe_allow_html=True)
+        if st.toggle("Voir les photos", key=f"grouping_photos_{_result_group_id(group)}"):
+            _render_group_photos({"photos": photo_payloads}, path_by_key, compact=True)
+        st.divider()
+
+
+def _render_diagnostic_view(sample_key: str, sample: dict, result: dict):
+    selected = st.selectbox(
+        "Diagnostic",
+        DIAGNOSTIC_OPTIONS,
+        key="photo_poc_diagnostic_view",
+    )
+    if selected == "Résultats / debug reconnaissance":
+        _render_results_view(sample_key, sample, result)
+    elif selected == "Erreurs uniquement":
+        _render_errors_view(sample_key, sample, result)
+    elif selected == "Propositions modifiées":
+        _render_changed_proposals_view(sample_key, sample, result)
+    elif selected == "Cas japonais":
+        _render_v13_japanese_cases(result)
+    elif selected == "Nouveaux autos":
+        _render_v13_new_autos(result)
+    elif selected == "Validation des groupes":
+        _render_validation_view(sample_key, sample, result)
+    elif selected == "Contrôle verts":
+        _render_green_quality_view(sample_key, sample, result)
+    elif selected == "Vérification complète":
+        _render_full_check_view(sample_key, sample, result)
+    elif selected == "Métriques historiques":
+        _render_full_summary(result, sample)
+    elif selected == "Ordre de capture":
+        st.dataframe(
+            [
+                {
+                    "capture_index": photo.capture_index,
+                    "filename": photo.filename,
+                    "capture_datetime": photo.capture_datetime,
+                    "source": photo.order_source,
+                    "taille Mo": round(photo.size_bytes / 1024 / 1024, 2),
+                }
+                for photo in result.get("ordered_photos", []) or []
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        metrics = result.get("metrics") or {}
+        st.markdown("<div class='poc-section-title'>Pipeline et cache</div>", unsafe_allow_html=True)
+        cols = st.columns(4)
+        cols[0].metric("Cache persistant", "Actif" if metrics.get("persistent_cache_hit") else "Écrit")
+        cols[1].metric("Restauration", f"{metrics.get('persistent_cache_restore_seconds', 0)} s")
+        cols[2].metric("Refresh Drop", f"{metrics.get('candidate_refresh_seconds', 0)} s")
+        cols[3].metric("Groupes rematchés", metrics.get("candidate_groups_rematched", 0))
+        st.json({
+            "pipeline": result.get("analysis_meta", {}).get("pipeline_version"),
+            "matching": result.get("analysis_meta", {}).get("matching_refresh_version"),
+            "metrics": {key: value for key, value in metrics.items() if isinstance(value, (str, int, float, bool))},
+        })
+
+
 def _render_full_summary(result: dict, sample: dict):
     metrics = result.get("metrics") or {}
     st.markdown("### Synthèse complète")
@@ -921,6 +1247,204 @@ def _render_group_photos(group: dict, path_by_key: dict[str, str], *, compact=Fa
                     st.image(path, width=190 if compact else 230)
             st.caption(_role_caption(photo_payload))
             st.caption(photo_payload.get("filename", ""))
+
+
+def _status_tone(level: str) -> str:
+    return {"green": "poc-green", "orange": "poc-orange", "red": "poc-red"}.get(level, "poc-red")
+
+
+def _status_label(level: str) -> str:
+    return {"green": "Reconnu", "orange": "À vérifier", "red": "Non reconnu"}.get(level, "Non reconnu")
+
+
+def _render_status_chip(level: str):
+    st.markdown(
+        f'<span class="poc-chip {_status_tone(level)}">{_status_label(level)}</span>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kpi(label: str, value, *, tone="violet"):
+    st.markdown(
+        f'<div class="poc-kpi" data-tone="{tone}"><div class="poc-kpi-label">{label}</div>'
+        f'<div class="poc-kpi-value">{value}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _workflow_stage(result: dict, sample: dict) -> tuple[str, int]:
+    pending = sum(
+        1
+        for group in result.get("groups", []) or []
+        if not _recognition_is_done(sample, _result_group_id(group), group.get("matches", []) or [])
+    )
+    if pending:
+        return "Vérification", pending
+    if result.get("groups"):
+        return "Prêt", 0
+    return "Analyse", 0
+
+
+def _render_premium_header(result: dict, sample: dict, *, drop_candidates_changed: bool):
+    metrics = result.get("metrics") or {}
+    drop = result.get("drop") or {}
+    stage, pending = _workflow_stage(result, sample)
+    freshness = "Cartes du Drop à actualiser" if drop_candidates_changed else "Cache à jour"
+    freshness_tone = "poc-orange" if drop_candidates_changed else "poc-green"
+    header_left, header_right = st.columns([4, 1.25])
+    with header_left:
+        st.markdown(
+            f"""
+            <div class="poc-shell">
+              <div class="poc-eyebrow">POKÉSTOCK · DROP VINTED</div>
+              <h1>Reconnaissance photos</h1>
+              <p>{drop.get('name') or 'Drop non défini'} · {metrics.get('photos_analyzed', 0)} photos · "
+              f"{metrics.get('announcements_detected', 0)} annonces · Analyse à jour</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        st.markdown(
+            f'<div class="poc-card-subtle"><span class="poc-chip {freshness_tone}">{freshness}</span>'
+            f'<div class="poc-mini" style="margin-top:.5rem">Étape actuelle · {stage}'
+            f'{f" · {pending} restant(s)" if pending else ""}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    stages = ["Import", "Analyse", "Vérification", "Prêt"]
+    active_index = stages.index(stage) if stage in stages else 1
+    workflow_html = []
+    for index, item in enumerate(stages):
+        active = " active" if index <= active_index else ""
+        workflow_html.append(f'<span class="poc-workflow-step{active}">{item}</span>')
+        if index < len(stages) - 1:
+            workflow_html.append('<span class="poc-workflow-arrow">→</span>')
+    st.markdown('<div class="poc-workflow">' + "".join(workflow_html) + "</div>", unsafe_allow_html=True)
+
+
+def _render_candidate_summary(
+    match: dict,
+    *,
+    compact=False,
+    sample_key: str | None = None,
+    sample: dict | None = None,
+    group_id: str | None = None,
+    match_index: int = 0,
+):
+    candidate = _match_primary_candidate(match)
+    not_in_drop = str(match.get("v13_not_in_drop_confidence") or "")
+    if not candidate and not not_in_drop:
+        st.markdown('<div class="poc-card"><strong>Aucune carte proposée</strong><div class="poc-muted">La reconnaissance ne dispose pas de candidat fiable.</div></div>', unsafe_allow_html=True)
+        return
+    if not_in_drop:
+        confidence = "forte confiance" if not_in_drop == "strong" else "à confirmer"
+        st.markdown(
+            f'<div class="poc-card" style="border-left:3px solid #e11d48"><strong>Carte absente du Drop</strong>'
+            f'<div class="poc-muted">{confidence} · {match.get("diagnostic_reason") or "Aucun candidat exact dans le Drop"}</div></div>',
+            unsafe_allow_html=True,
+        )
+        if sample_key and sample is not None and group_id:
+            ocr_payload = match.get("ocr") or {}
+            with st.popover("Préparer l’ajout", use_container_width=True):
+                st.caption("Préparation POC uniquement. Aucune donnée du Drop ne sera modifiée.")
+                with st.form(f"poc_premium_prepare_{group_id}_{match_index}"):
+                    name = st.text_input("Nom", value=((ocr_payload.get("name_texts") or [""])[0]))
+                    number = st.text_input(
+                        "Numéro",
+                        value=((ocr_payload.get("collector_number_texts") or ocr_payload.get("number_texts") or [""])[0]),
+                    )
+                    set_name = st.text_input("Set", value="")
+                    if st.form_submit_button("Préparer l’ajout", type="primary"):
+                        photo = match.get("photo")
+                        _prepare_drop_addition(
+                            sample_key,
+                            sample,
+                            group_id,
+                            match_index,
+                            {
+                                "name": name.strip(),
+                                "number": number.strip(),
+                                "set": set_name.strip(),
+                                "source_photo": getattr(photo, "filename", ""),
+                                "capture_index": getattr(photo, "capture_index", None),
+                                "status": "prepared_only",
+                            },
+                        )
+                        st.success("Ajout préparé dans le ground truth POC.")
+        return
+    photo_col, text_col = st.columns([0.72, 1.45] if not compact else [0.55, 1.45])
+    with photo_col:
+        if candidate.get("image_url"):
+            st.image(candidate["image_url"], width=118 if compact else 155)
+        else:
+            st.caption("Image indisponible")
+    with text_col:
+        st.markdown(f"**{candidate.get('name') or 'Carte inconnue'}**")
+        st.markdown(f"{candidate.get('number') or '—'} · {candidate.get('set') or 'Set non renseigné'}")
+        tags = []
+        if candidate.get("japanese"):
+            tags.append('<span class="poc-chip poc-rose">JAP</span>')
+        variant = _variant_label(candidate)
+        if variant and variant not in {"Standard", "FR", "JAP"}:
+            tags.append(f'<span class="poc-chip poc-violet">{variant}</span>')
+        if tags:
+            st.markdown("".join(tags), unsafe_allow_html=True)
+        st.caption(f"Score {match.get('score', 0)} · marge {match.get('margin', 0)}")
+        st.caption(str(match.get("diagnostic_reason") or "Proposition actuelle"))
+
+
+def _render_match_actions(
+    sample_key: str,
+    sample: dict,
+    group_id: str,
+    match_index: int,
+    match: dict,
+    *,
+    index_key: str,
+    current_index: int,
+    group_count: int,
+    matches: list[dict],
+    key_prefix: str,
+    show_next=True,
+):
+    validation = _recognition_validation(sample, group_id, match_index, match)
+    state = _validation_state(validation, match)
+    if state.get("state") in {"compatible", "explicit_truth"}:
+        result = "Correct" if state.get("resolved_correct") else "À reprendre"
+        tone = "poc-green" if state.get("resolved_correct") else "poc-red"
+        st.markdown(f'<span class="poc-chip {tone}">Validation · {result}</span>', unsafe_allow_html=True)
+        return
+    if state.get("state") == "stale":
+        st.markdown('<span class="poc-chip poc-orange">Proposition modifiée</span>', unsafe_allow_html=True)
+    action_columns = st.columns([1, 1, 1] if show_next else [1, 1])
+    left, middle = action_columns[:2]
+    left.button(
+        "✕ Mauvais",
+        key=f"{key_prefix}_wrong_{group_id}_{match_index}",
+        on_click=_full_check_validation_callback,
+        args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, group_count, matches, match),
+    )
+    middle.button(
+        "✓ Correct",
+        type="primary",
+        key=f"{key_prefix}_correct_{group_id}_{match_index}",
+        on_click=_full_check_validation_callback,
+        args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, group_count, matches, match),
+    )
+    if show_next:
+        action_columns[2].button(
+            "Suivant →",
+            key=f"{key_prefix}_next_{group_id}_{match_index}",
+            on_click=_set_queue_index,
+            args=(index_key, min(group_count - 1, current_index + 1)),
+        )
+
+
+def _render_recognition_details(match: dict, sample_key: str, sample: dict, group_id: str, match_index: int, candidates: list[dict]):
+    open_key = f"poc_details_{group_id}_{match.get('subcard_id') or match_index}"
+    if st.toggle("Détails de reconnaissance", key=open_key, value=False):
+        _render_match_debug(match, sample_key, sample, group_id, match_index, candidates)
 
 
 def _group_photo_payloads(group: dict) -> list[dict]:
@@ -2448,10 +2972,8 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
         st.success("Aucun cas sensible dans le résultat actuel.")
         return
 
-    heading = "Propositions modifiées à revalider" if stale_only else (
-        "Cas sensibles" if include_resolved else "Cas sensibles restants"
-    )
-    st.markdown(f"### {heading} : {len(all_cases)}")
+    heading = "Propositions modifiées à revalider" if stale_only else "Cas sensibles"
+    st.markdown(f"<div class='poc-section-title'>{heading} <span class='poc-muted'>· {len(all_cases)} restant(s)</span></div>", unsafe_allow_html=True)
     counters = {
         "JAP": sum("JAP" in _sensitive_reasons(group) for group in all_cases),
         "Multi": sum("MULTI" in _sensitive_reasons(group) for group in all_cases),
@@ -2462,7 +2984,7 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
     }
     counter_cols = st.columns(6)
     for column, (label, count) in zip(counter_cols, counters.items()):
-        column.metric(label, count)
+        column.caption(f"{label} · {count}")
 
     filter_name = st.radio(
         "Filtrer les cas sensibles",
@@ -2509,10 +3031,10 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
         )
     )
     if completed >= len(groups):
-        st.success("✅ Vérification des cas sensibles terminée")
+        st.success("Vérification des cas sensibles terminée")
         end_left, end_right = st.columns(2)
         if end_left.button("Voir le bilan", type="primary", key=f"sensitive_summary_{filter_name}"):
-            _request_view("Synthèse complète")
+            _request_view("Vue d’ensemble")
         end_right.button(
             "Revoir les cas mauvais",
             key=f"sensitive_bad_{filter_name}",
@@ -2520,50 +3042,51 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
             args=("Fails",),
         )
 
-    st.markdown(f"### Cas sensible — {current_index + 1} / {len(groups)}")
+    st.markdown(f"<div class='poc-section-title'>Cas sensible <span class='poc-muted'>· {current_index + 1} / {len(groups)}</span></div>", unsafe_allow_html=True)
     reasons = _sensitive_reasons(group)
     if _group_has_stale_validation(sample, group):
         reasons = [*reasons, "PROPOSITION MODIFIÉE"]
-    badges = " · ".join(reasons)
-    st.caption(
-        f"Annonce #{group.get('announcement_index')} · {badges} · "
-        f"{STATUS_LABELS.get(group.get('confidence_level'), '🔴 Non reconnu')}"
-    )
-    _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
-    if len(matches) > 1:
-        st.markdown(f"**{len(matches)} sous-cartes physiques — validation indépendante**")
-    for match_index, match in enumerate(matches):
-        _render_full_check_match(
-            match,
-            match_index,
-            sample_key=sample_key,
-            sample=sample,
-            group_id=group_id,
-        )
-        validation = _recognition_validation(sample, group_id, match_index, match)
-        validation_state = _validation_state(validation, match)
-        if validation_state.get("state") in {"compatible", "explicit_truth"}:
-            if validation_state.get("resolved_correct"):
-                st.success("Validation POC : correct")
-            else:
-                st.error("Validation POC : wrong")
-            continue
-        if validation_state.get("state") == "stale":
-            st.warning("Non validé depuis cette nouvelle proposition")
-        action_left, action_right = st.columns(2)
-        action_left.button(
-            "✓ Correct",
-            key=f"sensitive_ok_{group_id}_{match_index}",
-            type="primary",
-            on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, len(groups), matches, match),
-        )
-        action_right.button(
-            "✕ Mauvais",
-            key=f"sensitive_bad_{group_id}_{match_index}",
-            on_click=_full_check_validation_callback,
-            args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), matches, match),
-        )
+    chip_class = {
+        "JAP": "poc-rose", "MULTI": "poc-violet", "LÉGENDE": "poc-amber",
+        "NOT IN DROP": "poc-red", "FAIL": "poc-red", "GROUPING": "poc-orange",
+        "REVIEW": "poc-orange", "PROPOSITION MODIFIÉE": "poc-orange",
+    }
+    badges = "".join(f'<span class="poc-chip {chip_class.get(reason, "poc-violet")}">{reason}</span>' for reason in reasons)
+    st.markdown(f"Annonce #{group.get('announcement_index')} · {badges}", unsafe_allow_html=True)
+
+    photos_col, proposal_col = st.columns([1.22, 1], gap="large")
+    with photos_col:
+        _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
+    with proposal_col:
+        if not matches:
+            st.warning("Aucune sous-carte exploitable.")
+        elif len(matches) == 1:
+            _render_candidate_summary(
+                matches[0], sample_key=sample_key, sample=sample, group_id=group_id, match_index=0,
+            )
+            _render_match_actions(
+                sample_key, sample, group_id, 0, matches[0], index_key=index_key,
+                current_index=current_index, group_count=len(groups), matches=matches, key_prefix="sensitive",
+            )
+            _render_recognition_details(matches[0], sample_key, sample, group_id, 0, result.get("candidates", []))
+        else:
+            st.caption(f"{len(matches)} sous-cartes · validation indépendante")
+            card_cols = st.columns(min(2, len(matches)))
+            for match_index, match in enumerate(matches):
+                with card_cols[match_index % len(card_cols)]:
+                    st.markdown(f"**Carte {match_index + 1}**")
+                    _render_candidate_summary(
+                        match, compact=True, sample_key=sample_key, sample=sample,
+                        group_id=group_id, match_index=match_index,
+                    )
+                    _render_match_actions(
+                        sample_key, sample, group_id, match_index, match, index_key=index_key,
+                        current_index=current_index, group_count=len(groups), matches=matches,
+                        key_prefix="sensitive_multi", show_next=False,
+                    )
+            if st.toggle("Détails de reconnaissance", key=f"sensitive_details_{group_id}"):
+                for match_index, match in enumerate(matches):
+                    _render_match_debug(match, sample_key, sample, group_id, match_index, result.get("candidates", []))
     nav_left, nav_right = st.columns(2)
     nav_left.button(
         "← Précédent",
@@ -2716,20 +3239,10 @@ def _render_errors_view(sample_key: str, sample: dict, result: dict):
         st.success("Aucune erreur/review dans la sélection actuelle.")
 
 
-st.markdown(
-    """
-    <div class="poc-hero">
-      <h1>POC reconnaissance automatique des photos</h1>
-      <p>Lecture seule : aucune modification de data.json, vinted_drops.json ou des photos originales.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 _apply_pending_view()
 
 with st.sidebar:
-    st.subheader("Échantillon")
+    st.markdown("### Configuration")
     folder = st.text_input("Dossier photos", value=str(POC_DIR))
     photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
     st.caption(f"{len(photos)} photo(s) détectée(s)")
@@ -2738,41 +3251,21 @@ with st.sidebar:
     drop_options = {f"{drop.get('name', 'Drop sans nom')} · {len(drop.get('cards', []) or [])} cartes": drop.get("id") for drop in drops}
     selected_drop_label = st.selectbox("Drop candidat", list(drop_options) or ["Aucun drop"], disabled=not bool(drop_options))
     selected_drop_id = drop_options.get(selected_drop_label)
-    start_index = st.number_input("capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1)
-    target_announcements = st.number_input("annonces visées", min_value=5, max_value=35, value=30, step=1)
-    max_photos = st.number_input("photos max à analyser", min_value=10, max_value=max(10, len(photos)), value=min(75, max(10, len(photos))), step=5)
-    view_default = st.session_state.get("photo_poc_view", "Synthèse complète")
-    view_radio_kwargs = {"key": "photo_poc_view"}
-    if "photo_poc_view" not in st.session_state:
-        view_radio_kwargs["index"] = VIEW_OPTIONS.index(view_default) if view_default in VIEW_OPTIONS else 0
-    view = st.radio("Vue", VIEW_OPTIONS, **view_radio_kwargs)
-    run = st.button("Analyser l'échantillon", type="primary")
-    run_all = st.button("Analyser toutes les photos")
-    force_rebuild = st.checkbox(
-        "Forcer une reconstruction complète",
-        value=False,
-        help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
-    )
+    with st.expander("Analyse", expanded=False):
+        start_index = st.number_input("capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1)
+        target_announcements = st.number_input("annonces visées", min_value=5, max_value=35, value=30, step=1)
+        max_photos = st.number_input("photos max à analyser", min_value=10, max_value=max(10, len(photos)), value=min(75, max(10, len(photos))), step=5)
+        run = st.button("Analyser l'échantillon", type="primary", use_container_width=True)
+        run_all = st.button("Analyser toutes les photos", use_container_width=True)
+        force_rebuild = st.checkbox(
+            "Forcer une reconstruction complète",
+            value=False,
+            help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
+        )
 
 if not photos:
     st.warning("Aucune photo compatible trouvée dans le dossier POC.")
     st.stop()
-
-with st.expander("Ordre de capture détecté", expanded=False):
-    st.dataframe(
-        [
-            {
-                "capture_index": photo.capture_index,
-                "filename": photo.filename,
-                "capture_datetime": photo.capture_datetime,
-                "source": photo.order_source,
-                "taille Mo": round(photo.size_bytes / 1024 / 1024, 2),
-            }
-            for photo in photos[: min(len(photos), 188)]
-        ],
-        width="stretch",
-        hide_index=True,
-    )
 
 sample_key = sample_ground_truth_key(
     folder=folder,
@@ -2899,11 +3392,11 @@ if run or run_all:
     if run_all:
         done_metrics = st.session_state[CURRENT_RESULT_KEY].get("metrics") or {}
         if done_metrics.get("to_review", 0):
-            st.session_state["photo_poc_pending_view"] = "File à vérifier"
+            st.session_state["photo_poc_pending_view"] = "À vérifier"
         elif done_metrics.get("unrecognized", 0):
-            st.session_state["photo_poc_pending_view"] = "File non reconnus"
+            st.session_state["photo_poc_pending_view"] = "À vérifier"
         else:
-            st.session_state["photo_poc_pending_view"] = "Synthèse complète"
+            st.session_state["photo_poc_pending_view"] = "Vue d’ensemble"
         _rerun()
 
 result = st.session_state[CURRENT_RESULT_KEY]
@@ -2916,27 +3409,6 @@ _drop_candidates_changed = (
     or str((result.get("analysis_meta") or {}).get("matching_refresh_version") or "")
     != POC_MATCHING_REFRESH_VERSION
 )
-if _drop_candidates_changed:
-    st.warning(
-        "Les cartes du Drop ou les garde-fous de matching ont changé depuis cette analyse. "
-        "Le grouping et l'OCR restent valides, mais les propositions doivent être actualisées."
-    )
-if st.button(
-    "Actualiser les cartes du Drop",
-    type="primary" if _drop_candidates_changed else "secondary",
-    help="Relit uniquement les candidats du Drop et recalcule leur matching. Aucun OCR ni grouping n'est relancé.",
-):
-    with st.spinner("Actualisation des candidats et des propositions..."):
-        previous_snapshot = _current_proposal_snapshot(result)
-        result = refresh_result_candidates(result, drop_id=selected_drop_id)
-        result.setdefault("analysis_meta", {})["proposal_snapshot_previous"] = previous_snapshot
-        st.session_state[CURRENT_RESULT_KEY] = result
-    st.toast(
-        f"Drop actualisé : {len(result.get('candidates', []) or [])} cartes · "
-        f"{(result.get('metrics') or {}).get('candidate_refresh_seconds', 0)} s · "
-        f"{(result.get('metrics') or {}).get('candidate_groups_rematched', 0)} groupe(s) recalculé(s)"
-    )
-    _rerun()
 ground_truth = ensure_ground_truth_sample(result, sample_key)
 if sample_key in (ground_truth.get("samples") or {}):
     st.session_state[f"photo_poc_sample_{sample_key}"] = ground_truth["samples"][sample_key]
@@ -2947,52 +3419,49 @@ _sync_current_result_index(result)
 metrics = result["metrics"]
 drop = result.get("drop") or {}
 
-st.markdown(f"### Drop candidat : {drop.get('name', 'Non défini')}")
-st.caption(f"Ground truth POC : {POC_GROUND_TRUTH_PATH}")
-st.caption(metrics["ocr_note"])
+_render_premium_header(result, sample, drop_candidates_changed=_drop_candidates_changed)
 
-if view == "Synthèse complète":
-    _render_full_summary(result, sample)
-elif view == "Cas japonais":
-    _render_v13_japanese_cases(result)
-elif view == "Nouveaux autos V13":
-    _render_v13_new_autos(result)
-elif view == "Carte du grouping":
-    _render_grouping_map(result)
-elif view == "Singles / grouping reviews":
-    _render_v12_grouping_issues(result)
-elif view == "File à vérifier":
-    _render_queue_view(
-        sample_key,
-        sample,
-        result,
-        levels={"orange"},
-        title="À vérifier",
-        queue_key="review",
-        allow_good_card=True,
+header_action, header_note = st.columns([1.2, 3.8])
+with header_action:
+    refresh_requested = st.button(
+        "Actualiser le Drop",
+        type="primary" if _drop_candidates_changed else "secondary",
+        use_container_width=True,
+        help="Relit uniquement les candidats du Drop. Le grouping et l'OCR ne sont jamais relancés.",
     )
-elif view == "File non reconnus":
-    _render_queue_view(
-        sample_key,
-        sample,
-        result,
-        levels={"red"},
-        title="Non reconnus",
-        queue_key="fail",
-        allow_good_card=False,
+with header_note:
+    if _drop_candidates_changed:
+        st.warning("Les candidats ont changé depuis l’analyse. Actualise le Drop pour recalculer uniquement les propositions concernées.")
+    else:
+        st.caption(f"{metrics.get('ocr_note', '')} · Ground truth POC local")
+
+if refresh_requested:
+    with st.spinner("Actualisation ciblée des propositions..."):
+        previous_snapshot = _current_proposal_snapshot(result)
+        result = refresh_result_candidates(result, drop_id=selected_drop_id)
+        result.setdefault("analysis_meta", {})["proposal_snapshot_previous"] = previous_snapshot
+        st.session_state[CURRENT_RESULT_KEY] = result
+    st.toast(
+        f"Drop actualisé · {(result.get('metrics') or {}).get('candidate_refresh_seconds', 0)} s · "
+        f"{(result.get('metrics') or {}).get('candidate_groups_rematched', 0)} groupe(s) recalculé(s)"
     )
-elif view == "Contrôle verts":
-    _render_green_quality_view(sample_key, sample, result)
-elif view == "Vérification complète":
-    _render_full_check_view(sample_key, sample, result)
+    _rerun()
+
+view_default = st.session_state.get("photo_poc_view", "Vue d’ensemble")
+view_radio_kwargs = {"key": "photo_poc_view", "horizontal": True, "label_visibility": "collapsed"}
+if "photo_poc_view" not in st.session_state:
+    view_radio_kwargs["index"] = VIEW_OPTIONS.index(view_default) if view_default in VIEW_OPTIONS else 0
+view = st.radio("Navigation", VIEW_OPTIONS, **view_radio_kwargs)
+
+if view == "Vue d’ensemble":
+    _render_overview(result, sample)
+elif view == "À vérifier":
+    _render_review_workspace(sample_key, sample, result)
 elif view == "Cas sensibles":
     _render_sensitive_cases_view(sample_key, sample, result)
-elif view == "Propositions modifiées":
-    _render_changed_proposals_view(sample_key, sample, result)
-elif view == "Validation des groupes":
-    _render_metrics(metrics)
-    _render_validation_view(sample_key, sample, result)
-elif view == "Résultats / debug reconnaissance":
-    _render_results_view(sample_key, sample, result)
+elif view == "Validés":
+    _render_validated_view(sample, result)
+elif view == "Grouping":
+    _render_grouping_workspace(result)
 else:
-    _render_errors_view(sample_key, sample, result)
+    _render_diagnostic_view(sample_key, sample, result)
