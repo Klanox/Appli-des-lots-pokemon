@@ -38,9 +38,12 @@ from services.photo_recognition_poc_service import (
     candidate_set_signature,
     ensure_ground_truth_sample,
     list_ordered_photos,
+    load_cached_analysis_result,
+    load_latest_cached_analysis_result,
     load_poc_ground_truth,
     load_vinted_drops,
     photo_key,
+    photo_window_signature,
     sample_ground_truth_key,
     stable_group_id_from_photos,
     update_ground_truth_sample,
@@ -86,6 +89,28 @@ CURRENT_RESULT_KEY = "photo_poc_current_result"
 
 
 st.set_page_config(page_title="POC reconnaissance photos", layout="wide")
+
+
+def _photo_folder_token(folder: str) -> str:
+    root = Path(folder)
+    if not root.exists():
+        return "missing"
+    rows = []
+    for path in root.iterdir():
+        if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            continue
+        try:
+            stat = path.stat()
+            rows.append(f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}")
+        except OSError:
+            rows.append(f"{path.name}:unreadable")
+    return hashlib.sha1("|".join(sorted(rows)).encode("utf-8")).hexdigest()
+
+
+@st.cache_data(show_spinner=False)
+def _cached_ordered_photos(folder: str, folder_token: str):
+    del folder_token
+    return list_ordered_photos(folder)
 
 st.markdown(
     """
@@ -142,12 +167,7 @@ def _analysis_meta_for(
     start_index = max(1, int(start_index or 1))
     max_photos = max(1, int(max_photos or 1))
     photo_window = photos[start_index - 1 : start_index - 1 + max_photos]
-    photo_signature = hashlib.sha1(
-        "|".join(
-            f"{photo.capture_index}:{photo.filename}:{photo.size_bytes}"
-            for photo in photo_window
-        ).encode("utf-8")
-    ).hexdigest()
+    photo_signature = photo_window_signature(photo_window)
     return {
         "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
         "folder": str(Path(folder).resolve()),
@@ -201,7 +221,9 @@ def _set_group_status(sample_key: str, group_id: str, status: str):
     st.session_state[f"photo_poc_sample_{sample_key}"] = sample
 
 
-def _image_crop(path: str, kind: str, orientation_degrees: int = 0):
+@st.cache_data(show_spinner=False)
+def _cached_image_crop(path: str, kind: str, orientation_degrees: int, file_mtime_ns: int):
+    del file_mtime_ns
     try:
         with Image.open(path) as raw:
             img = ImageOps.exif_transpose(raw).convert("RGB")
@@ -218,6 +240,14 @@ def _image_crop(path: str, kind: str, orientation_degrees: int = 0):
             return img
     except Exception:
         return None
+
+
+def _image_crop(path: str, kind: str, orientation_degrees: int = 0):
+    try:
+        file_mtime_ns = Path(path).stat().st_mtime_ns
+    except OSError:
+        file_mtime_ns = 0
+    return _cached_image_crop(path, kind, int(orientation_degrees or 0), file_mtime_ns)
 
 
 @st.cache_data(show_spinner=False)
@@ -1644,6 +1674,10 @@ def _full_check_validation_callback(
         st.session_state[index_key] = min(current_index + 1, max(0, group_count - 1))
 
 
+def _set_queue_index(index_key: str, value: int):
+    st.session_state[index_key] = max(0, int(value))
+
+
 def _candidate_options(candidates: list[dict]) -> dict[str, str]:
     return {
         f"{candidate.get('name')} · {candidate.get('number')} · {candidate.get('lot_name')} · {candidate.get('card_uid')}": candidate.get("drop_card_key")
@@ -1871,7 +1905,12 @@ def _render_full_check_match(
                     )
                     st.success("Ajout préparé dans le ground truth POC.")
 
-    with st.expander("Voir les autres candidats / debug", expanded=False):
+    show_debug = st.toggle(
+        "Voir les autres candidats / debug",
+        value=False,
+        key=f"photo_poc_match_debug_{group_id}_{match.get('subcard_id') or match_index}",
+    )
+    if show_debug:
         st.caption(
             "OCR nom : "
             + " / ".join(ocr_payload.get("name_texts") or ["—"])
@@ -1900,7 +1939,12 @@ def _render_full_check_match(
                         st.image(candidate.get("image_url"), width=120)
                     st.caption(f"#{idx} · {candidate.get('name')} · {candidate.get('number')}")
         photo = match.get("photo")
-        if photo:
+        show_crops = st.toggle(
+            "Afficher les crops OCR",
+            value=False,
+            key=f"photo_poc_match_crops_{group_id}_{match.get('subcard_id') or match_index}",
+        )
+        if photo and show_crops:
             crop_cols = st.columns(3)
             name_crop = _image_crop(photo.path, "name", orientation)
             number_crop = _image_crop(photo.path, "number", orientation)
@@ -2218,12 +2262,20 @@ def _render_full_check_view(sample_key: str, sample: dict, result: dict):
             args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), matches, match),
         )
     nav1, nav2 = st.columns(2)
-    if nav1.button("← Précédente", key="full_prev", disabled=current_index == 0):
-        st.session_state[index_key] = max(0, current_index - 1)
-        st.rerun(scope="fragment")
-    if nav2.button("Suivante →", key="full_next_bottom", disabled=current_index >= len(groups) - 1):
-        st.session_state[index_key] = min(len(groups) - 1, current_index + 1)
-        st.rerun(scope="fragment")
+    nav1.button(
+        "← Précédente",
+        key="full_prev",
+        disabled=current_index == 0,
+        on_click=_set_queue_index,
+        args=(index_key, current_index - 1),
+    )
+    nav2.button(
+        "Suivante →",
+        key="full_next_bottom",
+        disabled=current_index >= len(groups) - 1,
+        on_click=_set_queue_index,
+        args=(index_key, min(len(groups) - 1, current_index + 1)),
+    )
 
 
 SENSITIVE_FILTERS = ("Tous", "JAP", "Multi", "LÉGENDE", "Not in Drop", "Fails", "Grouping")
@@ -2513,12 +2565,20 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
             args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, len(groups), matches, match),
         )
     nav_left, nav_right = st.columns(2)
-    if nav_left.button("← Précédent", key=f"sensitive_prev_{filter_name}", disabled=current_index == 0):
-        st.session_state[index_key] = max(0, current_index - 1)
-        st.rerun(scope="fragment")
-    if nav_right.button("Suivant →", key=f"sensitive_next_{filter_name}", disabled=current_index >= len(groups) - 1):
-        st.session_state[index_key] = min(len(groups) - 1, current_index + 1)
-        st.rerun(scope="fragment")
+    nav_left.button(
+        "← Précédent",
+        key=f"sensitive_prev_{filter_name}",
+        disabled=current_index == 0,
+        on_click=_set_queue_index,
+        args=(index_key, current_index - 1),
+    )
+    nav_right.button(
+        "Suivant →",
+        key=f"sensitive_next_{filter_name}",
+        disabled=current_index >= len(groups) - 1,
+        on_click=_set_queue_index,
+        args=(index_key, min(len(groups) - 1, current_index + 1)),
+    )
 
 
 def _group_visible(group: dict, mode: str) -> bool:
@@ -2671,7 +2731,7 @@ _apply_pending_view()
 with st.sidebar:
     st.subheader("Échantillon")
     folder = st.text_input("Dossier photos", value=str(POC_DIR))
-    photos = list_ordered_photos(folder)
+    photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
     st.caption(f"{len(photos)} photo(s) détectée(s)")
     drops_data = load_vinted_drops()
     drops = drops_data.get("drops", []) or []
@@ -2688,6 +2748,11 @@ with st.sidebar:
     view = st.radio("Vue", VIEW_OPTIONS, **view_radio_kwargs)
     run = st.button("Analyser l'échantillon", type="primary")
     run_all = st.button("Analyser toutes les photos")
+    force_rebuild = st.checkbox(
+        "Forcer une reconstruction complète",
+        value=False,
+        help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
+    )
 
 if not photos:
     st.warning("Aucune photo compatible trouvée dans le dossier POC.")
@@ -2761,7 +2826,46 @@ else:
 if CURRENT_RESULT_KEY not in st.session_state and "photo_poc_result" in st.session_state:
     st.session_state[CURRENT_RESULT_KEY] = st.session_state.pop("photo_poc_result")
 
-if not (run or run_all) and CURRENT_RESULT_KEY in st.session_state:
+restored_from_cache = False
+if not (run or run_all) and CURRENT_RESULT_KEY not in st.session_state:
+    cache_started = time.perf_counter()
+    cached_result = load_cached_analysis_result(
+        folder=folder,
+        drop_id=selected_drop_id,
+        start_index=analysis_start_index,
+        target_announcements=analysis_target_announcements,
+        max_photos=analysis_max_photos,
+        ordered_photos=photos,
+    )
+    if cached_result is None:
+        cached_result = load_latest_cached_analysis_result(
+            folder=folder,
+            drop_id=selected_drop_id,
+            ordered_photos=photos,
+        )
+    if cached_result is not None:
+        cached_meta = cached_result.get("analysis_meta") or {}
+        cached_start = int(cached_meta.get("start_index") or 1)
+        cached_max = int(cached_meta.get("max_photos") or len(cached_result.get("sample_photos", []) or []))
+        cached_target = int(cached_meta.get("target_announcements") or cached_max)
+        st.session_state[CURRENT_RESULT_KEY] = cached_result
+        st.session_state["photo_poc_sample_key"] = sample_ground_truth_key(
+            folder=folder,
+            drop_id=selected_drop_id,
+            start_index=cached_start,
+            max_photos=cached_max,
+            target_announcements=cached_target,
+        )
+        st.session_state["photo_poc_full_analysis"] = bool(
+            cached_start == 1 and len(cached_result.get("sample_photos", []) or []) == len(photos)
+        )
+        restored_from_cache = True
+        st.toast(
+            "Résultat POC restauré en "
+            f"{round((time.perf_counter() - cache_started) * 1000)} ms"
+        )
+
+if not (run or run_all) and CURRENT_RESULT_KEY in st.session_state and not restored_from_cache:
     if not _result_matches_analysis(st.session_state.get(CURRENT_RESULT_KEY), expected_meta):
         st.session_state.pop(CURRENT_RESULT_KEY, None)
         st.session_state.pop("photo_poc_sample_key", None)
@@ -2782,6 +2886,7 @@ if run or run_all:
             start_index=analysis_start_index,
             target_announcements=analysis_target_announcements,
             max_photos=analysis_max_photos,
+            force_rebuild=force_rebuild,
         )
         st.session_state["photo_poc_sample_key"] = analysis_sample_key
         st.session_state["photo_poc_full_analysis"] = bool(run_all)
@@ -2828,7 +2933,8 @@ if st.button(
         st.session_state[CURRENT_RESULT_KEY] = result
     st.toast(
         f"Drop actualisé : {len(result.get('candidates', []) or [])} cartes · "
-        f"{(result.get('metrics') or {}).get('candidate_refresh_seconds', 0)} s"
+        f"{(result.get('metrics') or {}).get('candidate_refresh_seconds', 0)} s · "
+        f"{(result.get('metrics') or {}).get('candidate_groups_rematched', 0)} groupe(s) recalculé(s)"
     )
     _rerun()
 ground_truth = ensure_ground_truth_sample(result, sample_key)

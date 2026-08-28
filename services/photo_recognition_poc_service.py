@@ -15,6 +15,7 @@ import importlib.util
 import json
 import math
 import os
+import pickle
 import re
 import time
 import unicodedata
@@ -60,6 +61,7 @@ OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
 POC_MATCHING_REFRESH_VERSION = "v14.7-historical-drop-legend-jp-1"
+POC_RESULT_CACHE_VERSION = "v1-persistent-result"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -170,6 +172,20 @@ def list_ordered_photos(folder: str | Path = POC_DIR) -> list[PhotoInfo]:
             )
         )
     return ordered
+
+
+def photo_window_signature(photos: list[PhotoInfo]) -> str:
+    """Fingerprint the physical inputs without reading their image pixels."""
+    rows = []
+    for photo in photos:
+        try:
+            mtime_ns = Path(photo.path).stat().st_mtime_ns
+        except OSError:
+            mtime_ns = 0
+        rows.append(
+            f"{photo.capture_index}:{photo.filename}:{photo.size_bytes}:{mtime_ns}"
+        )
+    return hashlib.sha1("|".join(rows).encode("utf-8")).hexdigest()
 
 
 def load_json_file(path: str | Path, default):
@@ -298,6 +314,174 @@ def candidate_set_signature(candidates: list[dict[str, Any]]) -> str:
     return hashlib.sha1(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def _analysis_cache_descriptor(
+    *,
+    folder: str | Path,
+    drop_id: str | None,
+    start_index: int,
+    target_announcements: int,
+    max_photos: int,
+    photo_signature: str,
+) -> dict[str, Any]:
+    return {
+        "cache_version": POC_RESULT_CACHE_VERSION,
+        "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
+        "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
+        "folder": str(Path(folder).resolve()),
+        "drop_id": str(drop_id or ""),
+        "start_index": int(start_index),
+        "target_announcements": int(target_announcements),
+        "max_photos": int(max_photos),
+        "photo_signature": str(photo_signature),
+    }
+
+
+def _analysis_result_cache_path(descriptor: dict[str, Any]) -> Path:
+    digest = hashlib.sha1(
+        json.dumps(descriptor, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return POC_CACHE_DIR / "results" / f"{digest}.pickle"
+
+
+def save_cached_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Persist one local POC result atomically for fast server restarts."""
+    meta = result.get("analysis_meta") or {}
+    descriptor = meta.get("result_cache_descriptor")
+    if not isinstance(descriptor, dict):
+        descriptor = _analysis_cache_descriptor(
+            folder=meta.get("folder") or POC_DIR,
+            drop_id=meta.get("drop_id"),
+            start_index=_safe_int(meta.get("start_index"), 1),
+            target_announcements=_safe_int(meta.get("target_announcements"), 0),
+            max_photos=_safe_int(meta.get("max_photos"), 0),
+            photo_signature=str(meta.get("photo_signature") or ""),
+        )
+        meta["result_cache_descriptor"] = descriptor
+    path = _analysis_result_cache_path(descriptor)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    started = time.perf_counter()
+    payload = {
+        "cache_version": POC_RESULT_CACHE_VERSION,
+        "descriptor": descriptor,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "result": result,
+    }
+    try:
+        with temporary.open("wb") as handle:
+            pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
+    return {
+        "path": str(path),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+        "write_seconds": time.perf_counter() - started,
+    }
+
+
+def load_cached_analysis_result(
+    *,
+    folder: str | Path = POC_DIR,
+    drop_id: str | None = None,
+    start_index=1,
+    target_announcements=30,
+    max_photos=90,
+    ordered_photos: list[PhotoInfo] | None = None,
+) -> dict[str, Any] | None:
+    """Restore a compatible local result without running recognition again."""
+    started = time.perf_counter()
+    ordered = ordered_photos if ordered_photos is not None else list_ordered_photos(folder)
+    start_index = max(1, int(start_index or 1))
+    max_photos = max(1, int(max_photos or 1))
+    photo_window = ordered[start_index - 1 : start_index - 1 + max_photos]
+    descriptor = _analysis_cache_descriptor(
+        folder=folder,
+        drop_id=drop_id,
+        start_index=start_index,
+        target_announcements=int(target_announcements or 0),
+        max_photos=max_photos,
+        photo_signature=photo_window_signature(photo_window),
+    )
+    path = _analysis_result_cache_path(descriptor)
+    if not path.exists():
+        return None
+    try:
+        with path.open("rb") as handle:
+            payload = pickle.load(handle)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("cache_version") != POC_RESULT_CACHE_VERSION:
+        return None
+    if payload.get("descriptor") != descriptor:
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    meta = result.get("analysis_meta") or {}
+    if meta.get("pipeline_version") != POC_ANALYSIS_PIPELINE_VERSION:
+        return None
+    if meta.get("matching_refresh_version") != POC_MATCHING_REFRESH_VERSION:
+        return None
+    result.setdefault("metrics", {})["persistent_cache_restore_seconds"] = round(
+        time.perf_counter() - started,
+        4,
+    )
+    result["metrics"]["persistent_cache_hit"] = True
+    result["metrics"]["persistent_cache_size_bytes"] = path.stat().st_size
+    return result
+
+
+def load_latest_cached_analysis_result(
+    *,
+    folder: str | Path = POC_DIR,
+    drop_id: str | None = None,
+    ordered_photos: list[PhotoInfo] | None = None,
+) -> dict[str, Any] | None:
+    """Restore the newest valid block for a folder/drop after a server restart."""
+    ordered = ordered_photos if ordered_photos is not None else list_ordered_photos(folder)
+    expected_folder = str(Path(folder).resolve())
+    expected_drop = str(drop_id or "")
+    cache_dir = POC_CACHE_DIR / "results"
+    if not cache_dir.exists():
+        return None
+    for path in sorted(cache_dir.glob("*.pickle"), key=lambda item: item.stat().st_mtime_ns, reverse=True):
+        started = time.perf_counter()
+        try:
+            with path.open("rb") as handle:
+                payload = pickle.load(handle)
+        except Exception:
+            continue
+        descriptor = payload.get("descriptor") if isinstance(payload, dict) else None
+        if not isinstance(descriptor, dict):
+            continue
+        if descriptor.get("cache_version") != POC_RESULT_CACHE_VERSION:
+            continue
+        if descriptor.get("pipeline_version") != POC_ANALYSIS_PIPELINE_VERSION:
+            continue
+        if descriptor.get("matching_refresh_version") != POC_MATCHING_REFRESH_VERSION:
+            continue
+        if descriptor.get("folder") != expected_folder or str(descriptor.get("drop_id") or "") != expected_drop:
+            continue
+        start_index = max(1, _safe_int(descriptor.get("start_index"), 1))
+        max_photos = max(1, _safe_int(descriptor.get("max_photos"), 1))
+        photo_window = ordered[start_index - 1 : start_index - 1 + max_photos]
+        if descriptor.get("photo_signature") != photo_window_signature(photo_window):
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            continue
+        result.setdefault("metrics", {})["persistent_cache_restore_seconds"] = round(
+            time.perf_counter() - started,
+            4,
+        )
+        result["metrics"]["persistent_cache_hit"] = True
+        result["metrics"]["persistent_cache_size_bytes"] = path.stat().st_size
+        return result
+    return None
 
 
 def _candidate_image_url(card: dict) -> str:
@@ -3101,12 +3285,13 @@ def _recognize_groups(
     force_grouping_trust=False,
     cached_ocr_by_path: dict[str, dict[str, Any]] | None = None,
     candidate_indexes: dict[str, Any] | None = None,
+    initial_used_candidate_counts: dict[str, int] | None = None,
 ) -> tuple[bool, str, int]:
     ocr_available, ocr_note = _ocr_status()
     reference_features = {} if ocr_available else build_reference_features(candidates)
     candidate_indexes = candidate_indexes or _candidate_indexes(candidates)
     candidate_numbers = set((candidate_indexes.get("by_number") or {}).keys())
-    used_candidate_counts = {}
+    used_candidate_counts = dict(initial_used_candidate_counts or {})
     for group in groups:
         front = group.get("primary_front")
         if not front:
@@ -3634,31 +3819,60 @@ def analyze_sample(
     start_index=1,
     target_announcements=30,
     max_photos=90,
+    force_rebuild=False,
 ):
     started = time.perf_counter()
+    discovery_started = time.perf_counter()
     ordered = list_ordered_photos(folder)
     start_index = max(1, int(start_index or 1))
     photo_window = ordered[start_index - 1 : start_index - 1 + max(1, int(max_photos or 1))]
-    photo_signature = hashlib.sha1(
-        "|".join(
-            f"{photo.capture_index}:{photo.filename}:{photo.size_bytes}"
-            for photo in photo_window
-        ).encode("utf-8")
-    ).hexdigest()
+    photo_signature = photo_window_signature(photo_window)
+    discovery_duration = time.perf_counter() - discovery_started
+    candidate_load_started = time.perf_counter()
     drop, candidates = active_drop_candidates(data_path=data_path, drops_path=drops_path, drop_id=drop_id)
     candidates_signature = candidate_set_signature(candidates)
+    candidate_load_duration = time.perf_counter() - candidate_load_started
+    resolved_drop_id = drop_id or (drop.get("id") if isinstance(drop, dict) else None)
+    if not force_rebuild:
+        cached_result = load_cached_analysis_result(
+            folder=folder,
+            drop_id=resolved_drop_id,
+            start_index=start_index,
+            target_announcements=target_announcements,
+            max_photos=max_photos,
+            ordered_photos=ordered,
+        )
+        if cached_result is not None:
+            cached_signature = str((cached_result.get("analysis_meta") or {}).get("candidate_signature") or "")
+            if cached_signature != candidates_signature:
+                cached_result = refresh_result_candidates(
+                    cached_result,
+                    data_path=data_path,
+                    drops_path=drops_path,
+                    drop_id=resolved_drop_id,
+                )
+            metrics = cached_result.setdefault("metrics", {})
+            metrics["photo_discovery_seconds"] = round(discovery_duration, 4)
+            metrics["candidate_load_seconds"] = round(candidate_load_duration, 4)
+            metrics["analysis_entry_seconds"] = round(time.perf_counter() - started, 4)
+            return cached_result
+
+    classification_started = time.perf_counter()
     classifications = {}
     for photo in photo_window:
         classifications[photo.filename] = classify_photo(photo.path)
+    classification_duration = time.perf_counter() - classification_started
     grouping_started = time.perf_counter()
     groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
     grouping_duration = time.perf_counter() - grouping_started
     candidate_indexes = _candidate_indexes(candidates)
+    recognition_started = time.perf_counter()
     ocr_available, ocr_note, reference_images_loaded = _recognize_groups(
         groups,
         candidates,
         candidate_indexes=candidate_indexes,
     )
+    recognition_duration = time.perf_counter() - recognition_started
     duration = time.perf_counter() - started
     metrics = _metrics_for_groups(
         ordered=ordered,
@@ -3672,11 +3886,23 @@ def analyze_sample(
         reference_images_loaded=reference_images_loaded,
     )
     metrics["v12_grouping_seconds"] = round(grouping_duration, 3)
-    return {
+    metrics["photo_discovery_seconds"] = round(discovery_duration, 4)
+    metrics["candidate_load_seconds"] = round(candidate_load_duration, 4)
+    metrics["classification_seconds"] = round(classification_duration, 4)
+    metrics["recognition_seconds"] = round(recognition_duration, 4)
+    descriptor = _analysis_cache_descriptor(
+        folder=folder,
+        drop_id=resolved_drop_id,
+        start_index=start_index,
+        target_announcements=int(target_announcements or 0),
+        max_photos=int(max_photos or 0),
+        photo_signature=photo_signature,
+    )
+    result = {
         "analysis_meta": {
             "pipeline_version": POC_ANALYSIS_PIPELINE_VERSION,
             "folder": str(Path(folder).resolve()),
-            "drop_id": drop_id or (drop.get("id") if isinstance(drop, dict) else None),
+            "drop_id": resolved_drop_id,
             "start_index": start_index,
             "target_announcements": int(target_announcements or 0),
             "max_photos": int(max_photos or 0),
@@ -3684,6 +3910,7 @@ def analyze_sample(
             "photo_signature": photo_signature,
             "candidate_signature": candidates_signature,
             "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
+            "result_cache_descriptor": descriptor,
         },
         "drop": drop,
         "ordered_photos": ordered,
@@ -3694,6 +3921,11 @@ def analyze_sample(
         "classifications": classifications,
         "metrics": metrics,
     }
+    cache_info = save_cached_analysis_result(result)
+    metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
+    metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
+    metrics["persistent_cache_hit"] = False
+    return result
 
 
 _CANDIDATE_DERIVED_GROUP_FIELDS = (
@@ -3724,6 +3956,140 @@ def _clear_candidate_derived_group_state(groups: list[dict[str, Any]]) -> None:
             group.pop(field, None)
 
 
+def _candidate_matching_payload(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **candidate_identity(candidate),
+        "quantity": max(1, _safe_int(candidate.get("quantity"), 1)),
+        "image_url": str(candidate.get("image_url") or ""),
+    }
+
+
+def _candidate_payload_map(candidates: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        candidate_identity_key(candidate): _candidate_matching_payload(candidate)
+        for candidate in candidates
+    }
+
+
+def _match_candidate_keys(group: dict[str, Any]) -> set[str]:
+    keys = set()
+    for match in group.get("matches", []) or []:
+        for row in match.get("candidates", []) or []:
+            candidate = row.get("candidate") or {}
+            if candidate:
+                keys.add(candidate_identity_key(candidate))
+    return keys
+
+
+def _group_matching_signals(group: dict[str, Any]) -> tuple[set[str], set[str]]:
+    names: set[str] = set()
+    numbers: set[str] = set()
+    for match in group.get("matches", []) or []:
+        ocr = match.get("ocr") or {}
+        for value in (
+            list(ocr.get("name_texts") or [])
+            + list(ocr.get("name_fallback_texts") or [])
+        ):
+            folded = _fold_text(value)
+            if folded:
+                names.add(folded)
+        for value in (
+            list(ocr.get("collector_number_texts") or [])
+            + list(ocr.get("number_texts") or [])
+            + list(ocr.get("all_number_texts") or [])
+            + list(ocr.get("v_union_edge_numbers") or [])
+        ):
+            normalized = _normalize_card_number(value)
+            if normalized:
+                numbers.add(normalized)
+                local = _number_local(normalized)
+                if local:
+                    numbers.add(local)
+    return names, numbers
+
+
+def _candidate_matches_group_signals(candidate: dict[str, Any], group: dict[str, Any]) -> bool:
+    names, numbers = _group_matching_signals(group)
+    candidate_number = _normalize_card_number(candidate.get("number") or "")
+    candidate_local = _number_local(candidate_number)
+    if candidate_number and candidate_number in numbers:
+        return True
+    if candidate_local and candidate_local in numbers:
+        return True
+    candidate_name = _fold_text(candidate.get("name") or "")
+    if candidate_name and any(
+        candidate_name == name
+        or candidate_name in name
+        or name in candidate_name
+        or _similarity(candidate_name, name) >= 0.84
+        for name in names
+    ):
+        return True
+    layout = str(group.get("v_union_family") or group.get("legend_family") or "")
+    return bool(layout and candidate_name and _similarity(_fold_text(layout), candidate_name) >= 0.72)
+
+
+def _groups_affected_by_candidate_changes(
+    groups: list[dict[str, Any]],
+    old_candidates: list[dict[str, Any]],
+    new_candidates: list[dict[str, Any]],
+) -> tuple[list[int], dict[str, int]]:
+    old_map = _candidate_payload_map(old_candidates)
+    new_map = _candidate_payload_map(new_candidates)
+    changed_keys = {
+        key
+        for key in set(old_map) | set(new_map)
+        if old_map.get(key) != new_map.get(key)
+    }
+    changed_candidates = [
+        candidate
+        for candidate in [*old_candidates, *new_candidates]
+        if candidate_identity_key(candidate) in changed_keys
+    ]
+    affected = []
+    for index, group in enumerate(groups):
+        if _match_candidate_keys(group) & changed_keys:
+            affected.append(index)
+            continue
+        if any(_candidate_matches_group_signals(candidate, group) for candidate in changed_candidates):
+            affected.append(index)
+    return affected, {
+        "added": len(set(new_map) - set(old_map)),
+        "removed": len(set(old_map) - set(new_map)),
+        "changed": len(set(old_map) & set(new_map) & changed_keys),
+    }
+
+
+def _cached_ocr_from_groups(groups: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    cached_ocr_by_path = {}
+    for group in groups:
+        primary = group.get("primary_front") or {}
+        primary_photo = primary.get("photo")
+        primary_ocr = group.get("v_union_primary_ocr") or group.get("legend_primary_ocr")
+        if primary_photo and isinstance(primary_ocr, dict):
+            cached_ocr_by_path[str(primary_photo.path)] = primary_ocr
+        for match in group.get("matches", []) or []:
+            photo = match.get("photo")
+            if photo and isinstance(match.get("ocr"), dict):
+                cached_ocr_by_path[str(photo.path)] = match["ocr"]
+    return cached_ocr_by_path
+
+
+def _used_candidate_counts_before(groups: list[dict[str, Any]], stop_index: int) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for group in groups[:stop_index]:
+        for match in group.get("matches", []) or []:
+            status = str(match.get("v10_original_status") or match.get("status") or "")
+            candidates = match.get("candidates") or []
+            if status != "recognized" or not candidates:
+                continue
+            candidate = candidates[0].get("candidate") or {}
+            key = str(candidate.get("drop_card_key") or candidate.get("_drop_card_key") or "")
+            if key:
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def refresh_result_candidates(
     result: dict[str, Any],
     *,
@@ -3745,34 +4111,52 @@ def refresh_result_candidates(
     )
     previous_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
     current_signature = candidate_set_signature(candidates)
-    cached_ocr_by_path = {}
-    for group in result.get("groups", []) or []:
-        primary = group.get("primary_front") or {}
-        primary_photo = primary.get("photo")
-        primary_ocr = group.get("v_union_primary_ocr") or group.get("legend_primary_ocr")
-        if primary_photo and isinstance(primary_ocr, dict):
-            cached_ocr_by_path[str(primary_photo.path)] = primary_ocr
-        for match in group.get("matches", []) or []:
-            photo = match.get("photo")
-            if photo and isinstance(match.get("ocr"), dict):
-                cached_ocr_by_path[str(photo.path)] = match["ocr"]
+    groups = result.get("groups", []) or []
+    old_candidates = result.get("candidates", []) or []
+    meta = result.setdefault("analysis_meta", {})
+    previous_matching_version = str(meta.get("matching_refresh_version") or "")
+    matching_version_changed = previous_matching_version != POC_MATCHING_REFRESH_VERSION
+    if previous_signature == current_signature and not matching_version_changed:
+        duration = time.perf_counter() - started
+        result["drop"] = drop
+        result["candidates"] = candidates
+        meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
+        meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
+        metrics = result.setdefault("metrics", {})
+        metrics["candidate_refresh_seconds"] = round(duration, 4)
+        metrics["candidate_signature_changed"] = False
+        metrics["candidate_groups_rematched"] = 0
+        metrics["candidate_refresh_mode"] = "noop"
+        return result
+
+    cached_ocr_by_path = _cached_ocr_from_groups(groups)
+    affected_indexes, change_counts = _groups_affected_by_candidate_changes(
+        groups,
+        old_candidates,
+        candidates,
+    )
+    if matching_version_changed:
+        affected_indexes = list(range(len(groups)))
 
     candidate_indexes = _candidate_indexes(candidates)
-    # A refresh is deliberately a new matching snapshot.  Do not let an old
-    # V-UNION family, not-in-Drop diagnostic or recognised-card projection
-    # survive beside freshly resolved Drop identities.
-    _clear_candidate_derived_group_state(result.get("groups", []) or [])
-    ocr_available, ocr_note, reference_images_loaded = _recognize_groups(
-        result.get("groups", []) or [],
-        candidates,
-        cached_ocr_by_path=cached_ocr_by_path,
-        candidate_indexes=candidate_indexes,
-    )
+    ocr_available, ocr_note = _ocr_status()
+    reference_images_loaded = 0
+    for group_index in affected_indexes:
+        group = groups[group_index]
+        initial_counts = _used_candidate_counts_before(groups, group_index)
+        _clear_candidate_derived_group_state([group])
+        ocr_available, ocr_note, loaded = _recognize_groups(
+            [group],
+            candidates,
+            cached_ocr_by_path=cached_ocr_by_path,
+            candidate_indexes=candidate_indexes,
+            initial_used_candidate_counts=initial_counts,
+        )
+        reference_images_loaded += loaded
     duration = time.perf_counter() - started
     result["drop"] = drop
     result["candidates"] = candidates
     result["candidate_indexes"] = _candidate_index_debug(candidate_indexes)
-    meta = result.setdefault("analysis_meta", {})
     meta["candidate_signature_previous"] = previous_signature
     meta["candidate_signature"] = current_signature
     meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
@@ -3790,7 +4174,13 @@ def refresh_result_candidates(
     )
     metrics["candidate_refresh_seconds"] = round(duration, 3)
     metrics["candidate_signature_changed"] = previous_signature != current_signature
+    metrics["candidate_groups_rematched"] = len(affected_indexes)
+    metrics["candidate_refresh_mode"] = "full_version_upgrade" if matching_version_changed else "incremental"
+    metrics["candidate_changes"] = change_counts
     result["metrics"] = metrics
+    cache_info = save_cached_analysis_result(result)
+    metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
+    metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
     return result
 
 
