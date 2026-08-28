@@ -39,6 +39,7 @@ from services.card_identity import card_language_key
 from services.custom_card_image_service import resolve_custom_card_image
 from services.vinted_drops_service import (
     drop_card_key,
+    drop_item_status,
     load_vinted_drops,
     resolve_drop_item_card_identity,
 )
@@ -58,7 +59,7 @@ _OCR_ENGINE = None
 OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
-POC_MATCHING_REFRESH_VERSION = "v14.6-candidate-index-vunion-series-1"
+POC_MATCHING_REFRESH_VERSION = "v14.7-historical-drop-legend-jp-1"
 PHOTO_ROLES = (
     "primary_front",
     "back_western",
@@ -240,7 +241,13 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
                 "promo": bool(merged.get("promo") or merged.get("is_promo")),
                 "master_ball": bool(merged.get("master_ball") or merged.get("is_master_ball")),
                 "poke_ball": bool(merged.get("poke_ball") or merged.get("is_poke_ball")),
-                "quantity": max(1, _safe_int(merged.get("quantity"), 1)),
+                # Recognition concerns the historical contents of this Drop,
+                # not today's stock availability. A sold item remains one of
+                # the physical cards photographed before publication.
+                "quantity": max(1, _safe_int(ref.get("quantity"), 1)),
+                "historical_drop_member": True,
+                "drop_status": drop_item_status(ref),
+                "sold_at": str(ref.get("sold_at") or ""),
                 "price": _safe_float(merged.get("suggested_price", merged.get("price_at_add", 0))),
                 "image_url": _candidate_image_url(merged),
                 "identity_fingerprint": merged.get("identity_fingerprint") or card_identity_fingerprint(merged),
@@ -1426,7 +1433,8 @@ def match_front_photo_ocr(
     available_candidates = [
         candidate
         for candidate in candidates
-        if used_counts.get(candidate.get("drop_card_key", ""), 0) < max(1, _safe_int(candidate.get("quantity"), 1))
+        if candidate.get("historical_drop_member")
+        or used_counts.get(candidate.get("drop_card_key", ""), 0) < max(1, _safe_int(candidate.get("quantity"), 1))
     ]
     scored = [
         _candidate_score_from_ocr(
@@ -1460,6 +1468,17 @@ def match_front_photo_ocr(
             if item.get("name_similarity", 0.0) >= 0.96 and not item.get("number_match"):
                 item["score"] = max(float(item.get("score") or 0.0), 88.0)
                 item.setdefault("reasons", []).append("nom OCR unique dans le drop")
+    for item in scored:
+        candidate = item.get("candidate") or {}
+        key = candidate.get("drop_card_key", "")
+        quantity = max(1, _safe_int(candidate.get("quantity"), 1))
+        if candidate.get("historical_drop_member") and used_counts.get(key, 0) >= quantity:
+            # This is an assignment hint only. It must never make a sold card
+            # disappear from the historical candidate set or create a false
+            # not_in_drop diagnosis.
+            item["score"] = max(0.0, float(item.get("score") or 0.0) - 12.0)
+            item["historical_reuse_penalty"] = 12.0
+            item.setdefault("reasons", []).append("occurrence historique déjà proposée ailleurs (-12)")
     scored.sort(key=lambda item: item["score"], reverse=True)
     visual_info = {"used": 0, "elapsed": 0.0, "broad": False}
     if scored and (ocr_payload.get("name_texts") or ocr_payload.get("number_texts")):
@@ -1499,6 +1518,41 @@ def match_front_photo_ocr(
                         visual_best["score"] = max(float(visual_best.get("score") or 0.0), 87.0)
                         visual_best["v13_visual_jp_override"] = True
                         visual_best.setdefault("reasons", []).append("V13: artwork JP nettement distinctif sur shortlist élargie")
+                # A physical Japanese card can keep French metadata in
+                # PokéStock. In that case the color histogram may prefer a
+                # merely similar card, while a cluster of ORB keypoints still
+                # identifies the shared artwork. This only changes the orange
+                # proposal and can never create a green automatic match.
+                jp_orb_candidates = [
+                    item
+                    for item in scored
+                    if (item.get("candidate") or {}).get("japanese")
+                    and float(item.get("visual_artwork_score") or 0.0) >= 60.0
+                    and int((item.get("visual_artwork_details") or {}).get("orb_matches") or 0) >= 10
+                ]
+                jp_orb_candidates.sort(
+                    key=lambda item: int((item.get("visual_artwork_details") or {}).get("orb_matches") or 0),
+                    reverse=True,
+                )
+                if jp_orb_candidates:
+                    orb_best = jp_orb_candidates[0]
+                    orb_best_matches = int((orb_best.get("visual_artwork_details") or {}).get("orb_matches") or 0)
+                    orb_second_matches = max(
+                        (
+                            int((item.get("visual_artwork_details") or {}).get("orb_matches") or 0)
+                            for item in scored
+                            if item is not orb_best and (item.get("candidate") or {}).get("japanese")
+                        ),
+                        default=0,
+                    )
+                    if orb_best_matches - orb_second_matches >= 5:
+                        current_max = max((float(item.get("score") or 0.0) for item in scored), default=0.0)
+                        orb_best["score"] = round(min(95.0, max(87.0, current_max + 1.0)), 2)
+                        orb_best["v14_7_jp_orb_override"] = True
+                        orb_best["v14_7_jp_orb_margin"] = orb_best_matches - orb_second_matches
+                        orb_best.setdefault("reasons", []).append(
+                            f"V14.7: artwork JP confirmé par ORB ({orb_best_matches} points, marge {orb_best_matches - orb_second_matches})"
+                        )
             scored.sort(key=lambda item: (float(item.get("score") or 0.0), float(item.get("visual_score") or 0.0)), reverse=True)
     top = scored[:3]
     best = top[0] if top else None
@@ -1521,8 +1575,11 @@ def match_front_photo_ocr(
         special_layout = bool(special_signals)
         number_conflict = bool(best.get("number_conflict"))
         v13_visual_jp_override = bool(best.get("v13_visual_jp_override"))
+        v14_7_jp_orb_override = bool(best.get("v14_7_jp_orb_override"))
         conflict_supported_by_name = number_conflict and probable_name
-        if v13_visual_jp_override:
+        if v14_7_jp_orb_override:
+            status = "review"
+        elif v13_visual_jp_override:
             status = "review"
         elif best["score"] >= 86 and margin >= 12 and best["number_match"] and not weak_number_without_name and (not number_conflict or conflict_supported_by_name):
             status = "recognized"
@@ -1588,6 +1645,8 @@ def match_front_photo_ocr(
     )
     if back_type == "japanese" and japanese_candidate:
         japanese_signal = "verso JP + candidat JAP"
+    elif japanese_candidate and bool(best.get("v14_7_jp_orb_override")):
+        japanese_signal = "artwork JP confirmé par points de structure"
     elif japanese_candidate and bool(best.get("v13_visual_jp_override")):
         japanese_signal = "artwork distinctif + candidat JAP"
     elif japanese_candidate and japanese_artwork_score >= 72:
@@ -1606,14 +1665,18 @@ def match_front_photo_ocr(
     ]
     exact_full_available = any(
         _normalize_card_number(candidate.get("number") or "") in full_ocr_numbers
-        for candidate in available_candidates
+        for candidate in candidates
         if "/" in _normalize_card_number(candidate.get("number") or "")
     )
     full_ocr_locals = {value.split("/", 1)[0] for value in full_ocr_numbers if value}
+    membership_scores = [
+        _candidate_score_from_ocr(ocr_payload, candidate, back_type=back_type, family_hint=family_hint)
+        for candidate in candidates
+    ]
     compatible_local_name_available = any(
         item.get("candidate_number_local") in full_ocr_locals
         and float(item.get("name_similarity") or 0.0) >= 0.86
-        for item in scored
+        for item in membership_scores
     )
     not_in_drop_confidence = ""
     best_name_similarity = float(best.get("name_similarity") or 0.0) if best else 0.0
@@ -1643,7 +1706,7 @@ def match_front_photo_ocr(
 
     same_name_debug = []
     if not_in_drop_confidence and plausible_name_texts:
-        for candidate in available_candidates:
+        for candidate in candidates:
             name_similarity = max(
                 (_similarity(text, str(candidate.get("name") or "")) for text in plausible_name_texts),
                 default=0.0,
@@ -1707,6 +1770,8 @@ def match_front_photo_ocr(
         "v13_japanese_signal": japanese_signal,
         "v13_japanese_candidate": japanese_candidate,
         "v13_visual_jp_override": bool(best and best.get("v13_visual_jp_override")),
+        "v14_7_jp_orb_override": bool(best and best.get("v14_7_jp_orb_override")),
+        "v14_7_jp_orb_margin": int((best or {}).get("v14_7_jp_orb_margin") or 0),
         "v13_not_in_drop_confidence": not_in_drop_confidence,
         "v14_same_name_version_absent": same_name_version_absent,
         "v14_same_name_candidates": same_name_debug[:8],
@@ -1776,7 +1841,8 @@ def match_front_photo_orientation_aware(
     is_v_union = layout_hint == "V_UNION" or "vunion" in candidate_name or "v union" in candidate_name
     # A weak OCR/candidate guess must never rotate a normal vertical card into a
     # LEGEND layout. Require compatible geometry and a second independent cue.
-    is_legend = bool(geometry["horizontal"] and (text_legend or candidate_legend))
+    forced_legend = layout_hint == "LEGEND_HALF"
+    is_legend = bool(forced_legend or (geometry["horizontal"] and (text_legend or candidate_legend)))
     if not is_legend:
         base.setdefault("orientation_degrees", 0)
         if is_v_union:
@@ -1837,6 +1903,11 @@ def match_front_photo_orientation_aware(
 def _is_v_union_candidate(candidate: dict[str, Any]) -> bool:
     name = _fold_text(candidate.get("name") or "")
     return "vunion" in name or "v union" in name
+
+
+def _is_legend_candidate(candidate: dict[str, Any]) -> bool:
+    name = _fold_text(candidate.get("name") or "")
+    return "legende" in name or "legend" in name
 
 
 def _candidate_number_index(candidates: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -1943,6 +2014,60 @@ def _candidate_indexes(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         "by_number": _candidate_number_index(candidates),
         "v_union_families": _v_union_series_index(candidates),
     }
+
+
+def _legend_family_for_group(
+    matches: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    primary_ocr: dict[str, Any] | None = None,
+) -> tuple[str, list[dict[str, Any]], str]:
+    """Select one LEGEND family without mixing ordinary cards into its halves."""
+    families: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for candidate in candidates:
+        if not _is_legend_candidate(candidate):
+            continue
+        key = (_fold_text(candidate.get("name") or ""), _fold_text(candidate.get("set") or ""))
+        if key[0]:
+            families.setdefault(key, []).append(candidate)
+    if not families:
+        return "", [], "aucune famille LÉGENDE dans le Drop"
+
+    ocr_payloads = [match.get("ocr") or {} for match in matches]
+    if primary_ocr:
+        ocr_payloads.append(primary_ocr)
+    observed_numbers = {
+        _normalize_card_number(number)
+        for ocr in ocr_payloads
+        for number in (ocr.get("collector_number_texts") or [])
+        if _normalize_card_number(number)
+    }
+    observed_names = [
+        str(value)
+        for ocr in ocr_payloads
+        for value in ([*(ocr.get("name_texts") or []), str(ocr.get("raw_text") or "")])
+        if str(value).strip()
+    ]
+    ranked = []
+    for key, family_candidates in families.items():
+        family_numbers = {
+            _normalize_card_number(candidate.get("number") or "")
+            for candidate in family_candidates
+            if _normalize_card_number(candidate.get("number") or "")
+        }
+        exact_numbers = len(observed_numbers & family_numbers)
+        label = str(family_candidates[0].get("name") or "LÉGENDE")
+        name_score = max((_similarity(value, label) for value in observed_names), default=0.0)
+        ranked.append((exact_numbers, name_score, key, family_candidates))
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best = ranked[0]
+    second = ranked[1] if len(ranked) > 1 else (0, 0.0, ("", ""), [])
+    if best[0] > second[0] and best[0] >= 1:
+        reason = f"famille LÉGENDE confirmée par {best[0]} numéro(s) exact(s)"
+    elif best[1] >= 0.78 and best[1] >= second[1] + 0.08:
+        reason = f"famille LÉGENDE confirmée par le nom ({best[1]:.0%})"
+    else:
+        return "", [], "famille LÉGENDE ambiguë"
+    return str(best[3][0].get("name") or "LÉGENDE"), list(best[3]), reason
 
 
 def _candidate_index_debug(indexes: dict[str, Any]) -> dict[str, Any]:
@@ -2060,14 +2185,20 @@ def _v_union_family_for_group(
     return str(family.get("label") or ""), list(family.get("candidates") or []), reason
 
 
-def _preserve_physical_match_identity(target: dict[str, Any], source: dict[str, Any]) -> None:
+def _preserve_physical_match_identity(
+    target: dict[str, Any],
+    source: dict[str, Any],
+    *,
+    layout_type: str = "V_UNION",
+) -> None:
     target["photo"] = source.get("photo")
     target["subcard_id"] = source.get("subcard_id")
     target["subcard_photos"] = source.get("subcard_photos") or {}
     target["physical_group_id"] = source.get("physical_group_id")
-    target["layout_type"] = "V_UNION"
-    target["special_layout"] = False
-    target["v_union_layout"] = True
+    target["physical_back_type"] = source.get("physical_back_type") or ""
+    target["layout_type"] = layout_type
+    target["special_layout"] = layout_type == "LEGEND_HALF"
+    target["v_union_layout"] = layout_type == "V_UNION"
 
 
 def _apply_v13_group_language_diagnostic(group: dict[str, Any]) -> None:
@@ -3022,13 +3153,17 @@ def _recognize_groups(
         for match_index, match_entry in enumerate(match_entries):
             detail = detail_cards[match_index] if match_index < len(detail_cards) else {}
             back_entry = detail.get("back") if detail else group.get("group_back")
+            match_back_type = (
+                ((back_entry or {}).get("classification") or {}).get("back_type")
+                or back_type
+            )
             klass = match_entry.get("classification", {})
             if ocr_available:
                 match = match_front_photo_orientation_aware(
                     match_entry["photo"].path,
                     candidates,
                     used_candidate_counts,
-                    back_type=back_type,
+                    back_type=match_back_type,
                     ocr_payload_override=(cached_ocr_by_path or {}).get(match_entry["photo"].path),
                     layout_hint=group_layout_hint,
                 )
@@ -3060,6 +3195,7 @@ def _recognize_groups(
             match["subcard_id"] = "subcard_" + hashlib.sha1(physical_payload.encode("utf-8")).hexdigest()[:16]
             match["subcard_photos"] = {"front": front_key, "back": back_key}
             match["physical_group_id"] = physical_group_id
+            match["physical_back_type"] = match_back_type
             group["matches"].append(match)
             if not group_layout_hint and match.get("status") == "recognized" and match.get("candidates"):
                 key = ((match["candidates"][0].get("candidate") or {}).get("drop_card_key") or "")
@@ -3181,6 +3317,54 @@ def _recognize_groups(
                     key = ((match["candidates"][0].get("candidate") or {}).get("drop_card_key") or "")
                     if key:
                         used_candidate_counts[key] = used_candidate_counts.get(key, 0) + 1
+        elif group_expected_cards == 2 and len(detail_cards) == 2:
+            primary_ocr = (cached_ocr_by_path or {}).get(front["photo"].path) or run_ocr_for_photo(
+                front["photo"].path
+            )
+            legend_family, legend_candidates, legend_reason = _legend_family_for_group(
+                group["matches"],
+                candidates,
+                primary_ocr,
+            )
+            if legend_candidates:
+                group["legend_primary_ocr"] = primary_ocr
+                group["legend_family"] = legend_family
+                group["legend_family_reason"] = legend_reason
+                group["legend_family_candidates"] = [
+                    {
+                        "card_uid": candidate.get("card_uid", ""),
+                        "number": candidate.get("number", ""),
+                        "set": candidate.get("set", ""),
+                        "drop_card_key": candidate.get("drop_card_key", ""),
+                    }
+                    for candidate in legend_candidates
+                ]
+                rematched_children = []
+                for previous_match in group["matches"]:
+                    rematched = match_front_photo_orientation_aware(
+                        previous_match["photo"].path,
+                        legend_candidates,
+                        used_candidate_counts,
+                        back_type=str(previous_match.get("physical_back_type") or ""),
+                        ocr_payload_override=previous_match.get("ocr") or {},
+                        layout_hint="LEGEND_HALF",
+                        family_hint=legend_family,
+                    )
+                    _preserve_physical_match_identity(
+                        rematched,
+                        previous_match,
+                        layout_type="LEGEND_HALF",
+                    )
+                    rematched["physical_back_type"] = previous_match.get("physical_back_type") or ""
+                    rematched["legend_family_reason"] = legend_reason
+                    if rematched.get("status") == "recognized":
+                        rematched["status"] = "review"
+                    rematched["diagnostic_reason"] = (
+                        f"LÉGENDE : {legend_reason} · "
+                        + str(rematched.get("diagnostic_reason") or "validation de la moitié requise")
+                    )
+                    rematched_children.append(rematched)
+                group["matches"] = rematched_children
         statuses = [match.get("status") for match in group["matches"]]
         recognized_cards = []
         for match_index, match in enumerate(group["matches"]):
@@ -3520,6 +3704,10 @@ _CANDIDATE_DERIVED_GROUP_FIELDS = (
     "v_union_family",
     "v_union_family_reason",
     "v_union_family_candidates",
+    "legend_primary_ocr",
+    "legend_family",
+    "legend_family_reason",
+    "legend_family_candidates",
     "v13_back_type",
     "v13_back_reason",
     "v13_back_scores",
@@ -3561,7 +3749,7 @@ def refresh_result_candidates(
     for group in result.get("groups", []) or []:
         primary = group.get("primary_front") or {}
         primary_photo = primary.get("photo")
-        primary_ocr = group.get("v_union_primary_ocr")
+        primary_ocr = group.get("v_union_primary_ocr") or group.get("legend_primary_ocr")
         if primary_photo and isinstance(primary_ocr, dict):
             cached_ocr_by_path[str(primary_photo.path)] = primary_ocr
         for match in group.get("matches", []) or []:

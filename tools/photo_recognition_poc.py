@@ -1335,6 +1335,26 @@ def _validation_state(validation: dict, match: dict | None) -> dict:
             "resolved_correct": False,
             "resolved_for_workflow": False,
         }
+    # These booleans were once migrated from an unstable child index. A
+    # LEGEND rematch can reorder the two halves, so that migration cannot be
+    # treated as physical ground truth. Keep it for audit and request one
+    # targeted recheck instead of attaching correct/wrong to the other half.
+    if (
+        str((match or {}).get("layout_type") or "") == "LEGEND_HALF"
+        and validation.get("semantic_baseline_migrated")
+        and not (
+            validation.get("expected_candidate_key")
+            or validation.get("selected_key")
+            or validation.get("drop_card_key")
+        )
+    ):
+        return {
+            "state": "stale",
+            "status": status,
+            "resolved_correct": False,
+            "resolved_for_workflow": False,
+            "reason": "ancienne validation LÉGENDE issue d'un ordre de sous-cartes instable",
+        }
     current_candidate = _match_candidate(match)
     current_key = candidate_identity_key(current_candidate) if current_candidate else ""
     current_keys = {
