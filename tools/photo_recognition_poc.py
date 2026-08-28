@@ -177,17 +177,26 @@ st.markdown(
     .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.28rem .42rem; font-size:.75rem; font-weight:800; }
     .poc-workflow-step.active { color:var(--poc-violet); border-bottom-color:var(--poc-violet); }
     .poc-workflow-arrow { color:#94a3b8; font-size:.75rem; }
+    .poc-setup { background:#fff; border:1px solid var(--poc-line); border-top:4px solid var(--poc-violet); padding:1rem 1.1rem; max-width:980px; margin:1rem auto 0; }
+    .poc-setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; margin:.75rem 0 1rem; }
+    .poc-setup-item { border:1px solid var(--poc-line); padding:.72rem .8rem; background:#fff; }
+    .poc-setup-item strong { display:block; color:var(--poc-ink); font-size:.82rem; margin-bottom:.18rem; }
+    .poc-empty-note { color:var(--poc-muted); font-size:.82rem; margin:0 0 .85rem; }
     .poc-photo-grid img { border:1px solid var(--poc-line); border-radius:4px; }
     div[data-testid="stButton"] > button { border-radius:5px; border-color:#d1d5db; font-weight:750; min-height:2.15rem; }
     div[data-testid="stButton"] > button[kind="primary"] { background:var(--poc-violet); border-color:var(--poc-violet); }
     div[data-testid="stButton"] > button[kind="secondary"]:hover { border-color:var(--poc-violet); color:var(--poc-violet); }
     div[data-testid="stRadio"] label { font-size:.82rem; font-weight:700; }
+    div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { border-radius:5px; border-color:#d1d5db; }
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div { border-radius:5px; border-color:#d1d5db; }
+    div[data-testid="stExpander"] details { border:1px solid var(--poc-line); border-radius:5px; background:#fff; }
     [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); }
     [data-testid="stSidebar"] .block-container { padding-top:1rem; }
     @media (max-width: 700px) {
       .block-container { padding: .75rem .7rem 1.5rem; }
       .poc-shell { padding:.8rem .85rem; } .poc-shell h1 { font-size:1.15rem; }
       .poc-kpi { min-height:70px; padding:.55rem; } .poc-kpi-value { font-size:1.16rem; }
+      .poc-setup { padding:.85rem; margin-top:.7rem; } .poc-setup-grid { grid-template-columns:1fr; }
       div[data-testid="stHorizontalBlock"] { gap:.45rem; }
     }
     </style>
@@ -1298,8 +1307,7 @@ def _render_premium_header(result: dict, sample: dict, *, drop_candidates_change
             <div class="poc-shell">
               <div class="poc-eyebrow">POKÉSTOCK · DROP VINTED</div>
               <h1>Reconnaissance photos</h1>
-              <p>{drop.get('name') or 'Drop non défini'} · {metrics.get('photos_analyzed', 0)} photos · "
-              f"{metrics.get('announcements_detected', 0)} annonces · Analyse à jour</p>
+              <p>{drop.get('name') or 'Drop non défini'} · {metrics.get('photos_analyzed', 0)} photos · {len(drop.get('cards', []) or [])} cartes dans le Drop · {metrics.get('announcements_detected', 0)} annonces</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1321,6 +1329,56 @@ def _render_premium_header(result: dict, sample: dict, *, drop_candidates_change
         if index < len(stages) - 1:
             workflow_html.append('<span class="poc-workflow-arrow">→</span>')
     st.markdown('<div class="poc-workflow">' + "".join(workflow_html) + "</div>", unsafe_allow_html=True)
+
+
+def _render_initial_header(*, drop_name: str, photo_count: int, drop_card_count: int):
+    header_left, header_right = st.columns([4, 1.25])
+    with header_left:
+        st.markdown(
+            f"""
+            <div class="poc-shell">
+              <div class="poc-eyebrow">POKÉSTOCK · DROP VINTED</div>
+              <h1>Reconnaissance photos</h1>
+              <p>{drop_name or 'Drop non défini'} · {photo_count} photos détectées · {drop_card_count} cartes dans le Drop</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        st.markdown(
+            '<div class="poc-card-subtle"><span class="poc-chip poc-violet">Prêt à analyser</span>'
+            '<div class="poc-mini" style="margin-top:.5rem">Choisis le type d’analyse dans le panneau ci-dessous.</div></div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown(
+        '<div class="poc-workflow"><span class="poc-workflow-step active">Import</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Analyse</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Vérification</span>'
+        '<span class="poc-workflow-arrow">→</span><span class="poc-workflow-step">Prêt</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_empty_state(*, folder: str, photo_count: int, drop_name: str, drop_card_count: int, view: str) -> tuple[bool, bool]:
+    if view != "Vue d’ensemble":
+        st.markdown(f"<div class='poc-section-title'>{view}</div>", unsafe_allow_html=True)
+        st.markdown("<p class='poc-empty-note'>Cette vue sera disponible dès qu’une analyse aura été lancée.</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='poc-setup'><div class='poc-section-title' style='margin-top:0'>Préparer l’analyse</div>"
+        "<p class='poc-empty-note'>Vérifie la source et le Drop, puis lance une analyse. Aucun traitement ne démarre avant ton action.</p>"
+        "<div class='poc-setup-grid'>"
+        f"<div class='poc-setup-item'><strong>Source photos</strong>{photo_count} photo(s) détectée(s)<br><span class='poc-mini'>{folder}</span></div>"
+        f"<div class='poc-setup-item'><strong>Drop</strong>{drop_name or 'Aucun Drop sélectionné'}<br><span class='poc-mini'>{drop_card_count} carte(s) candidate(s)</span></div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    action_col, sample_col, _ = st.columns([1.45, 1, 2.1])
+    with action_col:
+        run_all = st.button("Analyser les photos", type="primary", use_container_width=True)
+    with sample_col:
+        run = st.button("Échantillon", use_container_width=True)
+    st.caption("L’analyse complète utilise le cache local si le dossier et le Drop n’ont pas changé.")
+    return bool(run), bool(run_all)
 
 
 def _render_candidate_summary(
@@ -3241,8 +3299,10 @@ def _render_errors_view(sample_key: str, sample: dict, result: dict):
 
 _apply_pending_view()
 
+run = False
+run_all = False
 with st.sidebar:
-    st.markdown("### Configuration")
+    st.markdown("### Source")
     folder = st.text_input("Dossier photos", value=str(POC_DIR))
     photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
     st.caption(f"{len(photos)} photo(s) détectée(s)")
@@ -3251,12 +3311,10 @@ with st.sidebar:
     drop_options = {f"{drop.get('name', 'Drop sans nom')} · {len(drop.get('cards', []) or [])} cartes": drop.get("id") for drop in drops}
     selected_drop_label = st.selectbox("Drop candidat", list(drop_options) or ["Aucun drop"], disabled=not bool(drop_options))
     selected_drop_id = drop_options.get(selected_drop_label)
-    with st.expander("Analyse", expanded=False):
+    with st.expander("Paramètres avancés", expanded=False):
         start_index = st.number_input("capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1)
         target_announcements = st.number_input("annonces visées", min_value=5, max_value=35, value=30, step=1)
         max_photos = st.number_input("photos max à analyser", min_value=10, max_value=max(10, len(photos)), value=min(75, max(10, len(photos))), step=5)
-        run = st.button("Analyser l'échantillon", type="primary", use_container_width=True)
-        run_all = st.button("Analyser toutes les photos", use_container_width=True)
         force_rebuild = st.checkbox(
             "Forcer une reconstruction complète",
             value=False,
@@ -3366,8 +3424,39 @@ if not (run or run_all) and CURRENT_RESULT_KEY in st.session_state and not resto
         st.info("Résultat d'analyse POC obsolète ignoré. Relance l'analyse pour utiliser le pipeline V9 actuel.")
 
 if not (run or run_all) and CURRENT_RESULT_KEY not in st.session_state:
-    st.info("Choisis un bloc consécutif puis lance l'analyse. Par défaut, le POC ne traite pas tout le dossier.")
-    st.stop()
+    selected_drop = next((drop for drop in drops if drop.get("id") == selected_drop_id), {})
+    selected_drop_name = str(selected_drop.get("name") or "Drop non défini")
+    selected_drop_card_count = len(selected_drop.get("cards", []) or [])
+    _render_initial_header(
+        drop_name=selected_drop_name,
+        photo_count=len(photos),
+        drop_card_count=selected_drop_card_count,
+    )
+    initial_view_default = st.session_state.get("photo_poc_view", "Vue d’ensemble")
+    initial_nav_kwargs = {"key": "photo_poc_view", "horizontal": True, "label_visibility": "collapsed"}
+    if "photo_poc_view" not in st.session_state:
+        initial_nav_kwargs["index"] = VIEW_OPTIONS.index(initial_view_default) if initial_view_default in VIEW_OPTIONS else 0
+    initial_view = st.radio("Navigation", VIEW_OPTIONS, **initial_nav_kwargs)
+    run, run_all = _render_empty_state(
+        folder=folder,
+        photo_count=len(photos),
+        drop_name=selected_drop_name,
+        drop_card_count=selected_drop_card_count,
+        view=initial_view,
+    )
+    if run_all:
+        analysis_start_index = 1
+        analysis_max_photos = len(photos)
+        analysis_target_announcements = len(photos)
+        analysis_sample_key = sample_ground_truth_key(
+            folder=folder,
+            drop_id=selected_drop_id,
+            start_index=analysis_start_index,
+            max_photos=analysis_max_photos,
+            target_announcements=analysis_target_announcements,
+        )
+    if not (run or run_all):
+        st.stop()
 
 if run or run_all:
     label = "Analyse complète des photos..." if run_all else "Analyse locale de l'échantillon..."
