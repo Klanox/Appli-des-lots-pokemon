@@ -282,12 +282,8 @@ def _inject_vinted_styles():
     .ps-photo-summary-line { gap:.42rem .72rem; }
 }
 .ps-vinted-drop-head {
-    padding:.86rem 1rem;
-    border:1px solid rgba(99,102,241,.32);
-    border-radius:12px;
-    background:linear-gradient(135deg, rgba(238,242,255,.98), rgba(255,255,255,.96));
-    margin:.2rem 0 .85rem;
-    box-shadow:0 10px 24px rgba(79,70,229,.08);
+    padding:.1rem .08rem;
+    margin:0;
 }
 .ps-vinted-drop-head strong {
     display:block;
@@ -606,8 +602,7 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 }
 @media (max-width:768px) {
     .ps-vinted-drop-head {
-        padding:.7rem .78rem;
-        border-radius:10px;
+        padding:.08rem;
     }
     .ps-vinted-card {
         padding:.42rem;
@@ -3158,22 +3153,49 @@ def _render_drop_creation_step(
     _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_img_func, fp_func, mobile)
 
 
-def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
-    with st.expander("+ Nouveau drop", expanded=not bool(drops_data.get("drops"))):
-        new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
-        new_channel = st.selectbox("Canal Vinted", list(VINTED_CHANNELS), key="new_vinted_drop_channel")
-        if st.button("Créer le drop", key="create_vinted_drop", width="stretch"):
-            if not str(new_name or "").strip():
-                st.warning("Indique un nom de drop.")
-                return
-            create_drop(drops_data, new_name, new_channel)
+def _render_new_drop_form(drops_data):
+    new_name = st.text_input("Nom du nouveau drop", key="new_vinted_drop_name", placeholder="Ex : Drop Vinted juin")
+    new_channel = st.selectbox("Canal Vinted", list(VINTED_CHANNELS), key="new_vinted_drop_channel")
+    if st.button("Créer le drop", key="create_vinted_drop", width="stretch"):
+        if not str(new_name or "").strip():
+            st.warning("Indique un nom de drop.")
+            return
+        create_drop(drops_data, new_name, new_channel)
+        save_vinted_drops(drops_data)
+        st.session_state.pop("new_vinted_drop_name", None)
+        st.success("Drop créé.")
+        st.rerun()
+
+
+def _render_drop_management_actions(drops_data, active_id, active_drop):
+    renamed = st.text_input("Renommer le drop", value=active_drop.get("name", ""), key=f"rename_drop_{active_id}")
+    current_channel = normalize_vinted_channel(active_drop.get("channel", ""))
+    channel_options = ["Non défini", *VINTED_CHANNELS]
+    channel_index = channel_options.index(current_channel) if current_channel in channel_options else 0
+    chosen_channel = st.selectbox("Canal Vinted", channel_options, index=channel_index, key=f"drop_channel_{active_id}")
+    if st.button("Enregistrer", key=f"save_drop_name_{active_id}", width="stretch"):
+        changed = rename_drop(drops_data, active_id, renamed)
+        changed = update_drop_channel(drops_data, active_id, "" if chosen_channel == "Non défini" else chosen_channel) or changed
+        if changed:
             save_vinted_drops(drops_data)
-            st.session_state.pop("new_vinted_drop_name", None)
-            st.success("Drop créé.")
+            st.success("Drop mis à jour.")
+            st.rerun()
+    st.divider()
+    confirm = st.checkbox("Confirmer suppression", key=f"confirm_delete_drop_{active_id}")
+    if st.button("Supprimer le drop", key=f"delete_drop_{active_id}", disabled=not confirm, width="stretch"):
+        if delete_drop(drops_data, active_id):
+            save_vinted_drops(drops_data)
+            st.session_state.pop("vinted_active_drop_id", None)
+            st.success("Drop supprimé.")
             st.rerun()
 
+
+def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
     drops = drops_data.get("drops", [])
     if not drops:
+        st.markdown('<div class="ps-vinted-section-title">Créer un Drop</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            _render_new_drop_form(drops_data)
         st.caption("Aucun drop pour le moment.")
         return
 
@@ -3181,7 +3203,12 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
     drop_names = [drop.get("name", "Drop sans nom") for drop in drops]
     id_by_name = {drop.get("name", "Drop sans nom"): drop.get("id") for drop in drops}
     current_name = next((drop.get("name", "Drop sans nom") for drop in drops if drop.get("id") == active_id), drop_names[0])
-    chosen_name = st.selectbox("Drop à afficher", drop_names, index=drop_names.index(current_name), key="vinted_drop_view")
+    select_col, create_col = st.columns([4, 1]) if not mobile else [st.container(), st.container()]
+    with select_col:
+        chosen_name = st.selectbox("Drop à afficher", drop_names, index=drop_names.index(current_name), key="vinted_drop_view")
+    with create_col:
+        with st.popover("+ Nouveau Drop", use_container_width=True):
+            _render_new_drop_form(drops_data)
     active_id = id_by_name[chosen_name]
     st.session_state["vinted_active_drop_id"] = active_id
     active_drop = find_drop(drops_data, active_id)
@@ -3192,8 +3219,10 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
     total_value = _drop_total_value(active_drop, source_cards)
     channel_label = normalize_vinted_channel(active_drop.get("channel", "")) or "Non défini"
     channel_class = _drop_channel_class(channel_label)
-    st.markdown(
-        f"""
+    with st.container(border=True):
+        if mobile:
+            st.markdown(
+                f"""
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
   <div class="ps-vinted-drop-meta">
@@ -3202,30 +3231,28 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
   </div>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
-
-    with st.expander("⚙️ Gérer le drop", expanded=False):
-        renamed = st.text_input("Renommer le drop", value=active_drop.get("name", ""), key=f"rename_drop_{active_id}")
-        current_channel = normalize_vinted_channel(active_drop.get("channel", ""))
-        channel_options = ["Non défini", *VINTED_CHANNELS]
-        channel_index = channel_options.index(current_channel) if current_channel in channel_options else 0
-        chosen_channel = st.selectbox("Canal Vinted", channel_options, index=channel_index, key=f"drop_channel_{active_id}")
-        if st.button("Enregistrer le nom", key=f"save_drop_name_{active_id}", width="stretch"):
-            changed = rename_drop(drops_data, active_id, renamed)
-            changed = update_drop_channel(drops_data, active_id, "" if chosen_channel == "Non défini" else chosen_channel) or changed
-            if changed:
-                save_vinted_drops(drops_data)
-                st.success("Drop mis à jour.")
-                st.rerun()
-        st.divider()
-        confirm = st.checkbox("Confirmer suppression", key=f"confirm_delete_drop_{active_id}")
-        if st.button("Supprimer le drop", key=f"delete_drop_{active_id}", disabled=not confirm, width="stretch"):
-            if delete_drop(drops_data, active_id):
-                save_vinted_drops(drops_data)
-                st.session_state.pop("vinted_active_drop_id", None)
-                st.success("Drop supprimé.")
-                st.rerun()
+                unsafe_allow_html=True,
+            )
+            with st.popover("⚙ Gérer", use_container_width=True):
+                _render_drop_management_actions(drops_data, active_id, active_drop)
+        else:
+            summary_col, action_col = st.columns([5, 1])
+            with summary_col:
+                st.markdown(
+                    f"""
+<div class="ps-vinted-drop-head">
+  <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
+  <div class="ps-vinted-drop-meta">
+    <span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
+    <span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
+  </div>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+            with action_col:
+                with st.popover("⚙ Gérer", use_container_width=True):
+                    _render_drop_management_actions(drops_data, active_id, active_drop)
 
     if step == "Choix des cartes":
         if _render_drop_drawer_header("add_cards", "Ajouter des cartes au drop", default_open=True):
