@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import math
+import base64
 import hashlib
 import json
 import time
@@ -150,7 +151,7 @@ st.markdown(
       --poc-orange:#f97316; --poc-rose:#e11d48; --poc-amber:#f59e0b; }
     .stApp { background:var(--poc-bg); color:var(--poc-ink); }
     [data-testid="stHeader"] { background:rgba(248,250,252,0.96); }
-    .block-container { max-width:1600px; padding:1.3rem 1.6rem 2.25rem; }
+    .block-container { max-width:1440px; padding:1.15rem 1.55rem 2.25rem; }
     .poc-shell { background:transparent; border:0; padding:0; margin:0; }
     .poc-shell h1 { margin:0; color:var(--poc-ink); font-size:1.5rem; font-weight:800; letter-spacing:0; }
     .poc-shell p { margin:.18rem 0 0; color:var(--poc-muted); font-size:.84rem; }
@@ -170,7 +171,7 @@ st.markdown(
     .poc-card { background:#fff; border:1px solid var(--poc-line); border-radius:6px; padding:.82rem; margin:.45rem 0; }
     .poc-card-subtle { background:#fff; border-left:3px solid var(--poc-violet); border-top:1px solid var(--poc-line); border-right:1px solid var(--poc-line); border-bottom:1px solid var(--poc-line); padding:.8rem .9rem; }
     .poc-muted { color:var(--poc-muted); font-size:.81rem; } .poc-mini { color:var(--poc-muted); font-size:.74rem; }
-    .poc-section-title { color:var(--poc-ink); font-size:1rem; font-weight:850; margin:1rem 0 .35rem; }
+    .poc-section-title { color:var(--poc-ink); font-size:1.08rem; font-weight:850; margin:.9rem 0 .35rem; }
     .poc-validated { color:var(--poc-green); font-weight:850; }
     .poc-workflow { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap; margin:0 0 .9rem; }
     .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.28rem .42rem; font-size:.75rem; font-weight:800; }
@@ -192,6 +193,23 @@ st.markdown(
     .poc-context-chip strong { color:var(--poc-ink); }
     .poc-context-chip.status::before { content:""; width:.48rem; height:.48rem; border-radius:50%; background:var(--poc-green); margin-right:.42rem; }
     .poc-photo-grid img { border:1px solid var(--poc-line); border-radius:4px; }
+    .poc-surface-heading { display:flex; justify-content:space-between; align-items:center; gap:.8rem; flex-wrap:wrap; margin:0 0 .8rem; }
+    .poc-surface-heading h2 { color:var(--poc-ink); font-size:1.08rem; margin:0; font-weight:850; }
+    .poc-surface-heading p { color:var(--poc-muted); font-size:.78rem; margin:.2rem 0 0; }
+    .poc-panel-label { color:var(--poc-muted); font-size:.7rem; font-weight:850; letter-spacing:.055em; text-transform:uppercase; margin:0 0 .5rem; }
+    .poc-review-meta { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin:.12rem 0 .8rem; color:var(--poc-muted); font-size:.78rem; }
+    .poc-review-photos { background:#fafafa; border:1px solid var(--poc-line); border-radius:8px; padding:.75rem; }
+    .poc-candidate-title { margin:0 0 .58rem; color:var(--poc-ink); font-size:.96rem; font-weight:850; }
+    .poc-action-note { color:var(--poc-muted); font-size:.73rem; margin:.45rem 0 0; }
+    .poc-toolbar { display:flex; align-items:center; justify-content:space-between; gap:.7rem; border-top:1px solid var(--poc-line); margin-top:.9rem; padding-top:.8rem; }
+    .poc-toolbar-caption { color:var(--poc-muted); font-size:.76rem; }
+    .poc-filter-label { color:var(--poc-muted); font-size:.73rem; font-weight:800; margin:.1rem 0 .35rem; }
+    .poc-table-row { display:grid; grid-template-columns:70px minmax(180px,1.65fr) minmax(120px,1fr) 100px; gap:.75rem; align-items:center; padding:.62rem 0; border-top:1px solid var(--poc-line); }
+    .poc-group-row { display:grid; grid-template-columns:70px 88px minmax(180px,1fr) 96px 86px; gap:.7rem; align-items:center; padding:.65rem 0; border-top:1px solid var(--poc-line); }
+    .poc-list-thumb { width:56px; height:56px; display:grid; place-items:center; border:1px solid var(--poc-line); border-radius:5px; overflow:hidden; background:#fafafa; color:var(--poc-muted); }
+    .poc-list-thumb img { width:100%; height:100%; object-fit:cover; }
+    .poc-photos-caption { color:var(--poc-muted); font-size:.7rem; margin:.26rem 0 .1rem; }
+    div[data-testid="stVerticalBlockBorderWrapper"] { border-radius:9px; border-color:var(--poc-line); background:#fff; box-shadow:none; }
     div[data-testid="stButton"] > button { border-radius:5px; border-color:#d1d5db; font-weight:750; min-height:2.15rem; }
     div[data-testid="stButton"] > button[kind="primary"] { background:var(--poc-violet); border-color:var(--poc-violet); }
     div[data-testid="stButton"] > button[kind="secondary"]:hover { border-color:var(--poc-violet); color:var(--poc-violet); }
@@ -202,7 +220,11 @@ st.markdown(
     .poc-product-meta { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.6rem 0 .85rem; }
     .poc-product-meta span { color:var(--poc-muted); font-size:.82rem; }
     .poc-product-meta .poc-product-drop { color:var(--poc-ink); font-weight:760; }
-    [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); min-width:220px; }
+    [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); }
+    @media (min-width: 901px) {
+      [data-testid="stSidebar"] { min-width:225px !important; max-width:225px !important; }
+      [data-testid="stSidebar"] > div:first-child { width:225px !important; }
+    }
     [data-testid="stSidebar"] .block-container { padding:1.25rem .72rem 1rem; }
     .poc-nav-brand { font-size:1.22rem; font-weight:850; color:var(--poc-ink); padding:.1rem .55rem 1.5rem; }
     .poc-nav-brand span { color:var(--poc-violet); }
@@ -212,12 +234,21 @@ st.markdown(
     [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] { background:#f3f0ff; color:var(--poc-violet); border-left:3px solid var(--poc-violet); border-radius:4px; }
     .poc-nav-hint { color:var(--poc-muted); font-size:.72rem; line-height:1.45; padding:.8rem .55rem; border-top:1px solid var(--poc-line); margin-top:1rem; }
     .poc-nav-footer { position:fixed; bottom:0; width:198px; padding:.75rem .55rem 1rem; background:#fff; border-top:1px solid var(--poc-line); }
+    @media (max-width: 900px) {
+      [data-testid="stSidebar"] { min-width:0 !important; max-width:none !important; }
+      [data-testid="stSidebar"] > div:first-child { width:auto !important; }
+    }
+    @media (min-width: 701px) and (max-width: 900px) {
+      section[data-testid="stMain"] { margin-left:-18.7rem !important; width:calc(100% + 18.7rem) !important; }
+    }
     @media (max-width: 700px) {
       .block-container { padding: .85rem .8rem 1.5rem; }
       .poc-shell { padding:.8rem .85rem; } .poc-shell h1 { font-size:1.15rem; }
       .poc-kpi { min-height:70px; padding:.55rem; } .poc-kpi-value { font-size:1.16rem; }
       .poc-setup { padding:.85rem; } .poc-setup-grid { grid-template-columns:1fr; }
       .poc-summary { margin-top:.65rem; } .poc-nav-footer { position:static; width:auto; }
+      .poc-toolbar { align-items:stretch; flex-direction:column; } .poc-table-row, .poc-group-row { grid-template-columns:56px 1fr; gap:.4rem .6rem; }
+      .poc-table-row > :nth-child(n+3), .poc-group-row > :nth-child(n+3) { grid-column:2; }
       div[data-testid="stHorizontalBlock"] { gap:.45rem; }
     }
     </style>
@@ -723,62 +754,94 @@ def _render_review_workspace(sample_key: str, sample: dict, result: dict):
     group = groups[current_index]
     group_id = _result_group_id(group)
     matches = group.get("matches", []) or []
-    st.markdown(f"<div class='poc-section-title'>À vérifier <span class='poc-muted'>· {current_index + 1} / {len(groups)}</span></div>", unsafe_allow_html=True)
-    st.caption(f"Annonce #{group.get('announcement_index')} · {group.get('expected_cards', 1)} carte(s)")
+    _render_review_surface(
+        sample_key, sample, result, group, index_key=index_key, current_index=current_index,
+        group_count=len(groups), key_prefix="review", heading="À vérifier",
+    )
 
-    photos_col, proposal_col = st.columns([1.22, 1], gap="large")
-    with photos_col:
-        st.markdown("**Photos de l’annonce**")
-        _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
-        if group.get("grouping_reasons"):
-            st.caption("Grouping · " + " · ".join(group.get("grouping_reasons") or []))
-    with proposal_col:
-        if not matches:
-            st.warning("Recto ou zone carte indisponible pour cette annonce.")
-        elif len(matches) == 1:
-            _render_status_chip(group.get("confidence_level", "red"))
-            st.markdown("<div class='poc-section-title'>Carte proposée</div>", unsafe_allow_html=True)
-            _render_candidate_summary(
-                matches[0], sample_key=sample_key, sample=sample, group_id=group_id, match_index=0,
+
+def _render_review_surface(
+    sample_key: str,
+    sample: dict,
+    result: dict,
+    group: dict,
+    *,
+    index_key: str,
+    current_index: int,
+    group_count: int,
+    key_prefix: str,
+    heading: str,
+    badges: list[str] | None = None,
+):
+    """One compact review surface shared by the main and sensitive queues."""
+    group_id = _result_group_id(group)
+    matches = group.get("matches", []) or []
+    expected_cards = int(group.get("expected_cards") or 1)
+    badges_html = "".join(
+        f"<span class='poc-chip {tone}'>{label}</span>"
+        for label, tone in (badges or [])
+    )
+    with st.container(border=True):
+        st.markdown(
+            "<div class='poc-surface-heading'><div>"
+            f"<h2>{heading} <span class='poc-muted'>· {current_index + 1} / {group_count}</span></h2>"
+            f"<p>Annonce #{group.get('announcement_index')} · {expected_cards} carte(s)</p>"
+            f"</div><div>{badges_html}</div></div>",
+            unsafe_allow_html=True,
+        )
+        photos_col, proposal_col = st.columns([1.18, 1], gap="large")
+        with photos_col:
+            st.markdown("<div class='poc-panel-label'>Photos physiques</div>", unsafe_allow_html=True)
+            _render_group_photos(
+                {"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True,
             )
-            _render_match_actions(
-                sample_key, sample, group_id, 0, matches[0], index_key=index_key,
-                current_index=current_index, group_count=len(groups), matches=matches, key_prefix="review",
-            )
-            _render_recognition_details(matches[0], sample_key, sample, group_id, 0, result.get("candidates", []))
-        else:
-            _render_status_chip("orange")
-            st.markdown(f"<div class='poc-section-title'>{len(matches)} sous-cartes</div>", unsafe_allow_html=True)
-            card_cols = st.columns(min(2, len(matches)))
-            for match_index, match in enumerate(matches):
-                with card_cols[match_index % len(card_cols)]:
-                    st.markdown(f"**Carte {match_index + 1}**")
-                    _render_candidate_summary(
-                        match, compact=True, sample_key=sample_key, sample=sample,
-                        group_id=group_id, match_index=match_index,
-                    )
-                    _render_match_actions(
-                        sample_key, sample, group_id, match_index, match, index_key=index_key,
-                        current_index=current_index, group_count=len(groups), matches=matches,
-                        key_prefix="review_multi", show_next=False,
-                    )
-            st.button(
-                "Suivant →", key=f"review_multi_next_{group_id}", use_container_width=True,
-                on_click=_set_queue_index, args=(index_key, min(len(groups) - 1, current_index + 1)),
-            )
-            if st.toggle("Détails de reconnaissance", key=f"review_multi_details_{group_id}"):
+            if group.get("grouping_reasons"):
+                st.caption("Grouping · " + " · ".join(group.get("grouping_reasons") or []))
+        with proposal_col:
+            st.markdown("<div class='poc-panel-label'>Identification</div>", unsafe_allow_html=True)
+            if not matches:
+                st.warning("Recto ou zone carte indisponible pour cette annonce.")
+            elif len(matches) == 1:
+                _render_status_chip(group.get("confidence_level", "red"))
+                st.markdown("<div class='poc-candidate-title'>Carte proposée</div>", unsafe_allow_html=True)
+                _render_candidate_summary(
+                    matches[0], sample_key=sample_key, sample=sample, group_id=group_id, match_index=0,
+                )
+                _render_match_actions(
+                    sample_key, sample, group_id, 0, matches[0], index_key=index_key,
+                    current_index=current_index, group_count=group_count, matches=matches, key_prefix=key_prefix,
+                )
+            else:
+                st.markdown(f"<div class='poc-candidate-title'>{len(matches)} sous-cartes</div>", unsafe_allow_html=True)
+                card_cols = st.columns(min(2, len(matches)))
                 for match_index, match in enumerate(matches):
-                    _render_match_debug(match, sample_key, sample, group_id, match_index, result.get("candidates", []))
-
-    previous_col, next_col = st.columns(2)
-    previous_col.button(
-        "← Précédent", key="review_workspace_previous", disabled=current_index == 0,
-        on_click=_set_queue_index, args=(index_key, current_index - 1),
-    )
-    next_col.button(
-        "Suivant →", key="review_workspace_next", disabled=current_index >= len(groups) - 1,
-        on_click=_set_queue_index, args=(index_key, min(len(groups) - 1, current_index + 1)),
-    )
+                    with card_cols[match_index % len(card_cols)]:
+                        st.markdown(f"<div class='poc-panel-label'>Carte {match_index + 1}</div>", unsafe_allow_html=True)
+                        _render_candidate_summary(
+                            match, compact=True, sample_key=sample_key, sample=sample,
+                            group_id=group_id, match_index=match_index,
+                        )
+                        _render_match_actions(
+                            sample_key, sample, group_id, match_index, match, index_key=index_key,
+                            current_index=current_index, group_count=group_count, matches=matches,
+                            key_prefix=f"{key_prefix}_multi", show_next=False,
+                        )
+            if matches:
+                with st.expander("Détails de reconnaissance", expanded=False):
+                    for match_index, match in enumerate(matches):
+                        _render_match_debug(match, sample_key, sample, group_id, match_index, result.get("candidates", []))
+        st.markdown("<div class='poc-toolbar'></div>", unsafe_allow_html=True)
+        previous_col, spacer_col, next_col = st.columns([1, 3, 1])
+        previous_col.button(
+            "← Précédent", key=f"{key_prefix}_previous_{group_id}", disabled=current_index == 0,
+            use_container_width=True, on_click=_set_queue_index, args=(index_key, current_index - 1),
+        )
+        spacer_col.markdown("<div class='poc-toolbar-caption'>Validation locale instantanée · aucune analyse relancée</div>", unsafe_allow_html=True)
+        next_col.button(
+            "Suivant →", key=f"{key_prefix}_next_{group_id}", disabled=current_index >= group_count - 1,
+            use_container_width=True, on_click=_set_queue_index,
+            args=(index_key, min(group_count - 1, current_index + 1)),
+        )
 
 
 def _validated_groups(result: dict, sample: dict, query: str) -> list[dict]:
@@ -799,54 +862,65 @@ def _validated_groups(result: dict, sample: dict, query: str) -> list[dict]:
 
 
 def _render_validated_view(sample: dict, result: dict):
-    st.markdown("<div class='poc-section-title'>Validés</div>", unsafe_allow_html=True)
-    query = st.text_input("Rechercher une carte validée", placeholder="Nom ou numéro", key="photo_poc_validated_query")
-    groups = _validated_groups(result, sample, query)
-    st.caption(f"{len(groups)} annonce(s) validée(s)")
-    page_size = 18
-    max_page = max(1, math.ceil(len(groups) / page_size))
-    page = st.number_input("Page", min_value=1, max_value=max_page, value=1, key="photo_poc_validated_page")
-    visible = groups[(int(page) - 1) * page_size : int(page) * page_size]
-    path_by_key = _photo_path_by_key(result)
-    for group in visible:
-        group_id = _result_group_id(group)
-        match = (group.get("matches") or [{}])[0]
-        candidate = _match_primary_candidate(match)
-        row = st.columns([0.5, 2.2, 1.1, 0.8])
-        with row[0]:
+    with st.container(border=True):
+        st.markdown("<div class='poc-surface-heading'><div><h2>Validés</h2><p>Les annonces confirmées, dans un format de gestion compact.</p></div></div>", unsafe_allow_html=True)
+        query = st.text_input("Rechercher une carte validée", placeholder="Nom ou numéro", key="photo_poc_validated_query")
+        groups = _validated_groups(result, sample, query)
+        page_size = 18
+        max_page = max(1, math.ceil(len(groups) / page_size))
+        pager_left, pager_right = st.columns([4, 1])
+        pager_left.caption(f"{len(groups)} annonce(s) validée(s)")
+        page = pager_right.number_input("Page", min_value=1, max_value=max_page, value=1, key="photo_poc_validated_page", label_visibility="collapsed")
+        visible = groups[(int(page) - 1) * page_size : int(page) * page_size]
+        path_by_key = _photo_path_by_key(result)
+        for group in visible:
+            match = (group.get("matches") or [{}])[0]
+            candidate = _match_primary_candidate(match)
             photo = match.get("photo")
+            thumb = ""
             if photo and (path := path_by_key.get(photo_key(photo))):
-                st.image(_thumbnail_bytes(path, 120), width=58)
-        row[1].markdown(f"**{candidate.get('name') or 'Carte'}**  \\n{candidate.get('number') or '—'} · {candidate.get('set') or '—'}")
-        row[2].caption(_variant_label(candidate))
-        with row[3]:
-            st.markdown('<span class="poc-chip poc-green">Validé</span>', unsafe_allow_html=True)
-        st.divider()
+                try:
+                    thumb = base64.b64encode(_thumbnail_bytes(path, 120)).decode("ascii")
+                except Exception:
+                    thumb = ""
+            image_html = f"<img src='data:image/jpeg;base64,{thumb}' />" if thumb else "<span>—</span>"
+            st.markdown(
+                "<div class='poc-table-row'><div class='poc-list-thumb'>" + image_html + "</div>"
+                f"<div><strong>{candidate.get('name') or 'Carte'}</strong><div class='poc-mini'>{candidate.get('number') or '—'} · {candidate.get('set') or '—'}</div></div>"
+                f"<div class='poc-mini'>{_variant_label(candidate)}</div><div><span class='poc-chip poc-green'>Validé</span></div></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_grouping_workspace(result: dict):
-    st.markdown("<div class='poc-section-title'>Grouping</div>", unsafe_allow_html=True)
-    filter_name = st.radio("Filtre grouping", ["Tous", "Reviews", "Multi"], horizontal=True, label_visibility="collapsed")
-    groups = result.get("groups", []) or []
-    if filter_name == "Reviews":
-        groups = [group for group in groups if group.get("grouping_status") == "review"]
-    elif filter_name == "Multi":
-        groups = [group for group in groups if int(group.get("expected_cards") or 1) > 1]
-    st.caption(f"{len(groups)} groupe(s) affiché(s)")
-    path_by_key = _photo_path_by_key(result)
-    for group in groups:
-        photo_payloads = _group_photo_payloads(group)
-        captures = [photo.get("capture_index") for photo in photo_payloads]
-        status = "GROUPING" if group.get("grouping_status") == "review" else "OK"
-        kind = "MULTI" if int(group.get("expected_cards") or 1) > 1 else ""
-        row = st.columns([0.6, 2.6, 1, 0.9])
-        row[0].markdown(f"**#{group.get('announcement_index')}**")
-        row[1].markdown(" ".join(f"`{value}`" for value in captures))
-        row[2].markdown(f'<span class="poc-chip {"poc-orange" if status == "GROUPING" else "poc-green"}">{status}</span>', unsafe_allow_html=True)
-        row[3].markdown(f'<span class="poc-chip poc-violet">{kind or "SIMPLE"}</span>', unsafe_allow_html=True)
-        if st.toggle("Voir les photos", key=f"grouping_photos_{_result_group_id(group)}"):
-            _render_group_photos({"photos": photo_payloads}, path_by_key, compact=True)
-        st.divider()
+    with st.container(border=True):
+        st.markdown("<div class='poc-surface-heading'><div><h2>Grouping</h2><p>Une ligne par annonce, les photos détaillées seulement à l’ouverture.</p></div></div>", unsafe_allow_html=True)
+        filter_name = st.pills(
+            "Filtre grouping", ["Tous", "Reviews", "Multi"], selection_mode="single", default="Tous",
+            key="photo_poc_grouping_filter", label_visibility="collapsed",
+        ) or "Tous"
+        groups = result.get("groups", []) or []
+        if filter_name == "Reviews":
+            groups = [group for group in groups if group.get("grouping_status") == "review"]
+        elif filter_name == "Multi":
+            groups = [group for group in groups if int(group.get("expected_cards") or 1) > 1]
+        st.caption(f"{len(groups)} groupe(s) affiché(s)")
+        path_by_key = _photo_path_by_key(result)
+        for group in groups:
+            photo_payloads = _group_photo_payloads(group)
+            captures = [photo.get("capture_index") for photo in photo_payloads]
+            status = "GROUPING" if group.get("grouping_status") == "review" else "OK"
+            kind = "MULTI" if int(group.get("expected_cards") or 1) > 1 else "SIMPLE"
+            st.markdown(
+                f"<div class='poc-group-row'><div><strong>#{group.get('announcement_index')}</strong></div>"
+                f"<div class='poc-mini'>{len(photo_payloads)} photos<br>{group.get('expected_cards', 1)} carte(s)</div>"
+                f"<div class='poc-mini'>{' · '.join(str(value) for value in captures)}</div>"
+                f"<div><span class='poc-chip {'poc-orange' if status == 'GROUPING' else 'poc-green'}'>{status}</span></div>"
+                f"<div><span class='poc-chip poc-violet'>{kind}</span></div></div>",
+                unsafe_allow_html=True,
+            )
+            with st.expander(f"Voir les photos · groupe {group.get('announcement_index')}", expanded=False):
+                _render_group_photos({"photos": photo_payloads}, path_by_key, compact=True)
 
 
 def _render_diagnostic_view(sample_key: str, sample: dict, result: dict):
@@ -1261,22 +1335,23 @@ def _photo_path_by_key(result: dict) -> dict[str, str]:
     return by_key
 
 
-def _render_group_photos(group: dict, path_by_key: dict[str, str], *, compact=False):
+def _render_group_photos(group: dict, path_by_key: dict[str, str], *, compact=False, show_filenames=False):
     photos = group.get("photos", []) or []
     if not photos:
         st.caption("Aucune photo dans ce groupe.")
         return
-    cols = st.columns(min(4 if compact else 5, len(photos)))
+    cols = st.columns(min(3 if compact else 5, len(photos)))
     for idx, photo_payload in enumerate(photos):
         with cols[idx % len(cols)]:
             path = path_by_key.get(photo_key(photo_payload))
             if path:
                 try:
-                    st.image(_thumbnail_bytes(path, 285 if compact else 320), width=190 if compact else 230)
+                    st.image(_thumbnail_bytes(path, 285 if compact else 320), width="stretch")
                 except Exception:
-                    st.image(path, width=190 if compact else 230)
-            st.caption(_role_caption(photo_payload))
-            st.caption(photo_payload.get("filename", ""))
+                    st.image(path, width="stretch")
+            st.markdown(f"<div class='poc-photos-caption'>{_role_caption(photo_payload)}</div>", unsafe_allow_html=True)
+            if show_filenames:
+                st.caption(photo_payload.get("filename", ""))
 
 
 def _status_tone(level: str) -> str:
@@ -1364,46 +1439,58 @@ def _render_initial_header(*, drop_name: str, photo_count: int, drop_card_count:
     )
 
 
-def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, int, int, int, bool]:
+def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, int, int, int, bool, bool]:
     """Render the product header and return the small set of configuration inputs."""
     drop_options = {
         f"{drop.get('name', 'Drop sans nom')} · {len(drop.get('cards', []) or [])} cartes": drop.get("id")
         for drop in drops
     }
-    header_left, header_right = st.columns([5, 1])
+    header_left, header_actions = st.columns([4.2, 1.8])
     with header_left:
         st.markdown(
             "<div class='poc-shell'><div class='poc-eyebrow'>POKÉSTOCK · DROP VINTED</div>"
             "<h1>Reconnaissance photos</h1></div>",
             unsafe_allow_html=True,
         )
-    with header_right:
-        with st.popover(":material/tune: Paramètres", use_container_width=True):
-            st.caption("Source et réglages d’analyse")
-            folder = st.text_input("Dossier photos", value=str(POC_DIR), key="photo_poc_folder")
-            photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
-            selected_drop_label = st.selectbox(
-                "Drop candidat",
-                list(drop_options) or ["Aucun drop"],
-                key="photo_poc_drop_label",
-                disabled=not bool(drop_options),
+    current_result = st.session_state.get(CURRENT_RESULT_KEY)
+    result_is_current = isinstance(current_result, dict) and bool(current_result.get("groups"))
+    refresh_requested = False
+    with header_actions:
+        st.markdown("<div style='height:1.35rem'></div>", unsafe_allow_html=True)
+        refresh_col, settings_col = st.columns([1.12, 1])
+        with refresh_col:
+            refresh_requested = st.button(
+                ":material/refresh: Actualiser", key="photo_poc_top_refresh", use_container_width=True,
+                disabled=not result_is_current, help="Relit uniquement les candidats du Drop.",
             )
-            with st.expander("Paramètres avancés", expanded=False):
-                start_index = st.number_input(
-                    "capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1,
+        with settings_col:
+            _render_settings_popover = st.popover
+            with _render_settings_popover(":material/tune: Paramètres", use_container_width=True):
+                st.caption("Source et réglages d’analyse")
+                folder = st.text_input("Dossier photos", value=str(POC_DIR), key="photo_poc_folder")
+                photos = _cached_ordered_photos(folder, _photo_folder_token(folder))
+                selected_drop_label = st.selectbox(
+                    "Drop candidat",
+                    list(drop_options) or ["Aucun drop"],
+                    key="photo_poc_drop_label",
+                    disabled=not bool(drop_options),
                 )
-                target_announcements = st.number_input(
-                    "annonces visées", min_value=5, max_value=35, value=30, step=1,
-                )
-                max_photos = st.number_input(
-                    "photos max à analyser", min_value=10, max_value=max(10, len(photos)),
-                    value=min(75, max(10, len(photos))), step=5,
-                )
-                force_rebuild = st.checkbox(
-                    "Forcer une reconstruction complète",
-                    value=False,
-                    help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
-                )
+                with st.expander("Paramètres avancés", expanded=False):
+                    start_index = st.number_input(
+                        "capture_index de départ", min_value=1, max_value=max(1, len(photos)), value=1, step=1,
+                    )
+                    target_announcements = st.number_input(
+                        "annonces visées", min_value=5, max_value=35, value=30, step=1,
+                    )
+                    max_photos = st.number_input(
+                        "photos max à analyser", min_value=10, max_value=max(10, len(photos)),
+                        value=min(75, max(10, len(photos))), step=5,
+                    )
+                    force_rebuild = st.checkbox(
+                        "Forcer une reconstruction complète",
+                        value=False,
+                        help="Option technique : ignore le résultat persistant et relance tout le pipeline.",
+                    )
 
     # A widget value is available on the same rerun; resolve the display data once.
     folder = st.session_state.get("photo_poc_folder", str(POC_DIR))
@@ -1411,8 +1498,6 @@ def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, 
     selected_drop_label = st.session_state.get("photo_poc_drop_label", next(iter(drop_options), "Aucun drop"))
     selected_drop_id = drop_options.get(selected_drop_label)
     selected_drop = next((drop for drop in drops if drop.get("id") == selected_drop_id), {})
-    current_result = st.session_state.get(CURRENT_RESULT_KEY)
-    result_is_current = isinstance(current_result, dict) and bool(current_result.get("groups"))
     status_label = "Analyse à jour" if result_is_current else "Prêt à analyser"
     st.markdown(
         "<div class='poc-context-row'>"
@@ -1431,6 +1516,7 @@ def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, 
         int(target_announcements),
         int(max_photos),
         bool(force_rebuild),
+        bool(refresh_requested),
     )
 
 
@@ -1587,8 +1673,7 @@ def _render_match_actions(
 
 
 def _render_recognition_details(match: dict, sample_key: str, sample: dict, group_id: str, match_index: int, candidates: list[dict]):
-    open_key = f"poc_details_{group_id}_{match.get('subcard_id') or match_index}"
-    if st.toggle("Détails de reconnaissance", key=open_key, value=False):
+    with st.expander("Détails de reconnaissance", expanded=False):
         _render_match_debug(match, sample_key, sample, group_id, match_index, candidates)
 
 
@@ -3095,7 +3180,7 @@ def _sensitive_groups(
 
 
 def _set_sensitive_filter(filter_name: str):
-    st.session_state["photo_poc_sensitive_filter"] = filter_name
+    st.session_state["photo_poc_sensitive_filter_override"] = filter_name
     st.session_state.pop(f"photo_poc_sensitive_index_{filter_name}", None)
 
 
@@ -3118,7 +3203,6 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
         return
 
     heading = "Propositions modifiées à revalider" if stale_only else "Cas sensibles"
-    st.markdown(f"<div class='poc-section-title'>{heading} <span class='poc-muted'>· {len(all_cases)} restant(s)</span></div>", unsafe_allow_html=True)
     counters = {
         "JAP": sum("JAP" in _sensitive_reasons(group) for group in all_cases),
         "Multi": sum("MULTI" in _sensitive_reasons(group) for group in all_cases),
@@ -3127,17 +3211,22 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
         "Fails": sum("FAIL" in _sensitive_reasons(group) for group in all_cases),
         "Grouping": sum("GROUPING" in _sensitive_reasons(group) for group in all_cases),
     }
-    counter_cols = st.columns(6)
-    for column, (label, count) in zip(counter_cols, counters.items()):
-        column.caption(f"{label} · {count}")
-
-    filter_name = st.radio(
-        "Filtrer les cas sensibles",
-        SENSITIVE_FILTERS,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="photo_poc_sensitive_filter",
+    labels = {f"Tous · {len(all_cases)}": "Tous"}
+    labels.update({f"{label} · {count}": label for label, count in counters.items()})
+    pending_filter = st.session_state.pop("photo_poc_sensitive_filter_override", None)
+    if pending_filter:
+        st.session_state.pop("photo_poc_sensitive_filter", None)
+    default_label = next((label for label, value in labels.items() if value == (pending_filter or "Tous")), next(iter(labels)))
+    st.markdown(
+        f"<div class='poc-surface-heading'><div><h2>{heading}</h2><p>{len(all_cases)} élément(s) à contrôler</p></div></div>",
+        unsafe_allow_html=True,
     )
+    st.markdown("<div class='poc-filter-label'>Filtrer les cas</div>", unsafe_allow_html=True)
+    selected_label = st.pills(
+        "Filtrer les cas sensibles", list(labels), selection_mode="single", default=default_label,
+        key="photo_poc_sensitive_filter", label_visibility="collapsed",
+    ) or default_label
+    filter_name = labels.get(selected_label, "Tous")
     groups = _sensitive_groups(
         result,
         sample,
@@ -3187,7 +3276,6 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
             args=("Fails",),
         )
 
-    st.markdown(f"<div class='poc-section-title'>Cas sensible <span class='poc-muted'>· {current_index + 1} / {len(groups)}</span></div>", unsafe_allow_html=True)
     reasons = _sensitive_reasons(group)
     if _group_has_stale_validation(sample, group):
         reasons = [*reasons, "PROPOSITION MODIFIÉE"]
@@ -3196,56 +3284,11 @@ def _render_sensitive_cases_view(sample_key: str, sample: dict, result: dict, *,
         "NOT IN DROP": "poc-red", "FAIL": "poc-red", "GROUPING": "poc-orange",
         "REVIEW": "poc-orange", "PROPOSITION MODIFIÉE": "poc-orange",
     }
-    badges = "".join(f'<span class="poc-chip {chip_class.get(reason, "poc-violet")}">{reason}</span>' for reason in reasons)
-    st.markdown(f"Annonce #{group.get('announcement_index')} · {badges}", unsafe_allow_html=True)
-
-    photos_col, proposal_col = st.columns([1.22, 1], gap="large")
-    with photos_col:
-        _render_group_photos({"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True)
-    with proposal_col:
-        if not matches:
-            st.warning("Aucune sous-carte exploitable.")
-        elif len(matches) == 1:
-            _render_candidate_summary(
-                matches[0], sample_key=sample_key, sample=sample, group_id=group_id, match_index=0,
-            )
-            _render_match_actions(
-                sample_key, sample, group_id, 0, matches[0], index_key=index_key,
-                current_index=current_index, group_count=len(groups), matches=matches, key_prefix="sensitive",
-            )
-            _render_recognition_details(matches[0], sample_key, sample, group_id, 0, result.get("candidates", []))
-        else:
-            st.caption(f"{len(matches)} sous-cartes · validation indépendante")
-            card_cols = st.columns(min(2, len(matches)))
-            for match_index, match in enumerate(matches):
-                with card_cols[match_index % len(card_cols)]:
-                    st.markdown(f"**Carte {match_index + 1}**")
-                    _render_candidate_summary(
-                        match, compact=True, sample_key=sample_key, sample=sample,
-                        group_id=group_id, match_index=match_index,
-                    )
-                    _render_match_actions(
-                        sample_key, sample, group_id, match_index, match, index_key=index_key,
-                        current_index=current_index, group_count=len(groups), matches=matches,
-                        key_prefix="sensitive_multi", show_next=False,
-                    )
-            if st.toggle("Détails de reconnaissance", key=f"sensitive_details_{group_id}"):
-                for match_index, match in enumerate(matches):
-                    _render_match_debug(match, sample_key, sample, group_id, match_index, result.get("candidates", []))
-    nav_left, nav_right = st.columns(2)
-    nav_left.button(
-        "← Précédent",
-        key=f"sensitive_prev_{filter_name}",
-        disabled=current_index == 0,
-        on_click=_set_queue_index,
-        args=(index_key, current_index - 1),
-    )
-    nav_right.button(
-        "Suivant →",
-        key=f"sensitive_next_{filter_name}",
-        disabled=current_index >= len(groups) - 1,
-        on_click=_set_queue_index,
-        args=(index_key, min(len(groups) - 1, current_index + 1)),
+    badge_pairs = [(reason, chip_class.get(reason, "poc-violet")) for reason in reasons]
+    _render_review_surface(
+        sample_key, sample, result, group, index_key=index_key, current_index=current_index,
+        group_count=len(groups), key_prefix=f"sensitive_{filter_name}", heading="Cas sensible",
+        badges=badge_pairs,
     )
 
 
@@ -3400,9 +3443,17 @@ with st.sidebar:
         ("Grouping", ":material/account_tree:"),
         ("Diagnostic", ":material/monitoring:"),
     ]
+    nav_metrics = (st.session_state.get(CURRENT_RESULT_KEY) or {}).get("metrics") or {}
+    nav_counts = {
+        "À vérifier": int(nav_metrics.get("to_review") or 0),
+        "Cas sensibles": int(nav_metrics.get("sensitive_cases_remaining") or nav_metrics.get("grouping_review") or 0),
+        "Validés": int(nav_metrics.get("auto_recognized") or 0),
+    }
     for nav_label, nav_icon in nav_items:
+        count = nav_counts.get(nav_label)
+        count_text = f" · {count}" if count else ""
         st.button(
-            f"{nav_icon} {nav_label}",
+            f"{nav_icon} {nav_label}{count_text}",
             key=f"photo_poc_nav_{nav_label}",
             type="primary" if active_view == nav_label else "secondary",
             use_container_width=True,
@@ -3424,6 +3475,7 @@ drops = drops_data.get("drops", []) or []
     target_announcements,
     max_photos,
     force_rebuild,
+    topbar_refresh_requested,
 ) = _render_workspace_topbar(drops)
 
 if not photos:
@@ -3613,19 +3665,11 @@ drop = result.get("drop") or {}
 
 _render_premium_header(result, sample, drop_candidates_changed=_drop_candidates_changed)
 
-header_action, header_note = st.columns([1.2, 3.8])
-with header_action:
-    refresh_requested = st.button(
-        "Actualiser le Drop",
-        type="primary" if _drop_candidates_changed else "secondary",
-        use_container_width=True,
-        help="Relit uniquement les candidats du Drop. Le grouping et l'OCR ne sont jamais relancés.",
-    )
-with header_note:
-    if _drop_candidates_changed:
-        st.warning("Les candidats ont changé depuis l’analyse. Actualise le Drop pour recalculer uniquement les propositions concernées.")
-    else:
-        st.caption(f"{metrics.get('ocr_note', '')} · Ground truth POC local")
+refresh_requested = topbar_refresh_requested
+if _drop_candidates_changed:
+    st.warning("Les cartes du Drop ont changé depuis l’analyse. Actualise-les depuis la barre supérieure.")
+else:
+    st.caption(f"{metrics.get('ocr_note', '')} · Ground truth POC local")
 
 if refresh_requested:
     with st.spinner("Actualisation ciblée des propositions..."):
