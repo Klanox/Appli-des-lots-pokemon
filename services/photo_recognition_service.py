@@ -31,6 +31,7 @@ SUPPORTED_EXTENSIONS = engine.SUPPORTED_EXTENSIONS
 PHOTO_ROLES = engine.PHOTO_ROLES
 POC_ANALYSIS_PIPELINE_VERSION = engine.POC_ANALYSIS_PIPELINE_VERSION
 POC_MATCHING_REFRESH_VERSION = engine.POC_MATCHING_REFRESH_VERSION
+PROPOSAL_RELIABILITY_VERSION = engine.PROPOSAL_RELIABILITY_VERSION
 POC_DIR = engine.POC_DIR
 POC_GROUND_TRUTH_PATH = engine.POC_GROUND_TRUTH_PATH
 VALIDATED_GROUP_STATUSES = engine.VALIDATED_GROUP_STATUSES
@@ -51,6 +52,7 @@ photo_identity = engine.photo_identity
 photo_key = engine.photo_key
 photo_window_signature = engine.photo_window_signature
 refresh_result_candidates = engine.refresh_result_candidates
+proposed_candidate = engine.proposed_candidate
 sample_ground_truth_key = engine.sample_ground_truth_key
 stable_group_id_from_photos = engine.stable_group_id_from_photos
 update_ground_truth_sample = engine.update_ground_truth_sample
@@ -98,6 +100,7 @@ def load_drop_photo_session(drop_id: str) -> dict[str, Any]:
         "photo_signature": str(payload.get("photo_signature") or ""),
         "pipeline_version": str(payload.get("pipeline_version") or ""),
         "candidate_signature": str(payload.get("candidate_signature") or ""),
+        "proposal_reliability_version": str(payload.get("proposal_reliability_version") or ""),
         "updated_at": str(payload.get("updated_at") or ""),
         "validations": dict(payload.get("validations") or {}),
         "grouping_confirmations": dict(payload.get("grouping_confirmations") or {}),
@@ -146,9 +149,7 @@ def stable_subcard_id(match: dict[str, Any], match_index=0) -> str:
 
 
 def current_candidate(match: dict[str, Any] | None) -> dict[str, Any] | None:
-    rows = (match or {}).get("candidates") or []
-    candidate = (rows[0] or {}).get("candidate") if rows else None
-    return candidate if isinstance(candidate, dict) else None
+    return proposed_candidate(match)
 
 
 def semantic_candidate_key(candidate: dict[str, Any] | None) -> str:
@@ -193,6 +194,9 @@ def initialize_drop_photo_session(
             "photo_signature": str(meta.get("photo_signature") or ""),
             "pipeline_version": str(meta.get("pipeline_version") or POC_ANALYSIS_PIPELINE_VERSION),
             "candidate_signature": str(meta.get("candidate_signature") or ""),
+            "proposal_reliability_version": str(
+                meta.get("proposal_reliability_version") or PROPOSAL_RELIABILITY_VERSION
+            ),
         }
     )
     return save_drop_photo_session(session)
@@ -358,8 +362,13 @@ def restore_drop_analysis(folder: str | Path, drop_id: str) -> tuple[dict[str, A
     if result is not None:
         _drop, candidates = active_drop_candidates(drop_id=drop_id)
         current_signature = candidate_set_signature(candidates)
-        cached_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
-        if cached_signature != current_signature:
+        cached_meta = result.get("analysis_meta") or {}
+        cached_signature = str(cached_meta.get("candidate_signature") or "")
+        proposal_version_stale = (
+            str(cached_meta.get("proposal_reliability_version") or "")
+            != PROPOSAL_RELIABILITY_VERSION
+        )
+        if cached_signature != current_signature or proposal_version_stale:
             result = refresh_result_candidates(result, drop_id=drop_id)
         session = initialize_drop_photo_session(drop_id, folder, result)
     return result, session
@@ -393,6 +402,10 @@ def refresh_drop_analysis_candidates(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     refreshed = refresh_result_candidates(result, drop_id=drop_id)
     session["candidate_signature"] = str((refreshed.get("analysis_meta") or {}).get("candidate_signature") or "")
+    session["proposal_reliability_version"] = str(
+        (refreshed.get("analysis_meta") or {}).get("proposal_reliability_version")
+        or PROPOSAL_RELIABILITY_VERSION
+    )
     return refreshed, save_drop_photo_session(session)
 
 

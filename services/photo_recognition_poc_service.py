@@ -62,6 +62,7 @@ CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
 POC_MATCHING_REFRESH_VERSION = "v14.7-historical-drop-legend-jp-1"
 DROP_MEMBERSHIP_RECONCILIATION_VERSION = "v3"
+PROPOSAL_RELIABILITY_VERSION = "v1-zero-evidence-guard"
 POC_RESULT_CACHE_VERSION = "v1-persistent-result"
 PHOTO_ROLES = (
     "primary_front",
@@ -298,6 +299,22 @@ def candidate_identity_key(candidate: dict[str, Any] | None) -> str:
     return identity["card_uid"] or identity["drop_card_key"] or hashlib.sha1(
         json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
+
+
+def proposed_candidate(match: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the identity proposed to users, excluding debug-only rows."""
+    match = match or {}
+    rows = match.get("candidates") or []
+    candidate = (rows[0] or {}).get("candidate") if rows else None
+    if not isinstance(candidate, dict):
+        return None
+    if match.get("proposal_reliable") is False:
+        return None
+    top_score = _safe_float((rows[0] or {}).get("score"), 0.0)
+    match_score = _safe_float(match.get("score"), 0.0)
+    if max(top_score, match_score) <= 0.0:
+        return None
+    return candidate
 
 
 def drop_candidate_membership(
@@ -1983,6 +2000,21 @@ def match_front_photo_ocr(
             diagnostic_reason = f"carte absente du Drop {label}"
     elif same_name_ocr_conflict and strong_drop_candidate:
         diagnostic_reason = "numéro OCR incompatible avec la carte proposée"
+
+    # Visual shortlists are also useful when every candidate has zero identity
+    # evidence. Keep those rows for diagnostics, but never expose their first
+    # row as a real proposal or infer a language/not-in-Drop state from it.
+    proposal_reliable = bool(best and _safe_float(best.get("score"), 0.0) > 0.0)
+    if not proposal_reliable:
+        status = "unrecognized"
+        diagnostic_reason = "aucun candidat fiable"
+        japanese_signal = ""
+        japanese_candidate = False
+        not_in_drop_confidence = ""
+        same_name_version_absent = False
+        same_name_debug = []
+        best_membership = {"in_drop": False, "method": ""}
+        same_name_ocr_conflict = False
     return {
         "region": {"box": [0, 0, 1, 1], "source": "ocr"},
         "status": status,
@@ -2006,6 +2038,8 @@ def match_front_photo_ocr(
         "v14_same_name_candidates": same_name_debug[:8],
         "v15_drop_membership": dict(best_membership),
         "v15_ocr_identity_conflict": same_name_ocr_conflict,
+        "proposal_reliable": proposal_reliable,
+        "proposal_reliability_version": PROPOSAL_RELIABILITY_VERSION,
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
@@ -2439,7 +2473,7 @@ def _apply_v13_group_language_diagnostic(group: dict[str, Any]) -> None:
     western_score = _safe_float(classification.get("western_back_score"), 0.0)
     japanese_score = _safe_float(classification.get("japanese_back_score"), 0.0)
     matches = group.get("matches") or []
-    top_candidates = [((match.get("candidates") or [{}])[0].get("candidate") or {}) for match in matches]
+    top_candidates = [proposed_candidate(match) or {} for match in matches]
     has_japanese_top_candidate = any(candidate.get("japanese") for candidate in top_candidates)
     has_japanese_signal = any(match.get("v13_japanese_signal") for match in matches)
 
@@ -3601,7 +3635,7 @@ def _recognize_groups(
         recognized_cards = []
         for match_index, match in enumerate(group["matches"]):
             detail = detail_cards[match_index] if match_index < len(detail_cards) else {}
-            candidate = (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+            candidate = proposed_candidate(match) or {}
             back_entry = detail.get("back") if detail else group.get("group_back")
             back_classification = (back_entry or {}).get("classification") or {}
             physical_japanese = (
@@ -3890,8 +3924,13 @@ def analyze_sample(
             ordered_photos=ordered,
         )
         if cached_result is not None:
-            cached_signature = str((cached_result.get("analysis_meta") or {}).get("candidate_signature") or "")
-            if cached_signature != candidates_signature:
+            cached_meta = cached_result.get("analysis_meta") or {}
+            cached_signature = str(cached_meta.get("candidate_signature") or "")
+            proposal_version_stale = (
+                str(cached_meta.get("proposal_reliability_version") or "")
+                != PROPOSAL_RELIABILITY_VERSION
+            )
+            if cached_signature != candidates_signature or proposal_version_stale:
                 cached_result = refresh_result_candidates(
                     cached_result,
                     data_path=data_path,
@@ -3957,6 +3996,8 @@ def analyze_sample(
             "photo_signature": photo_signature,
             "candidate_signature": candidates_signature,
             "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
+            "proposal_reliability_version": PROPOSAL_RELIABILITY_VERSION,
+            "drop_membership_reconciliation_version": DROP_MEMBERSHIP_RECONCILIATION_VERSION,
             "result_cache_descriptor": descriptor,
         },
         "drop": drop,
@@ -4176,19 +4217,39 @@ def refresh_result_candidates(
             for match in group.get("matches", [])
         )
     ] if membership_version_changed else []
-    if previous_signature == current_signature and not matching_version_changed and not membership_affected_indexes:
+    proposal_version_changed = (
+        str(meta.get("proposal_reliability_version") or "")
+        != PROPOSAL_RELIABILITY_VERSION
+    )
+    proposal_affected_indexes = [
+        index
+        for index, group in enumerate(groups)
+        if any(
+            proposed_candidate(match) is None
+            and bool((((match.get("candidates") or [{}])[0]).get("candidate") or {}))
+            for match in group.get("matches", []) or []
+        )
+    ] if proposal_version_changed else []
+    if (
+        previous_signature == current_signature
+        and not matching_version_changed
+        and not membership_affected_indexes
+        and not proposal_affected_indexes
+    ):
         duration = time.perf_counter() - started
         result["drop"] = drop
         result["candidates"] = candidates
         meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
         meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
         meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
+        meta["proposal_reliability_version"] = PROPOSAL_RELIABILITY_VERSION
         metrics = result.setdefault("metrics", {})
         metrics["candidate_refresh_seconds"] = round(duration, 4)
         metrics["candidate_signature_changed"] = False
         metrics["candidate_groups_rematched"] = 0
+        metrics["proposal_groups_rematched"] = 0
         metrics["candidate_refresh_mode"] = "noop"
-        if membership_version_changed:
+        if membership_version_changed or proposal_version_changed:
             cache_info = save_cached_analysis_result(result)
             metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
             metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
@@ -4203,7 +4264,11 @@ def refresh_result_candidates(
     if matching_version_changed:
         affected_indexes = list(range(len(groups)))
     else:
-        affected_indexes = sorted(set(affected_indexes) | set(membership_affected_indexes))
+        affected_indexes = sorted(
+            set(affected_indexes)
+            | set(membership_affected_indexes)
+            | set(proposal_affected_indexes)
+        )
 
     candidate_indexes = _candidate_indexes(candidates)
     ocr_available, ocr_note = _ocr_status()
@@ -4229,6 +4294,7 @@ def refresh_result_candidates(
     meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
     meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
     meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
+    meta["proposal_reliability_version"] = PROPOSAL_RELIABILITY_VERSION
     metrics = _metrics_for_groups(
         ordered=result.get("ordered_photos", []) or [],
         photo_window=result.get("sample_photos", []) or [],
@@ -4243,9 +4309,12 @@ def refresh_result_candidates(
     metrics["candidate_refresh_seconds"] = round(duration, 3)
     metrics["candidate_signature_changed"] = previous_signature != current_signature
     metrics["candidate_groups_rematched"] = len(affected_indexes)
+    metrics["proposal_groups_rematched"] = len(set(proposal_affected_indexes) & set(affected_indexes))
     metrics["candidate_refresh_mode"] = (
         "full_version_upgrade"
         if matching_version_changed
+        else "proposal_reconciliation"
+        if proposal_affected_indexes and previous_signature == current_signature and not membership_affected_indexes
         else "membership_reconciliation"
         if membership_affected_indexes and previous_signature == current_signature
         else "incremental"

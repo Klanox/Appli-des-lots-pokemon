@@ -10,8 +10,10 @@ from services.photo_recognition_service import (
     analysis_summary,
     apply_recognition_statuses,
     build_step4_payload,
+    current_candidate,
     set_match_validation,
     stable_group_id,
+    validation_for_match,
 )
 from services.photo_recognition_poc_service import drop_candidate_membership
 
@@ -172,6 +174,29 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
         self.assertEqual(summary["auto"], 0)
         self.assertEqual(summary["review"], 1)
         self.assertEqual(summary["fail"], 0)
+
+    def test_zero_evidence_debug_candidate_is_not_a_proposal(self):
+        match = {
+            "status": "review",
+            "score": 0,
+            "margin": 0,
+            "candidates": [{"candidate": _candidate("card-jp", "197"), "score": 0}],
+        }
+        self.assertIsNone(current_candidate(match))
+        self.assertEqual(match["candidates"][0]["candidate"]["card_uid"], "card-jp")
+
+    def test_validation_becomes_stale_when_semantic_candidate_changes(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _result()
+            group = result["groups"][0]
+            match = group["matches"][0]
+            session = set_match_validation(_session(), group, match, 0, "correct")
+            match["candidates"][0] = {"candidate": _candidate("card-2", "2/10"), "score": 99}
+            validation = validation_for_match(session, group, match, 0)
+            self.assertEqual(validation["state"], "stale")
+            self.assertFalse(validation["compatible"])
 
     def test_drop_membership_prefers_uid_then_strict_fingerprint(self):
         card = _candidate("card-1", "1/10")

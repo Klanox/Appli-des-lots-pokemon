@@ -42,6 +42,7 @@ from services.vinted_listing_service import (
 from services.custom_card_image_service import resolve_custom_card_image
 from services.card_identity import card_identity_fingerprint
 from services.photo_recognition_service import (
+    PROPOSAL_RELIABILITY_VERSION as PHOTO_PROPOSAL_RELIABILITY_VERSION,
     active_drop_candidates,
     analysis_summary as photo_analysis_summary,
     analyze_drop_photos,
@@ -1898,7 +1899,20 @@ def _load_photo_workflow_state(active_drop):
         if result is not None:
             st.session_state[result_key] = result
             st.session_state[session_key] = restored_session
-    return st.session_state.get(result_key), st.session_state.get(session_key) or session, folder
+    current_result = st.session_state.get(result_key)
+    current_session = st.session_state.get(session_key) or session
+    if current_result is not None and (
+        str((current_result.get("analysis_meta") or {}).get("proposal_reliability_version") or "")
+        != PHOTO_PROPOSAL_RELIABILITY_VERSION
+    ):
+        current_result, current_session = refresh_drop_analysis_candidates(
+            current_result,
+            current_session,
+            drop_id=drop_id,
+        )
+        st.session_state[result_key] = current_result
+        st.session_state[session_key] = current_session
+    return current_result, current_session, folder
 
 
 def _store_photo_workflow_state(active_drop, result, session):

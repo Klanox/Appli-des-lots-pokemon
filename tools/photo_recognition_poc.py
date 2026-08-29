@@ -31,6 +31,7 @@ from services.photo_recognition_service import (
     PHOTO_ROLES,
     POC_ANALYSIS_PIPELINE_VERSION,
     POC_MATCHING_REFRESH_VERSION,
+    PROPOSAL_RELIABILITY_VERSION,
     POC_DIR,
     POC_GROUND_TRUTH_PATH,
     VALIDATED_GROUP_STATUSES,
@@ -47,6 +48,7 @@ from services.photo_recognition_service import (
     load_vinted_drops,
     photo_key,
     photo_window_signature,
+    proposed_candidate,
     sample_ground_truth_key,
     stable_group_id_from_photos,
     update_ground_truth_sample,
@@ -548,7 +550,7 @@ def _validation_bilan(sample: dict, result: dict) -> dict:
 
 
 def _match_primary_candidate(match: dict) -> dict:
-    return (((match.get("candidates") or [{}])[0]).get("candidate") or {})
+    return proposed_candidate(match) or {}
 
 
 def _ground_truth_error_rows(result: dict, sample: dict) -> list[dict]:
@@ -1973,7 +1975,7 @@ def _variant_label(candidate: dict) -> str:
 
 
 def _match_candidate(match: dict | None) -> dict:
-    return ((((match or {}).get("candidates") or [{}])[0]).get("candidate") or {})
+    return proposed_candidate(match) or {}
 
 
 def _semantic_proposal(match: dict | None) -> dict:
@@ -2596,7 +2598,7 @@ def _render_full_check_match(
     ocr_payload = match.get("ocr") or {}
     candidate_rows = (match.get("candidates") or [])[:3]
     primary_row = candidate_rows[0] if candidate_rows else {}
-    primary = primary_row.get("candidate") or {}
+    primary = _match_candidate(match)
 
     st.markdown(
         f"**Zone carte {match_index + 1} · {match.get('method')} · {match.get('status')}**"
@@ -3565,6 +3567,15 @@ if not (run or run_all) and CURRENT_RESULT_KEY not in st.session_state:
         )
     if cached_result is not None:
         cached_meta = cached_result.get("analysis_meta") or {}
+        if (
+            str(cached_meta.get("proposal_reliability_version") or "")
+            != PROPOSAL_RELIABILITY_VERSION
+        ):
+            cached_result = refresh_result_candidates(
+                cached_result,
+                drop_id=selected_drop_id,
+            )
+            cached_meta = cached_result.get("analysis_meta") or {}
         cached_start = int(cached_meta.get("start_index") or 1)
         cached_max = int(cached_meta.get("max_photos") or len(cached_result.get("sample_photos", []) or []))
         cached_target = int(cached_meta.get("target_announcements") or cached_max)
