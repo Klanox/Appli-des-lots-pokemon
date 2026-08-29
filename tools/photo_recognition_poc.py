@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 from PIL import Image, ImageOps
 
-from services.photo_recognition_poc_service import (
+from services.photo_recognition_service import (
     PHOTO_ROLES,
     POC_ANALYSIS_PIPELINE_VERSION,
     POC_MATCHING_REFRESH_VERSION,

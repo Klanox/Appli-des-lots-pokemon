@@ -5,6 +5,7 @@ import os
 import re
 from collections import Counter, OrderedDict
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import streamlit as st
 
@@ -40,6 +41,26 @@ from services.vinted_listing_service import (
 )
 from services.custom_card_image_service import resolve_custom_card_image
 from services.card_identity import card_identity_fingerprint
+from services.photo_recognition_service import (
+    analysis_summary as photo_analysis_summary,
+    analyze_drop_photos,
+    apply_recognition_statuses,
+    build_step4_payload,
+    confirm_grouping,
+    effective_candidate as photo_effective_candidate,
+    group_review_reasons,
+    list_ordered_photos,
+    load_drop_photo_session,
+    persist_uploaded_photos,
+    refresh_drop_analysis_candidates,
+    restore_drop_analysis,
+    search_drop_candidates,
+    set_match_validation,
+    stable_group_id as photo_stable_group_id,
+    stable_subcard_id as photo_stable_subcard_id,
+    unresolved_groups as photo_unresolved_groups,
+    validation_for_match,
+)
 from ui.badges import card_stamp_label
 from ui.vinted_drop_virtual_grid import render_vinted_drop_virtual_grid
 
@@ -1669,6 +1690,421 @@ def _render_drop_placeholder(title, body):
     )
 
 
+def _photo_result_key(drop_id):
+    return f"vinted_photo_recognition_result_{drop_id}"
+
+
+def _photo_session_key(drop_id):
+    return f"vinted_photo_recognition_session_{drop_id}"
+
+
+def _photo_folder_key(drop_id):
+    return f"vinted_photo_recognition_folder_{drop_id}"
+
+
+def _photo_queue_index_key(drop_id):
+    return f"vinted_photo_recognition_queue_index_{drop_id}"
+
+
+def _photo_from_entry(entry):
+    return entry.get("photo") if isinstance(entry, dict) else entry
+
+
+def _photo_path(photo):
+    if isinstance(photo, dict):
+        return str(photo.get("path") or "")
+    return str(getattr(photo, "path", "") or "")
+
+
+def _photo_filename(photo):
+    if isinstance(photo, dict):
+        return str(photo.get("filename") or Path(_photo_path(photo)).name)
+    return str(getattr(photo, "filename", "") or Path(_photo_path(photo)).name)
+
+
+def _photo_capture_index(photo):
+    if isinstance(photo, dict):
+        return _safe_int(photo.get("capture_index"), 0)
+    return _safe_int(getattr(photo, "capture_index", 0), 0)
+
+
+def _load_photo_workflow_state(active_drop):
+    drop_id = str(active_drop.get("id") or "")
+    session_key = _photo_session_key(drop_id)
+    folder_key = _photo_folder_key(drop_id)
+    result_key = _photo_result_key(drop_id)
+    if session_key not in st.session_state:
+        st.session_state[session_key] = load_drop_photo_session(drop_id)
+    session = st.session_state[session_key]
+    if folder_key not in st.session_state:
+        stored_folder = str(session.get("folder") or "")
+        default_folder = stored_folder if stored_folder else str(Path("photo_recognition_poc"))
+        st.session_state[folder_key] = default_folder
+    folder = str(st.session_state.get(folder_key) or "").strip()
+    if result_key not in st.session_state and folder and Path(folder).exists():
+        result, restored_session = restore_drop_analysis(folder, drop_id)
+        if result is not None:
+            st.session_state[result_key] = result
+            st.session_state[session_key] = restored_session
+    return st.session_state.get(result_key), st.session_state.get(session_key) or session, folder
+
+
+def _store_photo_workflow_state(active_drop, result, session):
+    drop_id = str(active_drop.get("id") or "")
+    st.session_state[_photo_result_key(drop_id)] = result
+    st.session_state[_photo_session_key(drop_id)] = session
+
+
+def _apply_photo_workflow_statuses(drops_data, active_drop, result, session):
+    payload = build_step4_payload(
+        result,
+        session,
+        photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
+        require_ready=False,
+    )
+    changed = apply_recognition_statuses(drops_data, active_drop.get("id"), payload)
+    if changed:
+        save_vinted_drops(drops_data)
+    return payload, changed
+
+
+def _render_photo_analysis_summary(result, session):
+    summary = photo_analysis_summary(result, session)
+    st.markdown(
+        f"""
+<div class="ps-vinted-kpi-grid ps-photo-summary">
+  <div class="ps-vinted-kpi"><span>Photos</span><strong>{summary['photos']}</strong></div>
+  <div class="ps-vinted-kpi"><span>Annonces</span><strong>{summary['announcements']}</strong></div>
+  <div class="ps-vinted-kpi"><span>Reconnues</span><strong>{summary['auto']}</strong></div>
+  <div class="ps-vinted-kpi"><span>À vérifier</span><strong>{summary['review']}</strong></div>
+  <div class="ps-vinted-kpi"><span>Non reconnues</span><strong>{summary['fail']}</strong></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    return summary
+
+
+def _render_photo_analysis_step(drops_data, active_drop, mobile):
+    result, session, folder = _load_photo_workflow_state(active_drop)
+    drop_id = str(active_drop.get("id") or "")
+    st.markdown('<div class="ps-vinted-section-title">Photos et analyse</div>', unsafe_allow_html=True)
+    st.caption("Sélectionne les photos du Drop, puis laisse PokéStock conserver leur ordre et reprendre l’analyse automatiquement.")
+
+    with st.container(border=True):
+        st.text_input(
+            "Dossier des photos",
+            value=folder,
+            key=_photo_folder_key(drop_id),
+            placeholder=r"C:\Photos\Mon drop",
+        )
+        folder = str(st.session_state.get(_photo_folder_key(drop_id)) or "").strip()
+        photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+        st.caption(f"{len(photos)} photo(s) détectée(s) · ordre original conservé")
+        with st.expander("Importer des photos depuis cet appareil", expanded=False):
+            uploaded = st.file_uploader(
+                "Photos",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key=f"vinted_photo_upload_{drop_id}",
+                label_visibility="collapsed",
+            )
+            if st.button("Importer la sélection", key=f"vinted_photo_import_{drop_id}", disabled=not uploaded):
+                imported_folder = persist_uploaded_photos(drop_id, uploaded or [])
+                st.session_state[_photo_folder_key(drop_id)] = str(imported_folder)
+                st.success(f"{len(uploaded or [])} photo(s) importée(s).")
+                st.rerun()
+
+        action_cols = st.columns([2, 1]) if not mobile else [st.container(), st.container()]
+        with action_cols[0]:
+            analyze_clicked = st.button(
+                "Analyser les photos" if result is None else "Relancer l’analyse",
+                key=f"vinted_photo_analyze_{drop_id}",
+                type="primary",
+                disabled=not photos,
+                width="stretch",
+            )
+        with action_cols[1]:
+            refresh_clicked = st.button(
+                "Actualiser les cartes du Drop",
+                key=f"vinted_photo_refresh_candidates_{drop_id}",
+                disabled=result is None,
+                width="stretch",
+            )
+
+    if analyze_clicked:
+        progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
+        with st.spinner("Analyse en cours. Tu pourras reprendre ce résultat après fermeture de PokéStock."):
+            result, session = analyze_drop_photos(folder, drop_id)
+            _store_photo_workflow_state(active_drop, result, session)
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+        progress.progress(1.0, text="Analyse terminée")
+        st.rerun()
+
+    if refresh_clicked and result is not None:
+        with st.spinner("Actualisation ciblée des candidats..."):
+            result, session = refresh_drop_analysis_candidates(result, session, drop_id=drop_id)
+            _store_photo_workflow_state(active_drop, result, session)
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+        rematched = _safe_int((result.get("metrics") or {}).get("candidate_groups_rematched"), 0)
+        st.success("Cartes du Drop à jour." if not rematched else f"Cartes à jour · {rematched} groupe(s) recalculé(s).")
+
+    if result is None:
+        _render_drop_placeholder(
+            "Prêt à analyser",
+            "L’analyse reste locale et ne crée ni brouillon ni vente. Les résultats seront associés à ce Drop.",
+        )
+        return
+
+    summary = _render_photo_analysis_summary(result, session)
+    meta = result.get("analysis_meta") or {}
+    restored = bool((result.get("metrics") or {}).get("persistent_cache_hit"))
+    st.caption(
+        f"Analyse {'reprise depuis le cache' if restored else 'à jour'} · "
+        f"pipeline {meta.get('pipeline_version', 'actuel')}"
+    )
+    if st.button("Continuer vers la vérification", key=f"vinted_photo_continue_review_{drop_id}", type="primary"):
+        st.session_state["vinted_drop_step"] = "Vérification"
+        st.session_state[_photo_queue_index_key(drop_id)] = 0
+        st.rerun()
+
+
+def _candidate_label(candidate):
+    if not candidate:
+        return "Aucun candidat"
+    bits = [str(candidate.get("name") or "Carte"), str(candidate.get("number") or "")]
+    if candidate.get("set"):
+        bits.append(str(candidate.get("set")))
+    return " · ".join(bit for bit in bits if bit)
+
+
+def _render_physical_group_photos(group, mobile):
+    entries = group.get("photos", []) or []
+    if not entries:
+        st.caption("Aucune photo disponible.")
+        return
+    columns = 2 if mobile or len(entries) <= 2 else min(3, len(entries))
+    for offset in range(0, len(entries), columns):
+        cols = st.columns(columns)
+        for col, entry in zip(cols, entries[offset : offset + columns]):
+            photo = _photo_from_entry(entry)
+            path = _photo_path(photo)
+            with col:
+                if path and Path(path).exists():
+                    st.image(path, width="stretch")
+                st.caption(f"#{_photo_capture_index(photo)} · {_photo_filename(photo)}")
+
+
+def _render_candidate_identity(candidate, match, proxy_img_func):
+    image = _card_image(candidate or {}, proxy_img_func)
+    image_col, text_col = st.columns([1, 2.2])
+    with image_col:
+        if image:
+            st.image(image, width="stretch")
+    with text_col:
+        st.markdown(f"**{_ui_text((candidate or {}).get('name'), 'Aucun candidat')}**")
+        st.write(f"{_ui_text((candidate or {}).get('number'), 'Numéro inconnu')} · {_ui_text((candidate or {}).get('set'), 'Extension inconnue')}")
+        score = _safe_float(match.get("score"))
+        margin = _safe_float(match.get("margin"))
+        st.caption(f"Confiance {score:.0f} · marge {margin:.0f}")
+
+
+def _render_candidate_correction(
+    drops_data,
+    result,
+    session,
+    group,
+    match,
+    match_index,
+    active_drop,
+    available_cards,
+):
+    group_id = photo_stable_group_id(group)
+    subcard_id = photo_stable_subcard_id(match, match_index)
+    query_key = f"vinted_photo_candidate_query_{group_id}_{subcard_id}"
+    query = st.text_input("Rechercher par nom, numéro ou UID", key=query_key)
+    candidates = search_drop_candidates(result, query) if query else []
+    drop_uids = {str(candidate.get("card_uid") or "") for candidate in result.get("candidates", []) or []}
+    if query:
+        for card in filter_cards_for_listing(available_cards, query, limit=30):
+            uid = str(card.get("card_uid") or "")
+            if uid and uid not in {str(candidate.get("card_uid") or "") for candidate in candidates}:
+                candidates.append(card)
+    if not candidates:
+        if query:
+            st.caption("Aucune carte exacte trouvée dans ce Drop.")
+        return session
+    labels = {
+        _candidate_label(candidate)
+        + (" · dans le Drop" if str(candidate.get("card_uid") or "") in drop_uids else " · hors Drop")
+        + f" · {candidate.get('card_uid', '')}": candidate
+        for candidate in candidates
+    }
+    selected_label = st.selectbox("Carte exacte", list(labels), key=f"vinted_photo_candidate_select_{group_id}_{subcard_id}")
+    selected_candidate = labels[selected_label]
+    selected_uid = str(selected_candidate.get("card_uid") or "")
+    is_in_drop = selected_uid in drop_uids
+    action_label = "Utiliser cette carte" if is_in_drop else "Ajouter cette carte au Drop et l’utiliser"
+    if st.button(action_label, key=f"vinted_photo_candidate_apply_{group_id}_{subcard_id}", type="primary"):
+        if not is_in_drop:
+            added, duplicate = add_card_to_drop(drops_data, active_drop.get("id"), selected_candidate)
+            if not (added or duplicate):
+                st.error("Cette carte n’a pas pu être ajoutée au Drop.")
+                return session
+            save_vinted_drops(drops_data)
+            result, session = refresh_drop_analysis_candidates(
+                result,
+                session,
+                drop_id=str(active_drop.get("id") or ""),
+            )
+            selected_candidate = next(
+                (
+                    candidate
+                    for candidate in result.get("candidates", []) or []
+                    if str(candidate.get("card_uid") or "") == selected_uid
+                ),
+                selected_candidate,
+            )
+        session = set_match_validation(
+            session,
+            group,
+            match,
+            match_index,
+            "manual",
+            selected_candidate=selected_candidate,
+        )
+        _store_photo_workflow_state(active_drop, result, session)
+        st.rerun()
+    return session
+
+
+def _render_photo_match_review(
+    drops_data,
+    active_drop,
+    result,
+    session,
+    group,
+    match,
+    match_index,
+    proxy_img_func,
+    available_cards,
+):
+    candidate, source = photo_effective_candidate(session, group, match, match_index)
+    validation = validation_for_match(session, group, match, match_index)
+    subcard_id = photo_stable_subcard_id(match, match_index)
+    group_id = photo_stable_group_id(group)
+    with st.container(border=True):
+        label = f"Carte {match_index + 1}" if len(group.get("matches", []) or []) > 1 else "Carte proposée"
+        st.markdown(f"**{label}**")
+        _render_candidate_identity(candidate, match, proxy_img_func)
+        if source == "manual":
+            st.caption("Choix validé manuellement")
+        elif match.get("v13_not_in_drop_confidence") in {"strong", "possible"}:
+            st.warning("Carte probablement absente du Drop")
+        action_cols = st.columns(2)
+        if action_cols[0].button("Mauvais", key=f"vinted_photo_wrong_{group_id}_{subcard_id}", width="stretch"):
+            session = set_match_validation(session, group, match, match_index, "wrong")
+            _store_photo_workflow_state(active_drop, result, session)
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+            st.rerun()
+        if action_cols[1].button(
+            "Correct",
+            key=f"vinted_photo_correct_{group_id}_{subcard_id}",
+            type="primary",
+            disabled=not bool(candidate),
+            width="stretch",
+        ):
+            session = set_match_validation(session, group, match, match_index, "correct")
+            _store_photo_workflow_state(active_drop, result, session)
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+            st.rerun()
+        if validation.get("state") in {"wrong", "stale"} or not candidate:
+            session = _render_candidate_correction(
+                drops_data,
+                result,
+                session,
+                group,
+                match,
+                match_index,
+                active_drop,
+                available_cards,
+            )
+        with st.expander("Détails de reconnaissance", expanded=False):
+            top = (match.get("candidates") or [])[:3]
+            st.caption(f"Statut : {match.get('status', 'fail')} · méthode : {match.get('method', 'n/a')}")
+            for rank, row in enumerate(top, start=1):
+                st.write(f"#{rank} {_candidate_label(row.get('candidate'))} · score {_safe_float(row.get('score')):.0f}")
+    return session
+
+
+def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, available_cards):
+    result, session, folder = _load_photo_workflow_state(active_drop)
+    drop_id = str(active_drop.get("id") or "")
+    if result is None:
+        _render_drop_placeholder("Aucune analyse disponible", "Lance d’abord l’analyse des photos à l’étape 2.")
+        if st.button("Aller à l’analyse", key=f"vinted_photo_go_analysis_{drop_id}"):
+            st.session_state["vinted_drop_step"] = "Tri des photos"
+            st.rerun()
+        return
+
+    summary = _render_photo_analysis_summary(result, session)
+    show_all = st.toggle("Consulter aussi les reconnaissances automatiques", key=f"vinted_photo_show_all_{drop_id}")
+    queue = list(result.get("groups", []) or []) if show_all else photo_unresolved_groups(result, session)
+    if not queue:
+        st.success("Toutes les annonces obligatoires sont résolues.")
+        payload = build_step4_payload(
+            result,
+            session,
+            photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
+        )
+        if payload.get("ready") and st.button("Continuer vers la création des annonces", key=f"vinted_photo_go_creation_{drop_id}", type="primary"):
+            st.session_state["vinted_drop_step"] = "Création des annonces"
+            st.rerun()
+        return
+
+    index_key = _photo_queue_index_key(drop_id)
+    index = min(max(0, _safe_int(st.session_state.get(index_key), 0)), len(queue) - 1)
+    st.session_state[index_key] = index
+    group = queue[index]
+    reasons = group_review_reasons(session, group)
+    st.markdown(f"### À vérifier · {index + 1} / {len(queue)}")
+    st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
+    photo_col, match_col = st.columns([1.1, 1], gap="large") if not mobile else [st.container(), st.container()]
+    with photo_col:
+        st.markdown("**Photos physiques**")
+        _render_physical_group_photos(group, mobile)
+    with match_col:
+        st.markdown("**Identification**")
+        for match_index, match in enumerate(group.get("matches", []) or []):
+            session = _render_photo_match_review(
+                drops_data,
+                active_drop,
+                result,
+                session,
+                group,
+                match,
+                match_index,
+                proxy_img_func,
+                available_cards,
+            )
+        if group.get("grouping_status") == "review" and "grouping" in reasons:
+            st.warning("L’association des photos demande une confirmation.")
+            if st.button("Confirmer ce groupe", key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}"):
+                session = confirm_grouping(session, group)
+                _store_photo_workflow_state(active_drop, result, session)
+                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                st.rerun()
+
+    previous_col, spacer, next_col = st.columns([1, 2, 1])
+    if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
+        st.session_state[index_key] = index - 1
+        st.rerun()
+    if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", disabled=index >= len(queue) - 1, width="stretch"):
+        st.session_state[index_key] = index + 1
+        st.rerun()
+
+
+
 def _drop_launch_value_summary(drop, available_cards):
     resolved_cards, missing_cards = resolve_drop_cards_from_data(drop, available_cards)
     total = 0.0
@@ -2298,7 +2734,147 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         st.caption(f"{label} : {published} publiée(s) · {sold} vendue(s) · {f'{rate:.0f}%' if rate is not None else 'N/A'} · {fp_func(ca)}")
 
 
-def _render_drop_creation_step(drops_data, active_drop, available_cards, proxy_img_func, fp_func, run_html_func, mobile):
+def _recognition_listing_cards(listing, available_cards):
+    by_uid = {str(card.get("card_uid") or ""): card for card in available_cards or [] if card.get("card_uid")}
+    cards = []
+    for recognized in listing.get("cards", []) or []:
+        uid = str(recognized.get("card_uid") or "")
+        candidate = recognized.get("candidate") or recognized
+        cards.append(dict(by_uid.get(uid) or candidate))
+    return cards
+
+
+def _recognition_listing_statuses(active_drop, listing):
+    by_uid = {str(ref.get("card_uid") or ""): drop_item_status(ref) for ref in active_drop.get("cards", []) or []}
+    return [by_uid.get(str(uid), "needs_review") for uid in listing.get("card_uids", []) or []]
+
+
+def _set_recognition_listing_status(drops_data, active_drop, listing, status):
+    changed = False
+    wanted = {str(uid) for uid in listing.get("card_uids", []) or [] if uid}
+    for ref in active_drop.get("cards", []) or []:
+        if str(ref.get("card_uid") or "") not in wanted:
+            continue
+        if drop_item_status(ref) in {"online", "sold"}:
+            continue
+        changed = set_drop_card_status(drops_data, active_drop.get("id"), drop_card_key(ref), status) or changed
+    return changed
+
+
+def _render_recognition_creation_step(
+    drops_data,
+    active_drop,
+    available_cards,
+    proxy_img_func,
+    fp_func,
+    run_html_func,
+    mobile,
+    recognition_payload,
+):
+    if not recognition_payload.get("ready"):
+        st.warning("La vérification photo doit être terminée avant de créer les annonces.")
+        unresolved = recognition_payload.get("diagnostic_errors", []) or []
+        st.caption(f"{len(unresolved)} point(s) restent à résoudre dans l’étape Vérification.")
+        if st.button("Retourner à la vérification", key=f"recognition_back_to_review_{active_drop.get('id')}"):
+            st.session_state["vinted_drop_step"] = "Vérification"
+            st.rerun()
+        return True
+
+    listings = recognition_payload.get("listings", []) or []
+    workflow = []
+    ready = []
+    pending = []
+    for listing in listings:
+        statuses = _recognition_listing_statuses(active_drop, listing)
+        if not statuses or all(status in {"online", "sold"} for status in statuses):
+            continue
+        workflow.append(listing)
+        if statuses and all(status == "draft_ready" for status in statuses):
+            ready.append(listing)
+        else:
+            pending.append(listing)
+
+    total = len(workflow)
+    ready_count = len(ready)
+    pct = ready_count / total if total else 0.0
+    st.markdown(
+        f"""
+<div class="ps-vinted-progress-panel">
+  <div class="ps-vinted-progress-main">{ready_count} / {total} annonces créées</div>
+  <div class="ps-vinted-progress-sub">{pct * 100:.0f} % · Ordre issu de la reconnaissance photo</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    st.progress(pct)
+    _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
+    if not workflow:
+        st.caption("Aucune annonce reconnue restant à préparer dans ce Drop.")
+        return True
+    if not pending:
+        st.success("Toutes les annonces reconnues sont prêtes.")
+        return True
+
+    listing = pending[0]
+    cards = _recognition_listing_cards(listing, available_cards)
+    listing_type = "Plusieurs cartes" if len(cards) > 1 else "Carte seule"
+    listing_cards = [_card_with_drop_quantity(card, 1) for card in cards]
+    _sync_listing_text(listing_cards, listing_type, fp_func)
+    st.markdown(
+        f"**Annonce #{listing.get('creation_order', 1)} sur {total}** · "
+        f"{len(cards)} carte(s) · validation {listing.get('validation_source', 'auto')}"
+    )
+    primary_path = str((listing.get("primary_front") or {}).get("path") or "")
+    photo_col, card_col = st.columns([1, 2]) if not mobile else [st.container(), st.container()]
+    with photo_col:
+        if primary_path and Path(primary_path).exists():
+            st.image(primary_path, width="stretch", caption="Photo principale")
+    with card_col:
+        for card in cards:
+            st.markdown(f"**{_card_display_title(card)}** · {_card_set(card) or 'Extension N/A'}")
+
+    st.text_input("Titre généré", key="vinted_listing_title")
+    _copy_button("Copier titre", st.session_state.get("vinted_listing_title", ""), "copy_vinted_recognition_title", run_html_func, ["Titre généré"])
+    st.text_input("Prix", key="vinted_listing_price")
+    _copy_button("Copier prix", st.session_state.get("vinted_listing_price", ""), "copy_vinted_recognition_price", run_html_func, ["Prix"])
+    st.text_area("Description générée", key="vinted_listing_description", height=220 if mobile else 260)
+    _copy_button("Copier description", st.session_state.get("vinted_listing_description", ""), "copy_vinted_recognition_description", run_html_func, ["Description générée"])
+    st.link_button("Ouvrir Vinted", "https://www.vinted.fr/items/new", width="stretch")
+    if st.button(
+        "✓ Brouillon créé",
+        key=f"draft_ready_recognition_group_{active_drop.get('id')}_{listing.get('recognition_group_id')}",
+        type="primary",
+        width="stretch",
+    ):
+        if _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
+            save_vinted_drops(drops_data)
+            st.rerun()
+    return True
+
+
+def _render_drop_creation_step(
+    drops_data,
+    active_drop,
+    available_cards,
+    proxy_img_func,
+    fp_func,
+    run_html_func,
+    mobile,
+    *,
+    recognition_payload=None,
+):
+    if recognition_payload is not None:
+        if _render_recognition_creation_step(
+            drops_data,
+            active_drop,
+            available_cards,
+            proxy_img_func,
+            fp_func,
+            run_html_func,
+            mobile,
+            recognition_payload,
+        ):
+            return
     workflow_cards, pending_cards, ready_cards = _drop_creation_cards(active_drop, available_cards)
     total_qty = sum(_drop_workflow_quantity(card) for card in workflow_cards)
     ready_qty = sum(_drop_workflow_quantity(card) for card in ready_cards)
@@ -2464,17 +3040,28 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
         if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
             _render_drop_grid(drops_data, active_drop, source_cards, proxy_img_func, fp_func, mobile)
     elif step == "Tri des photos":
-        _render_drop_placeholder(
-            "Tri des photos",
-            "Le tri photo sera ajouté ensuite. Aucun upload, OCR ou reconnaissance n'est actif pour l'instant.",
-        )
+        _render_photo_analysis_step(drops_data, active_drop, mobile)
     elif step == "Vérification":
-        _render_drop_placeholder(
-            "Vérification",
-            "La vérification automatique des photos sera ajoutée ensuite. Les cartes et annonces existantes restent inchangées.",
-        )
+        _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, source_cards)
     elif step == "Création des annonces":
-        _render_drop_creation_step(drops_data, active_drop, source_cards, proxy_img_func, fp_func, run_html_func, mobile)
+        recognition_result, recognition_session, _folder = _load_photo_workflow_state(active_drop)
+        recognition_payload = None
+        if recognition_result is not None and not active_drop.get("drop_launched_at"):
+            recognition_payload = build_step4_payload(
+                recognition_result,
+                recognition_session,
+                photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
+            )
+        _render_drop_creation_step(
+            drops_data,
+            active_drop,
+            source_cards,
+            proxy_img_func,
+            fp_func,
+            run_html_func,
+            mobile,
+            recognition_payload=recognition_payload,
+        )
     elif step == "Analyse des drops":
         _render_drop_analytics(
             drops_data,
