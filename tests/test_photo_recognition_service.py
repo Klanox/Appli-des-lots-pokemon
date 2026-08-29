@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -11,12 +12,25 @@ from services.photo_recognition_service import (
     apply_recognition_statuses,
     build_step4_payload,
     current_candidate,
+    normalize_photo_identity,
     set_match_validation,
     stable_group_id,
     unresolved_groups,
     validation_for_match,
 )
 from services.photo_recognition_poc_service import drop_candidate_membership
+
+
+@dataclass(frozen=True)
+class LegacyPhotoInfo:
+    """Shape retained by a cache created before a Streamlit module reload."""
+
+    path: str
+    filename: str
+    capture_index: int
+    capture_datetime: str = ""
+    order_source: str = ""
+    size_bytes: int = 0
 
 
 def _photo(index, name):
@@ -99,6 +113,49 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             [photo["role"] for photo in payload["listings"][0]["photos"]],
             ["primary_front", "back_western"],
         )
+
+    def test_normalize_photo_identity_accepts_current_mapping_and_legacy_shapes(self):
+        from services.photo_recognition_service import PhotoInfo
+
+        current = PhotoInfo("C:/photos/current.jpg", "current.jpg", 1, "", "filename", 10)
+        legacy = LegacyPhotoInfo("C:/photos/legacy.jpg", "legacy.jpg", 2)
+        mapped = {"path": "C:/photos/mapped.jpg", "filename": "mapped.jpg", "capture_index": 3}
+
+        self.assertEqual(normalize_photo_identity(current), {"filename": "current.jpg", "capture_index": 1})
+        self.assertEqual(normalize_photo_identity(legacy), {"filename": "legacy.jpg", "capture_index": 2})
+        self.assertEqual(normalize_photo_identity(mapped), mapped)
+        with self.assertRaises(TypeError):
+            dict(current)
+
+    def test_payload_accepts_legacy_photo_info_without_dict_conversion(self):
+        result = _result()
+        group = result["groups"][0]
+        front = LegacyPhotoInfo("C:/photos/front.jpg", "front.jpg", 1)
+        back = LegacyPhotoInfo("C:/photos/back.jpg", "back.jpg", 2)
+        group["photos"][0]["photo"] = front
+        group["photos"][1]["photo"] = back
+        group["primary_front"]["photo"] = front
+        group["group_back"]["photo"] = back
+        payload = build_step4_payload(result, _session())
+        self.assertEqual(payload["photo_count"], 2)
+        self.assertEqual([photo["filename"] for photo in payload["listings"][0]["photos"]], ["front.jpg", "back.jpg"])
+
+    def test_payload_preserves_multiple_subcards(self):
+        result = _result()
+        group = result["groups"][0]
+        group["matches"].append(
+            {
+                "status": "recognized",
+                "score": 98,
+                "subcard_id": "physical-2",
+                "subcard_photos": {"front": "1:front.jpg", "back": "2:back.jpg"},
+                "candidates": [{"candidate": _candidate("card-2", "2/10"), "score": 98}],
+            }
+        )
+        payload = build_step4_payload(result, _session())
+        self.assertTrue(payload["ready"])
+        self.assertEqual(payload["listings"][0]["card_uids"], ["card-1", "card-2"])
+        self.assertEqual(payload["photo_count"], 2)
 
     def test_manual_candidate_is_bound_to_physical_subcard(self):
         from services import photo_recognition_service as service

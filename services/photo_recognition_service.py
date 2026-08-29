@@ -49,6 +49,7 @@ load_poc_ground_truth = engine.load_poc_ground_truth
 load_vinted_drops = engine.load_vinted_drops
 normalize_group_status = engine.normalize_group_status
 photo_identity = engine.photo_identity
+normalize_photo_identity = engine.normalize_photo_identity
 photo_key = engine.photo_key
 photo_window_signature = engine.photo_window_signature
 refresh_result_candidates = engine.refresh_result_candidates
@@ -120,10 +121,8 @@ def _group_photo_payload(group: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for entry in group.get("photos", []) or []:
         photo = entry.get("photo") if isinstance(entry, dict) else entry
-        if isinstance(photo, engine.PhotoInfo):
-            rows.append(photo_identity(photo))
-        elif isinstance(photo, dict):
-            rows.append(dict(photo))
+        if photo is not None:
+            rows.append(normalize_photo_identity(photo))
     return rows
 
 
@@ -143,7 +142,7 @@ def stable_subcard_id(match: dict[str, Any], match_index=0) -> str:
     if physical != "front=|back=":
         return "subcard_" + hashlib.sha1(physical.encode("utf-8")).hexdigest()[:16]
     photo = match.get("photo")
-    if isinstance(photo, engine.PhotoInfo):
+    if photo is not None:
         return "subcard_" + hashlib.sha1(photo_key(photo).encode("utf-8")).hexdigest()[:16]
     return f"legacy_subcard_{int(match_index)}"
 
@@ -487,7 +486,7 @@ def build_step4_payload(
         photos = []
         for entry in group.get("photos", []) or []:
             photo = entry.get("photo") or {}
-            identity = photo_identity(photo) if isinstance(photo, engine.PhotoInfo) else dict(photo)
+            identity = normalize_photo_identity(photo)
             key = photo_key(identity)
             if key in seen_photos:
                 errors.append(f"Photo dupliquée dans le payload: {key}")

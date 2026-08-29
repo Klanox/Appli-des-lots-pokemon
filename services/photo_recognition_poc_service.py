@@ -7,6 +7,7 @@ vinted_drops.json.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -4327,14 +4328,49 @@ def refresh_result_candidates(
     return result
 
 
-def photo_identity(photo: PhotoInfo) -> dict[str, Any]:
-    return {"filename": photo.filename, "capture_index": photo.capture_index}
+def normalize_photo_identity(photo: Any) -> dict[str, Any]:
+    """Serialize a photo identity without relying on a reloaded class object.
+
+    Persistent caches can retain a dataclass instance from an earlier Streamlit
+    module reload. Its module/name may still be ``PhotoInfo`` while ``isinstance``
+    no longer matches the newly imported class. The supported wire contract is
+    intentionally small: a mapping, or an object exposing the known PhotoInfo
+    identity attributes.
+    """
+    if isinstance(photo, Mapping):
+        payload = dict(photo)
+    elif isinstance(photo, PhotoInfo) or all(
+        hasattr(photo, field) for field in ("filename", "capture_index")
+    ):
+        payload = {
+            "filename": getattr(photo, "filename"),
+            "capture_index": getattr(photo, "capture_index"),
+        }
+    else:
+        raise TypeError(
+            "Photo identity must be a mapping or a PhotoInfo-compatible object "
+            f"(received {type(photo).__module__}.{type(photo).__name__})"
+        )
+
+    filename = str(payload.get("filename") or "").strip()
+    capture_index = _safe_int(payload.get("capture_index"), 0)
+    if not filename or capture_index <= 0:
+        raise ValueError("Photo identity requires a filename and a positive capture_index")
+    payload["filename"] = filename
+    payload["capture_index"] = capture_index
+    return payload
 
 
-def photo_key(photo_or_payload: PhotoInfo | dict[str, Any]) -> str:
-    if isinstance(photo_or_payload, PhotoInfo):
-        return f"{photo_or_payload.capture_index}:{photo_or_payload.filename}"
-    return f"{photo_or_payload.get('capture_index')}:{photo_or_payload.get('filename')}"
+def photo_identity(photo: PhotoInfo | Mapping[str, Any] | Any) -> dict[str, Any]:
+    payload = normalize_photo_identity(photo)
+    return {"filename": payload["filename"], "capture_index": payload["capture_index"]}
+
+
+def photo_key(photo_or_payload: PhotoInfo | Mapping[str, Any] | Any) -> str:
+    if isinstance(photo_or_payload, Mapping):
+        return f"{photo_or_payload.get('capture_index')}:{photo_or_payload.get('filename')}"
+    payload = normalize_photo_identity(photo_or_payload)
+    return f"{payload['capture_index']}:{payload['filename']}"
 
 
 def group_photo_signature(photos: list[dict[str, Any]]) -> str:
