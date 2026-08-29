@@ -274,12 +274,94 @@ def _inject_vinted_styles():
     font-size:1rem;
     font-weight:850;
 }
+.ps-photo-summary-line .auto strong { color:#15803d; }
 .ps-photo-summary-line .review strong { color:#c2410c; }
 .ps-photo-summary-line .fail strong { color:#be123c; }
+.ps-photo-review-header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    margin:.7rem 0 .18rem;
+}
+.ps-photo-review-title {
+    color:#111827;
+    font-size:1.05rem;
+    font-weight:850;
+    line-height:1.25;
+}
+.ps-photo-status-badge {
+    display:inline-flex;
+    align-items:center;
+    flex:0 0 auto;
+    gap:.28rem;
+    border:1px solid transparent;
+    border-radius:999px;
+    padding:.24rem .55rem;
+    font-size:.73rem;
+    font-weight:850;
+    line-height:1.1;
+    white-space:nowrap;
+}
+.ps-photo-status-badge.success {
+    border-color:#bbf7d0;
+    background:#f0fdf4;
+    color:#15803d;
+}
+.ps-photo-status-badge.warning {
+    border-color:#fed7aa;
+    background:#fff7ed;
+    color:#c2410c;
+}
+.ps-photo-status-badge.danger {
+    border-color:#fecaca;
+    background:#fef2f2;
+    color:#be123c;
+}
+.ps-photo-status-callout {
+    margin:.58rem 0 .7rem;
+    border:1px solid transparent;
+    border-radius:8px;
+    padding:.48rem .62rem;
+    font-size:.78rem;
+    font-weight:760;
+    line-height:1.35;
+}
+.ps-photo-status-callout.success {
+    border-color:#bbf7d0;
+    background:#f0fdf4;
+    color:#166534;
+}
+.ps-photo-status-callout.warning {
+    border-color:#fed7aa;
+    background:#fff7ed;
+    color:#9a3412;
+}
+.ps-photo-status-callout.danger {
+    border-color:#fecaca;
+    background:#fef2f2;
+    color:#991b1b;
+}
+.ps-photo-review-marker,
+.ps-photo-review-action-marker { display:none; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-photo-review-marker.success) {
+    border-left:3px solid #16a34a !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-photo-review-marker.warning) {
+    border-left:3px solid #f97316 !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-photo-review-marker.danger) {
+    border-left:3px solid #dc2626 !important;
+}
+[data-testid="stHorizontalBlock"]:has(.ps-photo-review-action-marker) [data-testid="stButton"] > button {
+    min-height:2.5rem !important;
+}
 @media (max-width: 640px) {
     .ps-photo-state { padding:.85rem; }
     .ps-photo-state-head { flex-direction:column; gap:.5rem; }
     .ps-photo-summary-line { gap:.42rem .72rem; }
+    .ps-photo-review-header { align-items:flex-start; }
+    .ps-photo-status-badge { margin-top:.08rem; }
 }
 .ps-vinted-drop-head {
     padding:.1rem .08rem;
@@ -1838,6 +1920,75 @@ def _apply_photo_workflow_statuses(drops_data, active_drop, result, session):
     return payload, changed
 
 
+def _photo_match_semantic_status(session, group, match, match_index):
+    """Return the display-only status for one physical card proposal."""
+    validation = validation_for_match(session, group, match, match_index)
+    candidate, source = photo_effective_candidate(session, group, match, match_index)
+    raw_status = str(match.get("status") or "fail")
+
+    if validation.get("compatible") and validation.get("state") in {"correct", "manual"}:
+        return {
+            "tone": "success",
+            "label": "✓ Reconnu",
+            "message": "Correspondance validée" if source == "manual" else "Correspondance fiable",
+        }
+    if raw_status in {"fail", "unrecognized"} or not candidate:
+        return {
+            "tone": "danger",
+            "label": "× Non reconnu",
+            "message": "Aucune correspondance fiable",
+        }
+    if match.get("v13_not_in_drop_confidence") in {"strong", "possible"}:
+        return {
+            "tone": "warning",
+            "label": "! À vérifier",
+            "message": "Carte peut-être absente du Drop",
+        }
+    if validation.get("state") in {"wrong", "stale"}:
+        return {
+            "tone": "warning",
+            "label": "! À vérifier",
+            "message": "Vérification recommandée",
+        }
+    if raw_status == "review" or match.get("v13_japanese_candidate") or match.get("v13_japanese_signal"):
+        return {
+            "tone": "warning",
+            "label": "! À vérifier",
+            "message": "Vérification recommandée",
+        }
+    return {
+        "tone": "success",
+        "label": "✓ Reconnu",
+        "message": "Correspondance fiable",
+    }
+
+
+def _photo_group_semantic_status(session, group, reasons):
+    match_statuses = [
+        _photo_match_semantic_status(session, group, match, index)
+        for index, match in enumerate(group.get("matches", []) or [])
+    ]
+    if any(item["tone"] == "danger" for item in match_statuses):
+        return {"tone": "danger", "label": "× Non reconnu"}
+    if reasons or any(item["tone"] == "warning" for item in match_statuses):
+        return {"tone": "warning", "label": "! À vérifier"}
+    return {"tone": "success", "label": "✓ Reconnu"}
+
+
+def _photo_status_badge(status):
+    return (
+        f'<span class="ps-photo-status-badge {status["tone"]}">'
+        f'{_html_escape(status["label"])}</span>'
+    )
+
+
+def _render_photo_status_message(status):
+    st.markdown(
+        f'<div class="ps-photo-status-callout {status["tone"]}">{_html_escape(status["message"])}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _render_photo_analysis_summary(result, session):
     summary = photo_analysis_summary(result, session)
     st.markdown(
@@ -1845,7 +1996,7 @@ def _render_photo_analysis_summary(result, session):
 <div class="ps-photo-summary-line">
   <span><strong>{summary['photos']}</strong> photos</span>
   <span><strong>{summary['announcements']}</strong> annonces</span>
-  <span><strong>{summary['auto']}</strong> reconnues</span>
+  <span class="auto"><strong>{summary['auto']}</strong> reconnues</span>
   <span class="review"><strong>{summary['review']}</strong> à vérifier</span>
   <span class="fail"><strong>{summary['fail']}</strong> non reconnues</span>
 </div>
@@ -2180,17 +2331,22 @@ def _render_photo_match_review(
 ):
     candidate, source = photo_effective_candidate(session, group, match, match_index)
     validation = validation_for_match(session, group, match, match_index)
+    semantic_status = _photo_match_semantic_status(session, group, match, match_index)
     subcard_id = photo_stable_subcard_id(match, match_index)
     group_id = photo_stable_group_id(group)
     with st.container(border=True):
+        st.markdown(
+            f'<span class="ps-photo-review-marker {semantic_status["tone"]}"></span>',
+            unsafe_allow_html=True,
+        )
         label = f"Carte {match_index + 1}" if len(group.get("matches", []) or []) > 1 else "Carte proposée"
         st.markdown(f"**{label}**")
         _render_candidate_identity(candidate, match, proxy_img_func)
-        if source == "manual":
-            st.caption("Choix validé manuellement")
-        elif match.get("v13_not_in_drop_confidence") in {"strong", "possible"}:
-            st.warning("Carte probablement absente du Drop")
+        _render_photo_status_message(semantic_status)
         action_cols = st.columns(2)
+        for action_col in action_cols:
+            with action_col:
+                st.markdown('<span class="ps-photo-review-action-marker"></span>', unsafe_allow_html=True)
         if action_cols[0].button("Mauvais", key=f"vinted_photo_wrong_{group_id}_{subcard_id}", width="stretch"):
             session = set_match_validation(session, group, match, match_index, "wrong")
             _store_photo_workflow_state(active_drop, result, session)
@@ -2256,33 +2412,49 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     st.session_state[index_key] = index
     group = queue[index]
     reasons = group_review_reasons(session, group)
-    st.markdown(f"### À vérifier · {index + 1} / {len(queue)}")
+    group_status = _photo_group_semantic_status(session, group, reasons)
+    st.markdown(
+        f"""
+<div class="ps-photo-review-header">
+  <div class="ps-photo-review-title">À vérifier · {index + 1} / {len(queue)}</div>
+  {_photo_status_badge(group_status)}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
-    photo_col, match_col = st.columns([1.1, 1], gap="large") if not mobile else [st.container(), st.container()]
-    with photo_col:
-        st.markdown("**Photos physiques**")
-        _render_physical_group_photos(group, mobile)
-    with match_col:
-        st.markdown("**Identification**")
-        for match_index, match in enumerate(group.get("matches", []) or []):
-            session = _render_photo_match_review(
-                drops_data,
-                active_drop,
-                result,
-                session,
-                group,
-                match,
-                match_index,
-                proxy_img_func,
-                available_cards,
-            )
-        if group.get("grouping_status") == "review" and "grouping" in reasons:
-            st.warning("L’association des photos demande une confirmation.")
-            if st.button("Confirmer ce groupe", key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}"):
-                session = confirm_grouping(session, group)
-                _store_photo_workflow_state(active_drop, result, session)
-                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-                st.rerun()
+    with st.container(border=True):
+        st.markdown(
+            f'<span class="ps-photo-review-marker {group_status["tone"]}"></span>',
+            unsafe_allow_html=True,
+        )
+        photo_col, match_col = st.columns([1.1, 1], gap="large") if not mobile else [st.container(), st.container()]
+        with photo_col:
+            st.markdown("**Photos physiques**")
+            _render_physical_group_photos(group, mobile)
+        with match_col:
+            st.markdown("**Identification**")
+            for match_index, match in enumerate(group.get("matches", []) or []):
+                session = _render_photo_match_review(
+                    drops_data,
+                    active_drop,
+                    result,
+                    session,
+                    group,
+                    match,
+                    match_index,
+                    proxy_img_func,
+                    available_cards,
+                )
+            if group.get("grouping_status") == "review" and "grouping" in reasons:
+                _render_photo_status_message(
+                    {"tone": "warning", "message": "Grouping à confirmer"}
+                )
+                if st.button("Confirmer ce groupe", key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}"):
+                    session = confirm_grouping(session, group)
+                    _store_photo_workflow_state(active_drop, result, session)
+                    _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                    st.rerun()
 
     previous_col, spacer, next_col = st.columns([1, 2, 1])
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
