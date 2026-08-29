@@ -176,11 +176,21 @@ st.markdown(
     .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.28rem .42rem; font-size:.75rem; font-weight:800; }
     .poc-workflow-step.active { color:var(--poc-violet); border-bottom-color:var(--poc-violet); }
     .poc-workflow-arrow { color:#94a3b8; font-size:.75rem; }
-    .poc-setup { background:#fff; border:1px solid var(--poc-line); border-top:4px solid var(--poc-violet); padding:1rem 1.1rem; max-width:980px; margin:1rem auto 0; }
+    .poc-setup { background:#fff; border:1px solid var(--poc-line); border-top:3px solid var(--poc-violet); padding:1.1rem 1.2rem; margin:0; }
     .poc-setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; margin:.75rem 0 1rem; }
-    .poc-setup-item { border:1px solid var(--poc-line); padding:.72rem .8rem; background:#fff; }
+    .poc-setup-item { border:1px solid var(--poc-line); border-radius:4px; padding:.72rem .8rem; background:#fff; }
     .poc-setup-item strong { display:block; color:var(--poc-ink); font-size:.82rem; margin-bottom:.18rem; }
     .poc-empty-note { color:var(--poc-muted); font-size:.82rem; margin:0 0 .85rem; }
+    .poc-summary { background:#fff; border:1px solid var(--poc-line); padding:1.05rem; min-height:100%; }
+    .poc-summary h2 { font-size:1rem; margin:0 0 .85rem; color:var(--poc-ink); }
+    .poc-summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+    .poc-summary-metric { border:1px solid var(--poc-line); border-radius:4px; padding:.7rem; min-height:72px; }
+    .poc-summary-metric strong { display:block; font-size:1.18rem; line-height:1.1; color:var(--poc-ink); }
+    .poc-summary-metric span { display:block; margin-top:.27rem; font-size:.72rem; color:var(--poc-muted); }
+    .poc-context-row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.65rem 0 .9rem; }
+    .poc-context-chip { display:inline-flex; align-items:center; min-height:2.25rem; padding:.35rem .65rem; border:1px solid var(--poc-line); background:#fff; border-radius:5px; font-size:.79rem; color:#374151; }
+    .poc-context-chip strong { color:var(--poc-ink); }
+    .poc-context-chip.status::before { content:""; width:.48rem; height:.48rem; border-radius:50%; background:var(--poc-green); margin-right:.42rem; }
     .poc-photo-grid img { border:1px solid var(--poc-line); border-radius:4px; }
     div[data-testid="stButton"] > button { border-radius:5px; border-color:#d1d5db; font-weight:750; min-height:2.15rem; }
     div[data-testid="stButton"] > button[kind="primary"] { background:var(--poc-violet); border-color:var(--poc-violet); }
@@ -201,11 +211,13 @@ st.markdown(
     [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover { background:#f3f4f6; color:var(--poc-ink); }
     [data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] { background:#f3f0ff; color:var(--poc-violet); border-left:3px solid var(--poc-violet); border-radius:4px; }
     .poc-nav-hint { color:var(--poc-muted); font-size:.72rem; line-height:1.45; padding:.8rem .55rem; border-top:1px solid var(--poc-line); margin-top:1rem; }
+    .poc-nav-footer { position:fixed; bottom:0; width:198px; padding:.75rem .55rem 1rem; background:#fff; border-top:1px solid var(--poc-line); }
     @media (max-width: 700px) {
       .block-container { padding: .85rem .8rem 1.5rem; }
       .poc-shell { padding:.8rem .85rem; } .poc-shell h1 { font-size:1.15rem; }
       .poc-kpi { min-height:70px; padding:.55rem; } .poc-kpi-value { font-size:1.16rem; }
-      .poc-setup { padding:.85rem; margin-top:.7rem; } .poc-setup-grid { grid-template-columns:1fr; }
+      .poc-setup { padding:.85rem; } .poc-setup-grid { grid-template-columns:1fr; }
+      .poc-summary { margin-top:.65rem; } .poc-nav-footer { position:static; width:auto; }
       div[data-testid="stHorizontalBlock"] { gap:.45rem; }
     }
     </style>
@@ -1399,11 +1411,15 @@ def _render_workspace_topbar(drops: list[dict]) -> tuple[str, list, str | None, 
     selected_drop_label = st.session_state.get("photo_poc_drop_label", next(iter(drop_options), "Aucun drop"))
     selected_drop_id = drop_options.get(selected_drop_label)
     selected_drop = next((drop for drop in drops if drop.get("id") == selected_drop_id), {})
+    current_result = st.session_state.get(CURRENT_RESULT_KEY)
+    result_is_current = isinstance(current_result, dict) and bool(current_result.get("groups"))
+    status_label = "Analyse à jour" if result_is_current else "Prêt à analyser"
     st.markdown(
-        "<div class='poc-product-meta'>"
-        f"<span class='poc-product-drop'>{selected_drop.get('name') or 'Drop non défini'}</span>"
-        f"<span>· {len(photos)} photos détectées</span>"
-        f"<span>· {len(selected_drop.get('cards', []) or [])} cartes dans le Drop</span>"
+        "<div class='poc-context-row'>"
+        f"<span class='poc-context-chip'><strong>{selected_drop.get('name') or 'Drop non défini'}</strong></span>"
+        f"<span class='poc-context-chip'>{len(photos)} photos</span>"
+        f"<span class='poc-context-chip'>{len(selected_drop.get('cards', []) or [])} cartes</span>"
+        f"<span class='poc-context-chip status'>{status_label}</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1422,21 +1438,33 @@ def _render_empty_state(*, folder: str, photo_count: int, drop_name: str, drop_c
     if view != "Vue d’ensemble":
         st.markdown(f"<div class='poc-section-title'>{view}</div>", unsafe_allow_html=True)
         st.markdown("<p class='poc-empty-note'>Cette vue sera disponible dès qu’une analyse aura été lancée.</p>", unsafe_allow_html=True)
-    st.markdown(
-        "<div class='poc-setup'><div class='poc-section-title' style='margin-top:0'>Préparer l’analyse</div>"
-        "<p class='poc-empty-note'>Vérifie la source et le Drop, puis lance une analyse. Aucun traitement ne démarre avant ton action.</p>"
-        "<div class='poc-setup-grid'>"
-        f"<div class='poc-setup-item'><strong>Source photos</strong>{photo_count} photo(s) détectée(s)<br><span class='poc-mini'>{folder}</span></div>"
-        f"<div class='poc-setup-item'><strong>Drop</strong>{drop_name or 'Aucun Drop sélectionné'}<br><span class='poc-mini'>{drop_card_count} carte(s) candidate(s)</span></div>"
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
-    action_col, sample_col, _ = st.columns([1.45, 1, 2.1])
-    with action_col:
-        run_all = st.button("Analyser les photos", type="primary", use_container_width=True)
-    with sample_col:
-        run = st.button("Échantillon", use_container_width=True)
-    st.caption("L’analyse complète utilise le cache local si le dossier et le Drop n’ont pas changé.")
+    setup_col, summary_col = st.columns([2.25, 1], gap="large")
+    with setup_col:
+        st.markdown(
+            "<div class='poc-setup'><div class='poc-section-title' style='margin-top:0'>Préparer l’analyse</div>"
+            "<p class='poc-empty-note'>Sélectionne la source et lance l’analyse automatique des photos du Drop.</p>"
+            "<div class='poc-setup-grid'>"
+            f"<div class='poc-setup-item'><strong>Dossier source</strong>{folder}<br><span class='poc-mini'>{photo_count} photo(s) disponible(s)</span></div>"
+            f"<div class='poc-setup-item'><strong>Drop sélectionné</strong>{drop_name or 'Aucun Drop sélectionné'}<br><span class='poc-mini'>{drop_card_count} carte(s) candidate(s)</span></div>"
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+        action_col, sample_col, _ = st.columns([1.38, 1, 1.7])
+        with action_col:
+            run_all = st.button(":material/auto_awesome: Analyser les photos", type="primary", use_container_width=True)
+        with sample_col:
+            run = st.button(":material/science: Échantillon", use_container_width=True)
+        st.caption("L’analyse complète réutilise le cache local si la source et le Drop n’ont pas changé.")
+    with summary_col:
+        st.markdown(
+            "<div class='poc-summary'><h2>Résumé du Drop</h2><div class='poc-summary-grid'>"
+            f"<div class='poc-summary-metric'><strong>{photo_count}</strong><span>Photos importées</span></div>"
+            f"<div class='poc-summary-metric'><strong>{drop_card_count}</strong><span>Cartes candidates</span></div>"
+            "<div class='poc-summary-metric'><strong>Local</strong><span>Analyse privée</span></div>"
+            "<div class='poc-summary-metric'><strong>Prêt</strong><span>Cache disponible</span></div>"
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
     return bool(run), bool(run_all)
 
 
