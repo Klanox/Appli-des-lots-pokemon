@@ -166,15 +166,15 @@ st.markdown(
     .poc-kpi[data-tone="violet"] { border-left:3px solid var(--poc-violet); } .poc-kpi[data-tone="green"] { border-left:3px solid var(--poc-green); }
     .poc-kpi[data-tone="orange"] { border-left:3px solid var(--poc-orange); } .poc-kpi[data-tone="rose"] { border-left:3px solid var(--poc-rose); }
     .poc-kpi[data-tone="blue"] { border-left:3px solid var(--poc-blue); } .poc-kpi[data-tone="cyan"] { border-left:3px solid var(--poc-cyan); }
-    .poc-kpi-label { color:var(--poc-muted); font-size:.71rem; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
-    .poc-kpi-value { color:var(--poc-ink); font-size:1.42rem; font-weight:850; line-height:1.2; margin-top:.18rem; }
+    .poc-kpi-label { color:var(--poc-muted); font-size:.73rem; font-weight:800; text-transform:uppercase; letter-spacing:.045em; }
+    .poc-kpi-value { color:var(--poc-ink); font-size:1.55rem; font-weight:850; line-height:1.15; margin-top:.2rem; }
     .poc-card { background:#fff; border:1px solid var(--poc-line); border-radius:6px; padding:.82rem; margin:.45rem 0; }
     .poc-card-subtle { background:#fff; border-left:3px solid var(--poc-violet); border-top:1px solid var(--poc-line); border-right:1px solid var(--poc-line); border-bottom:1px solid var(--poc-line); padding:.8rem .9rem; }
     .poc-muted { color:var(--poc-muted); font-size:.81rem; } .poc-mini { color:var(--poc-muted); font-size:.74rem; }
     .poc-section-title { color:var(--poc-ink); font-size:1.08rem; font-weight:850; margin:.9rem 0 .35rem; }
     .poc-validated { color:var(--poc-green); font-weight:850; }
-    .poc-workflow { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap; margin:0 0 .9rem; }
-    .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.28rem .42rem; font-size:.75rem; font-weight:800; }
+    .poc-workflow { display:flex; gap:.28rem; align-items:center; flex-wrap:wrap; margin:0 0 .52rem; }
+    .poc-workflow-step { color:var(--poc-muted); border-bottom:2px solid var(--poc-line); padding:.2rem .38rem; font-size:.72rem; font-weight:800; }
     .poc-workflow-step.active { color:var(--poc-violet); border-bottom-color:var(--poc-violet); }
     .poc-workflow-arrow { color:#94a3b8; font-size:.75rem; }
     .poc-setup { background:#fff; border:1px solid var(--poc-line); border-top:3px solid var(--poc-violet); padding:1.1rem 1.2rem; margin:0; }
@@ -217,9 +217,13 @@ st.markdown(
     div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { border-radius:5px; border-color:#d1d5db; }
     div[data-testid="stSelectbox"] [data-baseweb="select"] > div { border-radius:5px; border-color:#d1d5db; }
     div[data-testid="stExpander"] details { border:1px solid var(--poc-line); border-radius:5px; background:#fff; }
-    .poc-product-meta { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.6rem 0 .85rem; }
+    .poc-product-meta { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.32rem 0 .42rem; }
     .poc-product-meta span { color:var(--poc-muted); font-size:.82rem; }
     .poc-product-meta .poc-product-drop { color:var(--poc-ink); font-weight:760; }
+    .poc-candidate-name { color:var(--poc-ink); font-size:1.08rem; font-weight:850; line-height:1.22; margin:0 0 .2rem; }
+    .poc-candidate-identity { color:#374151; font-size:.87rem; font-weight:750; margin:0 0 .42rem; }
+    .poc-score-secondary { color:var(--poc-muted); font-size:.72rem; margin:.45rem 0 0; }
+    .poc-card-subtle strong { font-size:1rem; }
     [data-testid="stSidebar"] { background:#fff; border-right:1px solid var(--poc-line); }
     @media (min-width: 901px) {
       [data-testid="stSidebar"] { min-width:225px !important; max-width:225px !important; }
@@ -338,7 +342,7 @@ def _result_matches_analysis(result: dict | None, expected: dict) -> bool:
 def _save_sample(sample_key: str, sample: dict):
     update_ground_truth_sample(sample_key, sample)
     st.session_state[f"photo_poc_sample_{sample_key}"] = sample
-    st.toast("Ground truth POC sauvegardé")
+    st.toast("Validation enregistrée")
 
 
 def _load_sample(sample_key: str) -> dict:
@@ -795,8 +799,6 @@ def _render_review_surface(
             _render_group_photos(
                 {"photos": _group_photo_payloads(group)}, _photo_path_by_key(result), compact=True,
             )
-            if group.get("grouping_reasons"):
-                st.caption("Grouping · " + " · ".join(group.get("grouping_reasons") or []))
         with proposal_col:
             st.markdown("<div class='poc-panel-label'>Identification</div>", unsafe_allow_html=True)
             if not matches:
@@ -810,6 +812,7 @@ def _render_review_surface(
                 _render_match_actions(
                     sample_key, sample, group_id, 0, matches[0], index_key=index_key,
                     current_index=current_index, group_count=group_count, matches=matches, key_prefix=key_prefix,
+                    show_next=False,
                 )
             else:
                 st.markdown(f"<div class='poc-candidate-title'>{len(matches)} sous-cartes</div>", unsafe_allow_html=True)
@@ -836,7 +839,7 @@ def _render_review_surface(
             "← Précédent", key=f"{key_prefix}_previous_{group_id}", disabled=current_index == 0,
             use_container_width=True, on_click=_set_queue_index, args=(index_key, current_index - 1),
         )
-        spacer_col.markdown("<div class='poc-toolbar-caption'>Validation locale instantanée · aucune analyse relancée</div>", unsafe_allow_html=True)
+        spacer_col.markdown("<div class='poc-toolbar-caption'>Validation enregistrée instantanément</div>", unsafe_allow_html=True)
         next_col.button(
             "Suivant →", key=f"{key_prefix}_next_{group_id}", disabled=current_index >= group_count - 1,
             use_container_width=True, on_click=_set_queue_index,
@@ -1392,13 +1395,12 @@ def _workflow_stage(result: dict, sample: dict) -> tuple[str, int]:
 
 def _render_premium_header(result: dict, sample: dict, *, drop_candidates_changed: bool):
     stage, pending = _workflow_stage(result, sample)
-    freshness = "Cartes du Drop à actualiser" if drop_candidates_changed else "Cache à jour"
-    freshness_tone = "poc-orange" if drop_candidates_changed else "poc-green"
-    st.markdown(
-        f'<div class="poc-product-meta"><span class="poc-chip {freshness_tone}">{freshness}</span>'
-        f'<span>Étape actuelle · {stage}{f" · {pending} restant(s)" if pending else ""}</span></div>',
-        unsafe_allow_html=True,
-    )
+    if drop_candidates_changed:
+        st.markdown(
+            '<div class="poc-product-meta"><span class="poc-chip poc-orange">Mise à jour requise</span>'
+            '<span>Les cartes du Drop ont évolué.</span></div>',
+            unsafe_allow_html=True,
+        )
 
     stages = ["Import", "Analyse", "Vérification", "Prêt"]
     active_index = stages.index(stage) if stage in stages else 1
@@ -1602,17 +1604,21 @@ def _render_candidate_summary(
                                 "status": "prepared_only",
                             },
                         )
-                        st.success("Ajout préparé dans le ground truth POC.")
+                    st.success("Ajout préparé localement.")
         return
     photo_col, text_col = st.columns([0.72, 1.45] if not compact else [0.55, 1.45])
     with photo_col:
         if candidate.get("image_url"):
-            st.image(candidate["image_url"], width=118 if compact else 155)
+            st.image(candidate["image_url"], width=92 if compact else 170)
         else:
             st.caption("Image indisponible")
     with text_col:
-        st.markdown(f"**{candidate.get('name') or 'Carte inconnue'}**")
-        st.markdown(f"{candidate.get('number') or '—'} · {candidate.get('set') or 'Set non renseigné'}")
+        st.markdown(
+            f"<div class='poc-candidate-name'>{candidate.get('name') or 'Carte inconnue'}</div>"
+            f"<div class='poc-candidate-identity'>{candidate.get('number') or '—'} · "
+            f"{candidate.get('set') or 'Set non renseigné'}</div>",
+            unsafe_allow_html=True,
+        )
         tags = []
         if candidate.get("japanese"):
             tags.append('<span class="poc-chip poc-rose">JAP</span>')
@@ -1621,8 +1627,11 @@ def _render_candidate_summary(
             tags.append(f'<span class="poc-chip poc-violet">{variant}</span>')
         if tags:
             st.markdown("".join(tags), unsafe_allow_html=True)
-        st.caption(f"Score {match.get('score', 0)} · marge {match.get('margin', 0)}")
-        st.caption(str(match.get("diagnostic_reason") or "Proposition actuelle"))
+        st.markdown(
+            f"<div class='poc-score-secondary'>Confiance {match.get('score', 0)} · "
+            f"marge {match.get('margin', 0)}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _render_match_actions(
@@ -1653,6 +1662,7 @@ def _render_match_actions(
     left.button(
         "✕ Mauvais",
         key=f"{key_prefix}_wrong_{group_id}_{match_index}",
+        width="stretch",
         on_click=_full_check_validation_callback,
         args=(sample_key, sample, group_id, match_index, "wrong", index_key, current_index, group_count, matches, match),
     )
@@ -1660,6 +1670,7 @@ def _render_match_actions(
         "✓ Correct",
         type="primary",
         key=f"{key_prefix}_correct_{group_id}_{match_index}",
+        width="stretch",
         on_click=_full_check_validation_callback,
         args=(sample_key, sample, group_id, match_index, "correct", index_key, current_index, group_count, matches, match),
     )
@@ -1667,6 +1678,7 @@ def _render_match_actions(
         action_columns[2].button(
             "Suivant →",
             key=f"{key_prefix}_next_{group_id}_{match_index}",
+            width="stretch",
             on_click=_set_queue_index,
             args=(index_key, min(group_count - 1, current_index + 1)),
         )
@@ -2657,7 +2669,7 @@ def _render_full_check_match(
                             "status": "prepared_only",
                         },
                     )
-                    st.success("Ajout préparé dans le ground truth POC.")
+                    st.success("Ajout préparé localement.")
 
     show_debug = st.toggle(
         "Voir les autres candidats / debug",
@@ -3668,8 +3680,6 @@ _render_premium_header(result, sample, drop_candidates_changed=_drop_candidates_
 refresh_requested = topbar_refresh_requested
 if _drop_candidates_changed:
     st.warning("Les cartes du Drop ont changé depuis l’analyse. Actualise-les depuis la barre supérieure.")
-else:
-    st.caption(f"{metrics.get('ocr_note', '')} · Ground truth POC local")
 
 if refresh_requested:
     with st.spinner("Actualisation ciblée des propositions..."):
