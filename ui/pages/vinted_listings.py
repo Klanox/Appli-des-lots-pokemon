@@ -42,15 +42,18 @@ from services.vinted_listing_service import (
 from services.custom_card_image_service import resolve_custom_card_image
 from services.card_identity import card_identity_fingerprint
 from services.photo_recognition_service import (
+    active_drop_candidates,
     analysis_summary as photo_analysis_summary,
     analyze_drop_photos,
     apply_recognition_statuses,
     build_step4_payload,
+    candidate_set_signature,
     confirm_grouping,
     effective_candidate as photo_effective_candidate,
     group_review_reasons,
     list_ordered_photos,
     load_drop_photo_session,
+    photo_window_signature,
     persist_uploaded_photos,
     refresh_drop_analysis_candidates,
     restore_drop_analysis,
@@ -205,6 +208,78 @@ def _inject_vinted_styles():
     color:#0f172a;
     font-size:1.05rem;
     margin-top:.2rem;
+}
+.ps-photo-state {
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+    padding:1rem 1.05rem .85rem;
+    margin:.35rem 0 .7rem;
+}
+.ps-photo-state-head {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:1rem;
+    margin-bottom:.25rem;
+}
+.ps-photo-state-title {
+    color:#111827;
+    font-size:1.03rem;
+    font-weight:850;
+    line-height:1.3;
+}
+.ps-photo-state-copy {
+    color:#64748b;
+    font-size:.82rem;
+    line-height:1.45;
+    margin-top:.16rem;
+}
+.ps-photo-state-badge {
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:.3rem;
+    border:1px solid #bbf7d0;
+    border-radius:999px;
+    background:#f0fdf4;
+    color:#15803d;
+    padding:.24rem .58rem;
+    font-size:.74rem;
+    font-weight:800;
+    white-space:nowrap;
+}
+.ps-photo-state-badge.stale {
+    border-color:#fed7aa;
+    background:#fff7ed;
+    color:#c2410c;
+}
+.ps-photo-summary-line {
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:.42rem 1rem;
+    margin:.72rem 0 .08rem;
+    color:#475569;
+    font-size:.82rem;
+}
+.ps-photo-summary-line span {
+    display:inline-flex;
+    align-items:baseline;
+    gap:.24rem;
+    white-space:nowrap;
+}
+.ps-photo-summary-line strong {
+    color:#111827;
+    font-size:1rem;
+    font-weight:850;
+}
+.ps-photo-summary-line .review strong { color:#c2410c; }
+.ps-photo-summary-line .fail strong { color:#be123c; }
+@media (max-width: 640px) {
+    .ps-photo-state { padding:.85rem; }
+    .ps-photo-state-head { flex-direction:column; gap:.5rem; }
+    .ps-photo-summary-line { gap:.42rem .72rem; }
 }
 .ps-vinted-drop-head {
     padding:.86rem 1rem;
@@ -1772,12 +1847,12 @@ def _render_photo_analysis_summary(result, session):
     summary = photo_analysis_summary(result, session)
     st.markdown(
         f"""
-<div class="ps-vinted-kpi-grid ps-photo-summary">
-  <div class="ps-vinted-kpi"><span>Photos</span><strong>{summary['photos']}</strong></div>
-  <div class="ps-vinted-kpi"><span>Annonces</span><strong>{summary['announcements']}</strong></div>
-  <div class="ps-vinted-kpi"><span>Reconnues</span><strong>{summary['auto']}</strong></div>
-  <div class="ps-vinted-kpi"><span>À vérifier</span><strong>{summary['review']}</strong></div>
-  <div class="ps-vinted-kpi"><span>Non reconnues</span><strong>{summary['fail']}</strong></div>
+<div class="ps-photo-summary-line">
+  <span><strong>{summary['photos']}</strong> photos</span>
+  <span><strong>{summary['announcements']}</strong> annonces</span>
+  <span><strong>{summary['auto']}</strong> reconnues</span>
+  <span class="review"><strong>{summary['review']}</strong> à vérifier</span>
+  <span class="fail"><strong>{summary['fail']}</strong> non reconnues</span>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1785,87 +1860,206 @@ def _render_photo_analysis_summary(result, session):
     return summary
 
 
+def _photo_analysis_staleness(result, folder, drop_id):
+    if not result:
+        return {"photos": False, "candidates": False, "stale": False}
+    meta = result.get("analysis_meta") or {}
+    photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+    current_photo_signature = photo_window_signature(photos) if photos else ""
+    cached_photo_signature = str(meta.get("photo_signature") or "")
+    _drop, candidates = active_drop_candidates(drop_id=drop_id)
+    current_candidate_signature = candidate_set_signature(candidates)
+    cached_candidate_signature = str(meta.get("candidate_signature") or "")
+    photo_changed = not photos or current_photo_signature != cached_photo_signature
+    candidate_changed = bool(cached_candidate_signature and current_candidate_signature != cached_candidate_signature)
+    return {
+        "photos": photo_changed,
+        "candidates": candidate_changed,
+        "stale": photo_changed or candidate_changed,
+        "photo_count": len(photos),
+    }
+
+
+def _render_photo_source_controls(drop_id, folder, *, show_analysis_action, analysis_label="Analyser les photos"):
+    st.markdown("**Importer depuis cet appareil**")
+    st.caption("Pour un navigateur ou un téléphone.")
+    uploaded = st.file_uploader(
+        "Photos à importer",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key=f"vinted_photo_upload_{drop_id}",
+        label_visibility="collapsed",
+    )
+    if st.button("Importer la sélection", key=f"vinted_photo_import_{drop_id}", disabled=not uploaded):
+        imported_folder = persist_uploaded_photos(drop_id, uploaded or [])
+        st.session_state[_photo_folder_key(drop_id)] = str(imported_folder)
+        st.success(f"{len(uploaded or [])} photo(s) importée(s).")
+        st.rerun()
+
+    st.markdown("**Utiliser un dossier local**")
+    st.caption("Pour PokéStock sur PC ou un dossier déjà présent sur cet appareil.")
+    st.text_input(
+        "Dossier des photos",
+        key=_photo_folder_key(drop_id),
+        placeholder=r"C:\Photos\Mon drop",
+    )
+    folder = str(st.session_state.get(_photo_folder_key(drop_id)) or "").strip()
+    photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+    if photos:
+        st.success(f"{len(photos)} photos détectées")
+    else:
+        st.caption("Aucune photo compatible détectée dans ce dossier.")
+
+    clicked = False
+    if show_analysis_action:
+        clicked = st.button(
+            analysis_label,
+            key=f"vinted_photo_analyze_{drop_id}",
+            type="primary",
+            disabled=not photos,
+            width="stretch",
+        )
+    return clicked, folder, photos
+
+
 def _render_photo_analysis_step(drops_data, active_drop, mobile):
     result, session, folder = _load_photo_workflow_state(active_drop)
     drop_id = str(active_drop.get("id") or "")
     st.markdown('<div class="ps-vinted-section-title">Photos et analyse</div>', unsafe_allow_html=True)
-    st.caption("Sélectionne les photos du Drop, puis laisse PokéStock conserver leur ordre et reprendre l’analyse automatiquement.")
+    analyze_clicked = False
+    refresh_clicked = False
+    force_clicked = False
 
-    with st.container(border=True):
-        st.text_input(
-            "Dossier des photos",
-            value=folder,
-            key=_photo_folder_key(drop_id),
-            placeholder=r"C:\Photos\Mon drop",
+    if result is None:
+        st.markdown(
+            """
+<div class="ps-photo-state">
+  <div class="ps-photo-state-head">
+    <div>
+      <div class="ps-photo-state-title">Ajouter les photos du Drop</div>
+      <div class="ps-photo-state-copy">Choisis une source, puis lance l’analyse. L’ordre original des photos sera conservé.</div>
+    </div>
+    <span class="ps-photo-state-badge stale">Analyse requise</span>
+  </div>
+</div>
+""",
+            unsafe_allow_html=True,
         )
-        folder = str(st.session_state.get(_photo_folder_key(drop_id)) or "").strip()
-        photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
-        st.caption(f"{len(photos)} photo(s) détectée(s) · ordre original conservé")
-        with st.expander("Importer des photos depuis cet appareil", expanded=False):
-            uploaded = st.file_uploader(
-                "Photos",
-                type=["jpg", "jpeg", "png", "webp"],
-                accept_multiple_files=True,
-                key=f"vinted_photo_upload_{drop_id}",
-                label_visibility="collapsed",
+        with st.container(border=True):
+            analyze_clicked, folder, photos = _render_photo_source_controls(
+                drop_id,
+                folder,
+                show_analysis_action=True,
             )
-            if st.button("Importer la sélection", key=f"vinted_photo_import_{drop_id}", disabled=not uploaded):
-                imported_folder = persist_uploaded_photos(drop_id, uploaded or [])
-                st.session_state[_photo_folder_key(drop_id)] = str(imported_folder)
-                st.success(f"{len(uploaded or [])} photo(s) importée(s).")
+    else:
+        staleness = _photo_analysis_staleness(result, folder, drop_id)
+        if staleness["stale"]:
+            changed_parts = []
+            if staleness["photos"]:
+                changed_parts.append("la source photo")
+            if staleness["candidates"]:
+                changed_parts.append("les cartes du Drop")
+            changed_label = " et ".join(changed_parts) or "le Drop"
+            st.markdown(
+                f"""
+<div class="ps-photo-state">
+  <div class="ps-photo-state-head">
+    <div>
+      <div class="ps-photo-state-title">L’analyse doit être mise à jour</div>
+      <div class="ps-photo-state-copy">Un changement a été détecté dans {_html_escape(changed_label)}. Seuls les éléments concernés seront recalculés lorsque c’est possible.</div>
+    </div>
+    <span class="ps-photo-state-badge stale">Mise à jour requise</span>
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+            _render_photo_analysis_summary(result, session)
+            photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+            analyze_clicked = st.button(
+                "Mettre à jour l’analyse",
+                key=f"vinted_photo_update_{drop_id}",
+                type="primary",
+                disabled=bool(staleness["photos"] and not photos),
+                width="stretch",
+            )
+        else:
+            st.markdown(
+                """
+<div class="ps-photo-state">
+  <div class="ps-photo-state-head">
+    <div>
+      <div class="ps-photo-state-title">Analyse prête</div>
+      <div class="ps-photo-state-copy">Les photos sont classées et les résultats sont prêts à être contrôlés.</div>
+    </div>
+    <span class="ps-photo-state-badge">✓ Analyse à jour</span>
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+            _render_photo_analysis_summary(result, session)
+            if st.button(
+                "Continuer vers la vérification",
+                key=f"vinted_photo_continue_review_{drop_id}",
+                type="primary",
+                width="stretch",
+            ):
+                st.session_state["vinted_drop_step"] = "Vérification"
+                st.session_state[_photo_queue_index_key(drop_id)] = 0
                 st.rerun()
 
-        action_cols = st.columns([2, 1]) if not mobile else [st.container(), st.container()]
-        with action_cols[0]:
-            analyze_clicked = st.button(
-                "Analyser les photos" if result is None else "Relancer l’analyse",
-                key=f"vinted_photo_analyze_{drop_id}",
-                type="primary",
-                disabled=not photos,
-                width="stretch",
+        with st.expander("Options de l’analyse", expanded=False):
+            _unused_clicked, folder, photos = _render_photo_source_controls(
+                drop_id,
+                folder,
+                show_analysis_action=False,
             )
-        with action_cols[1]:
-            refresh_clicked = st.button(
-                "Actualiser les cartes du Drop",
-                key=f"vinted_photo_refresh_candidates_{drop_id}",
-                disabled=result is None,
-                width="stretch",
-            )
+            option_cols = st.columns(2) if not mobile else [st.container(), st.container()]
+            with option_cols[0]:
+                refresh_clicked = st.button(
+                    "Actualiser les cartes du Drop",
+                    key=f"vinted_photo_refresh_candidates_{drop_id}",
+                    width="stretch",
+                )
+            with option_cols[1]:
+                force_clicked = st.button(
+                    "Relancer l’analyse",
+                    key=f"vinted_photo_force_analysis_{drop_id}",
+                    disabled=not photos,
+                    width="stretch",
+                )
 
     if analyze_clicked:
-        progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
-        with st.spinner("Analyse en cours. Tu pourras reprendre ce résultat après fermeture de PokéStock."):
-            result, session = analyze_drop_photos(folder, drop_id)
-            _store_photo_workflow_state(active_drop, result, session)
-            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-        progress.progress(1.0, text="Analyse terminée")
+        current_staleness = _photo_analysis_staleness(result, folder, drop_id) if result is not None else {"photos": True}
+        if result is not None and not current_staleness.get("photos"):
+            with st.spinner("Mise à jour des cartes du Drop..."):
+                result, session = refresh_drop_analysis_candidates(result, session, drop_id=drop_id)
+                _store_photo_workflow_state(active_drop, result, session)
+                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+        else:
+            progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
+            with st.spinner("Analyse en cours. Le résultat sera conservé pour la prochaine ouverture."):
+                result, session = analyze_drop_photos(folder, drop_id)
+                _store_photo_workflow_state(active_drop, result, session)
+                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+            progress.progress(1.0, text="Analyse terminée")
         st.rerun()
 
     if refresh_clicked and result is not None:
-        with st.spinner("Actualisation ciblée des candidats..."):
+        with st.spinner("Actualisation des cartes du Drop..."):
             result, session = refresh_drop_analysis_candidates(result, session, drop_id=drop_id)
             _store_photo_workflow_state(active_drop, result, session)
             _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-        rematched = _safe_int((result.get("metrics") or {}).get("candidate_groups_rematched"), 0)
-        st.success("Cartes du Drop à jour." if not rematched else f"Cartes à jour · {rematched} groupe(s) recalculé(s).")
+        st.rerun()
 
-    if result is None:
-        _render_drop_placeholder(
-            "Prêt à analyser",
-            "L’analyse reste locale et ne crée ni brouillon ni vente. Les résultats seront associés à ce Drop.",
-        )
-        return
-
-    summary = _render_photo_analysis_summary(result, session)
-    meta = result.get("analysis_meta") or {}
-    restored = bool((result.get("metrics") or {}).get("persistent_cache_hit"))
-    st.caption(
-        f"Analyse {'reprise depuis le cache' if restored else 'à jour'} · "
-        f"pipeline {meta.get('pipeline_version', 'actuel')}"
-    )
-    if st.button("Continuer vers la vérification", key=f"vinted_photo_continue_review_{drop_id}", type="primary"):
-        st.session_state["vinted_drop_step"] = "Vérification"
-        st.session_state[_photo_queue_index_key(drop_id)] = 0
+    if force_clicked:
+        progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
+        with st.spinner("Nouvelle analyse en cours..."):
+            result, session = analyze_drop_photos(folder, drop_id, force_rebuild=True)
+            _store_photo_workflow_state(active_drop, result, session)
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+        progress.progress(1.0, text="Analyse terminée")
         st.rerun()
 
 
