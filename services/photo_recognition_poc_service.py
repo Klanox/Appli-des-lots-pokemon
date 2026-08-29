@@ -61,6 +61,7 @@ OCR_CACHE_VERSION = "v8c"
 CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
 POC_MATCHING_REFRESH_VERSION = "v14.7-historical-drop-legend-jp-1"
+DROP_MEMBERSHIP_RECONCILIATION_VERSION = "v3"
 POC_RESULT_CACHE_VERSION = "v1-persistent-result"
 PHOTO_ROLES = (
     "primary_front",
@@ -297,6 +298,30 @@ def candidate_identity_key(candidate: dict[str, Any] | None) -> str:
     return identity["card_uid"] or identity["drop_card_key"] or hashlib.sha1(
         json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
+
+
+def drop_candidate_membership(
+    candidate: dict[str, Any] | None,
+    drop_candidates: list[dict[str, Any]],
+) -> dict[str, str | bool]:
+    """Resolve a proposed card against the current historical Drop candidates.
+
+    A card UID is the strongest identity. Older Drop entries may not retain a
+    usable UID, so the shared semantic fingerprint is the strict fallback.
+    Name-only matching is intentionally not allowed here.
+    """
+    candidate = candidate or {}
+    card_uid = str(candidate.get("card_uid") or "").strip()
+    if card_uid and any(str(item.get("card_uid") or "").strip() == card_uid for item in drop_candidates):
+        return {"in_drop": True, "method": "card_uid"}
+
+    fingerprint = str(candidate.get("identity_fingerprint") or card_identity_fingerprint(candidate) or "").strip()
+    if fingerprint and any(
+        str(item.get("identity_fingerprint") or card_identity_fingerprint(item) or "").strip() == fingerprint
+        for item in drop_candidates
+    ):
+        return {"in_drop": True, "method": "identity_fingerprint"}
+    return {"in_drop": False, "method": ""}
 
 
 def candidate_set_signature(candidates: list[dict[str, Any]]) -> str:
@@ -1868,7 +1893,7 @@ def match_front_photo_ocr(
         value for value in (ocr_payload.get("name_texts") or [])
         if 3 <= len(_fold_text(value)) <= 32
     ]
-    same_name_version_absent = bool(
+    same_name_ocr_conflict = bool(
         best
         and full_ocr_numbers
         and not exact_full_available
@@ -1877,6 +1902,24 @@ def match_front_photo_ocr(
         and not best.get("number_match")
         and bool(best.get("candidate_number_full"))
     )
+    best_membership = drop_candidate_membership((best or {}).get("candidate"), candidates)
+    strong_drop_candidate = bool(
+        best_membership.get("in_drop")
+        and best
+        and (
+            bool(best.get("number_match"))
+            or (
+                float(best.get("name_similarity") or 0.0) >= 0.86
+                and float(best.get("score") or 0.0) >= 54.0
+                and margin >= 12.0
+            )
+        )
+    )
+    # A stray OCR number alone cannot make a strong current Drop candidate
+    # disappear. It may still be shown in diagnostic details, but
+    # not_in_drop is reserved for a proposal with no compatible historical
+    # Drop member.
+    same_name_version_absent = bool(same_name_ocr_conflict and not strong_drop_candidate)
     if special_layout:
         not_in_drop_confidence = ""
     elif same_name_version_absent:
@@ -1938,6 +1981,8 @@ def match_front_photo_ocr(
             diagnostic_reason = f"même nom présent, version exacte absente du Drop ({label})"
         else:
             diagnostic_reason = f"carte absente du Drop {label}"
+    elif same_name_ocr_conflict and strong_drop_candidate:
+        diagnostic_reason = "numéro OCR incompatible avec la carte proposée"
     return {
         "region": {"box": [0, 0, 1, 1], "source": "ocr"},
         "status": status,
@@ -1959,6 +2004,8 @@ def match_front_photo_ocr(
         "v13_not_in_drop_confidence": not_in_drop_confidence,
         "v14_same_name_version_absent": same_name_version_absent,
         "v14_same_name_candidates": same_name_debug[:8],
+        "v15_drop_membership": dict(best_membership),
+        "v15_ocr_identity_conflict": same_name_ocr_conflict,
         "visual_matching_used": visual_info.get("used", 0),
         "visual_matching_elapsed": visual_info.get("elapsed", 0.0),
         "visual_matching_broad": visual_info.get("broad", False),
@@ -4116,17 +4163,35 @@ def refresh_result_candidates(
     meta = result.setdefault("analysis_meta", {})
     previous_matching_version = str(meta.get("matching_refresh_version") or "")
     matching_version_changed = previous_matching_version != POC_MATCHING_REFRESH_VERSION
-    if previous_signature == current_signature and not matching_version_changed:
+    membership_version_changed = (
+        str(meta.get("drop_membership_reconciliation_version") or "")
+        != DROP_MEMBERSHIP_RECONCILIATION_VERSION
+    )
+    membership_affected_indexes = [
+        index
+        for index, group in enumerate(groups)
+        if any(
+            match.get("v13_not_in_drop_confidence") in {"strong", "possible"}
+            or match.get("v15_ocr_identity_conflict")
+            for match in group.get("matches", [])
+        )
+    ] if membership_version_changed else []
+    if previous_signature == current_signature and not matching_version_changed and not membership_affected_indexes:
         duration = time.perf_counter() - started
         result["drop"] = drop
         result["candidates"] = candidates
         meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
         meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
+        meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
         metrics = result.setdefault("metrics", {})
         metrics["candidate_refresh_seconds"] = round(duration, 4)
         metrics["candidate_signature_changed"] = False
         metrics["candidate_groups_rematched"] = 0
         metrics["candidate_refresh_mode"] = "noop"
+        if membership_version_changed:
+            cache_info = save_cached_analysis_result(result)
+            metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
+            metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
         return result
 
     cached_ocr_by_path = _cached_ocr_from_groups(groups)
@@ -4137,6 +4202,8 @@ def refresh_result_candidates(
     )
     if matching_version_changed:
         affected_indexes = list(range(len(groups)))
+    else:
+        affected_indexes = sorted(set(affected_indexes) | set(membership_affected_indexes))
 
     candidate_indexes = _candidate_indexes(candidates)
     ocr_available, ocr_note = _ocr_status()
@@ -4161,6 +4228,7 @@ def refresh_result_candidates(
     meta["candidate_signature"] = current_signature
     meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
     meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
+    meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
     metrics = _metrics_for_groups(
         ordered=result.get("ordered_photos", []) or [],
         photo_window=result.get("sample_photos", []) or [],
@@ -4175,7 +4243,13 @@ def refresh_result_candidates(
     metrics["candidate_refresh_seconds"] = round(duration, 3)
     metrics["candidate_signature_changed"] = previous_signature != current_signature
     metrics["candidate_groups_rematched"] = len(affected_indexes)
-    metrics["candidate_refresh_mode"] = "full_version_upgrade" if matching_version_changed else "incremental"
+    metrics["candidate_refresh_mode"] = (
+        "full_version_upgrade"
+        if matching_version_changed
+        else "membership_reconciliation"
+        if membership_affected_indexes and previous_signature == current_signature
+        else "incremental"
+    )
     metrics["candidate_changes"] = change_counts
     result["metrics"] = metrics
     cache_info = save_cached_analysis_result(result)

@@ -13,6 +13,7 @@ from services.photo_recognition_service import (
     set_match_validation,
     stable_group_id,
 )
+from services.photo_recognition_poc_service import drop_candidate_membership
 
 
 def _photo(index, name):
@@ -171,6 +172,22 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
         self.assertEqual(summary["auto"], 0)
         self.assertEqual(summary["review"], 1)
         self.assertEqual(summary["fail"], 0)
+
+    def test_drop_membership_prefers_uid_then_strict_fingerprint(self):
+        card = _candidate("card-1", "1/10")
+        self.assertEqual(drop_candidate_membership(card, [card]), {"in_drop": True, "method": "card_uid"})
+
+        legacy_card = {**card, "card_uid": "legacy-card"}
+        self.assertEqual(
+            drop_candidate_membership(legacy_card, [{**card, "card_uid": "card-2"}]),
+            {"in_drop": True, "method": "identity_fingerprint"},
+        )
+
+        same_name_other_identity = {**card, "card_uid": "card-3", "number": "2/10"}
+        self.assertEqual(
+            drop_candidate_membership(same_name_other_identity, [card]),
+            {"in_drop": False, "method": ""},
+        )
 
 
 if __name__ == "__main__":
