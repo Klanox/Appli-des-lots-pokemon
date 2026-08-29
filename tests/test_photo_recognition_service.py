@@ -13,6 +13,7 @@ from services.photo_recognition_service import (
     current_candidate,
     set_match_validation,
     stable_group_id,
+    unresolved_groups,
     validation_for_match,
 )
 from services.photo_recognition_poc_service import drop_candidate_membership
@@ -197,6 +198,30 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             validation = validation_for_match(session, group, match, 0)
             self.assertEqual(validation["state"], "stale")
             self.assertFalse(validation["compatible"])
+
+    def test_correct_review_leaves_the_review_queue(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _result()
+            group = result["groups"][0]
+            match = group["matches"][0]
+            match["status"] = "review"
+            group["confidence_level"] = "orange"
+            session = set_match_validation(_session(), group, match, 0, "correct")
+            self.assertEqual(unresolved_groups(result, session), [])
+
+    def test_wrong_review_stays_in_the_review_queue(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _result()
+            group = result["groups"][0]
+            match = group["matches"][0]
+            match["status"] = "review"
+            group["confidence_level"] = "orange"
+            session = set_match_validation(_session(), group, match, 0, "wrong")
+            self.assertEqual(unresolved_groups(result, session), [group])
 
     def test_drop_membership_prefers_uid_then_strict_fingerprint(self):
         card = _candidate("card-1", "1/10")

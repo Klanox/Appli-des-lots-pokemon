@@ -1859,6 +1859,22 @@ def _photo_queue_index_key(drop_id):
     return f"vinted_photo_recognition_queue_index_{drop_id}"
 
 
+def _photo_queue_next_group_key(drop_id):
+    return f"vinted_photo_recognition_queue_next_group_{drop_id}"
+
+
+def _photo_queue_feedback_key(drop_id):
+    return f"vinted_photo_recognition_queue_feedback_{drop_id}"
+
+
+def _schedule_photo_review_next(drop_id, queue, index, feedback):
+    """Keep review navigation stable while the unresolved queue changes."""
+    if queue:
+        next_group = queue[(index + 1) % len(queue)]
+        st.session_state[_photo_queue_next_group_key(drop_id)] = photo_stable_group_id(next_group)
+    st.session_state[_photo_queue_feedback_key(drop_id)] = feedback
+
+
 def _photo_from_entry(entry):
     return entry.get("photo") if isinstance(entry, dict) else entry
 
@@ -2272,6 +2288,7 @@ def _render_candidate_correction(
     match_index,
     active_drop,
     available_cards,
+    on_completed=None,
 ):
     group_id = photo_stable_group_id(group)
     subcard_id = photo_stable_subcard_id(match, match_index)
@@ -2328,6 +2345,9 @@ def _render_candidate_correction(
             selected_candidate=selected_candidate,
         )
         _store_photo_workflow_state(active_drop, result, session)
+        st.session_state.pop(f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}", None)
+        if on_completed:
+            on_completed("✓ Identification associée")
         st.rerun()
     return session
 
@@ -2342,6 +2362,7 @@ def _render_photo_match_review(
     match_index,
     proxy_img_func,
     available_cards,
+    on_advance,
 ):
     candidate, source = photo_effective_candidate(session, group, match, match_index)
     validation = validation_for_match(session, group, match, match_index)
@@ -2357,27 +2378,49 @@ def _render_photo_match_review(
         st.markdown(f"**{label}**")
         _render_candidate_identity(candidate, match, proxy_img_func)
         _render_photo_status_message(semantic_status)
-        action_cols = st.columns(2)
-        for action_col in action_cols:
-            with action_col:
-                st.markdown('<span class="ps-photo-review-action-marker"></span>', unsafe_allow_html=True)
-        if action_cols[0].button("Mauvais", key=f"vinted_photo_wrong_{group_id}_{subcard_id}", width="stretch"):
-            session = set_match_validation(session, group, match, match_index, "wrong")
-            _store_photo_workflow_state(active_drop, result, session)
-            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-            st.rerun()
-        if action_cols[1].button(
-            "Correct",
-            key=f"vinted_photo_correct_{group_id}_{subcard_id}",
-            type="primary",
-            disabled=not bool(candidate),
-            width="stretch",
-        ):
-            session = set_match_validation(session, group, match, match_index, "correct")
-            _store_photo_workflow_state(active_drop, result, session)
-            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-            st.rerun()
-        if validation.get("state") in {"wrong", "stale"} or not candidate:
+        correction_open_key = f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}"
+        if candidate:
+            action_cols = st.columns(2)
+            if action_cols[0].button("Mauvais", key=f"vinted_photo_wrong_{group_id}_{subcard_id}", width="stretch"):
+                session = set_match_validation(session, group, match, match_index, "wrong")
+                _store_photo_workflow_state(active_drop, result, session)
+                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                on_advance("Identification à corriger — cas conservé")
+                st.rerun()
+            if action_cols[1].button(
+                "Correct",
+                key=f"vinted_photo_correct_{group_id}_{subcard_id}",
+                type="primary",
+                width="stretch",
+            ):
+                session = set_match_validation(session, group, match, match_index, "correct")
+                _store_photo_workflow_state(active_drop, result, session)
+                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                on_advance("✓ Validation enregistrée")
+                st.rerun()
+            if st.button(
+                "Corriger l’identification",
+                key=f"vinted_photo_correction_toggle_{group_id}_{subcard_id}",
+                width="stretch",
+            ):
+                st.session_state[correction_open_key] = True
+        else:
+            action_cols = st.columns(2)
+            if action_cols[0].button(
+                "Associer une carte",
+                key=f"vinted_photo_associate_{group_id}_{subcard_id}",
+                type="primary",
+                width="stretch",
+            ):
+                st.session_state[correction_open_key] = True
+            if action_cols[1].button(
+                "Passer pour l’instant",
+                key=f"vinted_photo_skip_{group_id}_{subcard_id}",
+                width="stretch",
+            ):
+                on_advance("Cas conservé pour plus tard")
+                st.rerun()
+        if st.session_state.get(correction_open_key, False):
             session = _render_candidate_correction(
                 drops_data,
                 result,
@@ -2387,6 +2430,7 @@ def _render_photo_match_review(
                 match_index,
                 active_drop,
                 available_cards,
+                on_completed=on_advance,
             )
         with st.expander("Détails de reconnaissance", expanded=False):
             top = (match.get("candidates") or [])[:3]
@@ -2409,6 +2453,9 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     summary = _render_photo_analysis_summary(result, session)
     show_all = st.toggle("Consulter aussi les reconnaissances automatiques", key=f"vinted_photo_show_all_{drop_id}")
     queue = list(result.get("groups", []) or []) if show_all else photo_unresolved_groups(result, session)
+    feedback = st.session_state.pop(_photo_queue_feedback_key(drop_id), "")
+    if feedback:
+        st.toast(feedback)
     if not queue:
         st.success("Toutes les annonces obligatoires sont résolues.")
         payload = build_step4_payload(
@@ -2422,7 +2469,20 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
         return
 
     index_key = _photo_queue_index_key(drop_id)
-    index = min(max(0, _safe_int(st.session_state.get(index_key), 0)), len(queue) - 1)
+    pending_group_id = str(st.session_state.pop(_photo_queue_next_group_key(drop_id), "") or "")
+    pending_index = next(
+        (
+            queue_index
+            for queue_index, queue_group in enumerate(queue)
+            if photo_stable_group_id(queue_group) == pending_group_id
+        ),
+        None,
+    )
+    index = (
+        pending_index
+        if pending_index is not None
+        else min(max(0, _safe_int(st.session_state.get(index_key), 0)), len(queue) - 1)
+    )
     st.session_state[index_key] = index
     group = queue[index]
     reasons = group_review_reasons(session, group)
@@ -2437,6 +2497,10 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
         unsafe_allow_html=True,
     )
     st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
+
+    def advance_to_next(feedback_message):
+        _schedule_photo_review_next(drop_id, queue, index, feedback_message)
+
     with st.container(border=True):
         st.markdown(
             f'<span class="ps-photo-review-marker {group_status["tone"]}"></span>',
@@ -2459,6 +2523,7 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     match_index,
                     proxy_img_func,
                     available_cards,
+                    advance_to_next,
                 )
             if group.get("grouping_status") == "review" and "grouping" in reasons:
                 _render_photo_status_message(
@@ -2468,13 +2533,16 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     session = confirm_grouping(session, group)
                     _store_photo_workflow_state(active_drop, result, session)
                     _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                    advance_to_next("✓ Groupe confirmé")
                     st.rerun()
 
     previous_col, spacer, next_col = st.columns([1, 2, 1])
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
+        st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
         st.session_state[index_key] = index - 1
         st.rerun()
     if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", disabled=index >= len(queue) - 1, width="stretch"):
+        st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
         st.session_state[index_key] = index + 1
         st.rerun()
 
