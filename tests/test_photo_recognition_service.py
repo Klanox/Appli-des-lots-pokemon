@@ -127,6 +127,63 @@ def _multi_result(count=2):
     return result
 
 
+def _legend_result():
+    """Regression fixture copied from the physical Rayquaza & Deoxys listing."""
+    result = _multi_result(2)
+    group = result["groups"][0]
+    group["announcement_index"] = 6
+    group["ground_truth_group_id"] = "group_11_15_f2f7fabc9cfb"
+    group["grouping_status"] = "review"
+    group["layout_type"] = "LEGEND_HALF"
+    group["matches"] = [
+        {
+            "status": "review",
+            "score": 87,
+            "subcard_id": "subcard_9f1d1a6816d0e16f",
+            "subcard_photos": {"front": "12:rayquaza-89-front.jpg", "back": "13:rayquaza-89-back.jpg"},
+            "layout_type": "LEGEND_HALF",
+            "candidates": [{"candidate": {**_candidate("card-legend-89", "89/90"), "name": "Rayquaza & Deoxys LEGENDE"}, "score": 87}],
+        },
+        {
+            "status": "recognized",
+            "score": 90,
+            "subcard_id": "subcard_12730b3d0b5ab101",
+            "subcard_photos": {"front": "14:rayquaza-90-front.jpg", "back": "15:rayquaza-90-back.jpg"},
+            "layout_type": "LEGEND_HALF",
+            "candidates": [{"candidate": {**_candidate("card-legend-90", "90/90"), "name": "Rayquaza & Deoxys LEGENDE"}, "score": 90}],
+        },
+    ]
+    result["candidates"] = [row["candidates"][0]["candidate"] for row in group["matches"]]
+    return result
+
+
+def _v_union_result():
+    """Regression fixture copied from the first physical Morpeko V-UNION group."""
+    result = _multi_result(4)
+    group = result["groups"][0]
+    group["announcement_index"] = 36
+    group["ground_truth_group_id"] = "group_74_82_a4d828d7cfb8"
+    group["grouping_status"] = "review"
+    group["layout_type"] = "V_UNION"
+    physical_ids = [
+        "subcard_31411cb91075a46c",
+        "subcard_48996d751e0e549e",
+        "subcard_d2f7acd04c4f23b0",
+        "subcard_6be0903a39adf606",
+    ]
+    for index, match in enumerate(group["matches"]):
+        number = f"SWSH{287 + index}"
+        match["subcard_id"] = physical_ids[index]
+        match["status"] = "review" if index == 0 else "recognized"
+        match["layout_type"] = "V_UNION"
+        match["candidates"] = [{
+            "candidate": {**_candidate(f"card-morpeko-{number}", number), "name": "Morpeko V-UNION"},
+            "score": 92,
+        }]
+    result["candidates"] = [row["candidates"][0]["candidate"] for row in group["matches"]]
+    return result
+
+
 class PhotoRecognitionServiceTests(unittest.TestCase):
     def test_payload_preserves_physical_order_and_auto_candidate(self):
         result = _result()
@@ -409,6 +466,62 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
 
             self.assertEqual(next_pending_subcard_index(session, group, 2, seen), 1)
             self.assertEqual(unresolved_groups(result, session), [group])
+
+    def test_real_legend_halves_stay_on_the_same_group_until_both_are_validated(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _legend_result()
+            group = result["groups"][0]
+            half_89, half_90 = group["matches"]
+            session = set_match_validation(_session(), group, half_89, 0, "correct")
+            seen = {f"{stable_group_id(group)}:{stable_subcard_id(half_89, 0)}"}
+
+            self.assertEqual(stable_subcard_id(half_89, 0), "subcard_9f1d1a6816d0e16f")
+            self.assertEqual(stable_subcard_id(half_90, 1), "subcard_12730b3d0b5ab101")
+            self.assertEqual(next_pending_subcard_index(session, group, 0, seen), 1)
+            self.assertIn("multi", group_review_reasons(session, group))
+
+            session = set_match_validation(session, group, half_90, 1, "correct")
+            seen.add(f"{stable_group_id(group)}:{stable_subcard_id(half_90, 1)}")
+            self.assertIsNone(next_pending_subcard_index(session, group, 1, seen))
+
+    def test_multi_validation_never_counts_a_record_from_another_physical_subcard(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _legend_result()
+            group = result["groups"][0]
+            half_89, half_90 = group["matches"]
+            session = set_match_validation(_session(), group, half_89, 0, "correct")
+            first_key = f"{stable_group_id(group)}:{stable_subcard_id(half_89, 0)}"
+            second_key = f"{stable_group_id(group)}:{stable_subcard_id(half_90, 1)}"
+            session["validations"][second_key] = {
+                **session["validations"][first_key],
+                "subcard_id": stable_subcard_id(half_89, 0),
+                "proposal_signature": service.proposal_signature(
+                    half_90,
+                    service.current_candidate(half_90),
+                ),
+            }
+
+            self.assertTrue(validation_for_match(session, group, half_90, 1)["compatible"])
+            self.assertEqual(service.pending_review_subcard_indexes(session, group), [1])
+
+    def test_real_v_union_stays_on_each_of_its_four_physical_subcards(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _v_union_result()
+            group = result["groups"][0]
+            session = _session()
+            seen = set()
+
+            for index, match in enumerate(group["matches"]):
+                session = set_match_validation(session, group, match, index, "correct")
+                seen.add(f"{stable_group_id(group)}:{stable_subcard_id(match, index)}")
+                expected = index + 1 if index < 3 else None
+                self.assertEqual(next_pending_subcard_index(session, group, index, seen), expected)
 
     def test_validation_stays_with_the_physical_subcard_when_multi_order_changes(self):
         from services import photo_recognition_service as service

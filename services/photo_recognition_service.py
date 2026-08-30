@@ -480,9 +480,11 @@ def multi_subcard_is_resolved(
 ) -> bool:
     """Return whether this physical subcard has an explicit accepted correction."""
     validation = validation_for_match(session, group, match, match_index)
+    physical_subcard_id = stable_subcard_id(match, match_index)
     return bool(
         validation.get("compatible")
         and validation.get("state") in {"correct", "manual"}
+        and str(validation.get("subcard_id") or "") == physical_subcard_id
     )
 
 
