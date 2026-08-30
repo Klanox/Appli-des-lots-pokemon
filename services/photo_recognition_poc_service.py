@@ -63,7 +63,8 @@ CLASSIFICATION_CACHE_VERSION = "v11b-western-back-blue-anchor"
 POC_ANALYSIS_PIPELINE_VERSION = "v14-structural-ground-truth-2"
 POC_MATCHING_REFRESH_VERSION = "v14.7-historical-drop-legend-jp-1"
 DROP_MEMBERSHIP_RECONCILIATION_VERSION = "v3"
-PROPOSAL_RELIABILITY_VERSION = "v1-zero-evidence-guard"
+PROPOSAL_RELIABILITY_VERSION = "v2-component-evidence-guard"
+LANGUAGE_COMPATIBILITY_VERSION = "v1-physical-japanese-guard"
 POC_RESULT_CACHE_VERSION = "v1-persistent-result"
 PHOTO_ROLES = (
     "primary_front",
@@ -1540,6 +1541,36 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, fa, fb).ratio()
 
 
+def _physical_japanese_signal(ocr_payload: dict[str, Any], back_type: str = "") -> dict[str, Any]:
+    """Return a conservative physical-language signal independent of candidate metadata."""
+    raw_text = str(ocr_payload.get("raw_text") or "")
+    cjk_count = len(re.findall(r"[\u3040-\u30ff\u3400-\u9fff]", raw_text))
+    back_confirmed = back_type == "japanese"
+    script_confirmed = cjk_count >= 6
+    return {
+        "strong": bool(back_confirmed or script_confirmed),
+        "back_confirmed": back_confirmed,
+        "script_confirmed": script_confirmed,
+        "cjk_count": cjk_count,
+    }
+
+
+def _candidate_has_identity_evidence(candidate_row: dict[str, Any] | None) -> bool:
+    row = candidate_row or {}
+    if row.get("language_conflict"):
+        return False
+    if row.get("number_match") or float(row.get("name_similarity") or 0.0) >= 0.74:
+        return True
+    if row.get("v13_visual_jp_override") or row.get("v14_7_jp_orb_override"):
+        return True
+    if row.get("family_match"):
+        return True
+    return bool(
+        float(row.get("visual_artwork_score") or 0.0) >= 70.0
+        and float(row.get("visual_margin") or 0.0) >= 10.0
+    )
+
+
 def _candidate_score_from_ocr(
     ocr_payload: dict[str, Any],
     candidate: dict[str, Any],
@@ -1610,20 +1641,29 @@ def _candidate_score_from_ocr(
         name_points = 24.0
         name_reason = f"nom partiel {best_name_text}"
 
+    physical_japanese = _physical_japanese_signal(ocr_payload, back_type)
     language_points = 0.0
-    if back_type == "japanese":
-        language_points = 10.0 if candidate.get("japanese") else 2.0
+    language_conflict = False
+    if physical_japanese["strong"]:
+        if candidate.get("japanese"):
+            language_points = 12.0
+        else:
+            # A collector-number collision must not let a French card outrank
+            # the Japanese shortlist when the physical language is clear.
+            language_points = -42.0
+            language_conflict = True
 
     family_points = 0.0
     if family_hint and _fold_text(candidate.get("name") or "") == _fold_text(family_hint):
         family_points = 14.0
-    total = number_score + name_points + language_points + family_points
+    total = max(0.0, number_score + name_points + language_points + family_points)
     reasons = [
         reason
         for reason in (
             number_reason,
             name_reason,
-            "signal verso JP" if language_points else "",
+            "signal physique JP" if language_points > 0 else "",
+            "langue FR incompatible avec la carte physique JP (-42)" if language_conflict else "",
             f"famille V-UNION du groupe : {family_hint}" if family_points else "",
         )
         if reason
@@ -1634,6 +1674,9 @@ def _candidate_score_from_ocr(
         "number_match": bool(number_score),
         "number_kind": number_kind,
         "number_conflict": number_conflict,
+        "language_conflict": language_conflict,
+        "physical_japanese_signal": physical_japanese,
+        "family_match": bool(family_points),
         "candidate_number_full": cand_num_full,
         "candidate_number_local": cand_num_local,
         "name_similarity": round(best_name_score, 3),
@@ -1657,6 +1700,7 @@ def match_front_photo_ocr(
 ):
     used_counts = used_counts or {}
     ocr_payload = ocr_payload_override or run_ocr_for_photo(path)
+    physical_japanese = _physical_japanese_signal(ocr_payload, back_type)
     available_candidates = [
         candidate
         for candidate in candidates
@@ -1754,7 +1798,9 @@ def match_front_photo_ocr(
                     item
                     for item in scored
                     if (item.get("candidate") or {}).get("japanese")
-                    and float(item.get("visual_artwork_score") or 0.0) >= 60.0
+                    and float(item.get("visual_artwork_score") or 0.0) >= (
+                        52.0 if physical_japanese["strong"] else 60.0
+                    )
                     and int((item.get("visual_artwork_details") or {}).get("orb_matches") or 0) >= 10
                 ]
                 jp_orb_candidates.sort(
@@ -1774,7 +1820,8 @@ def match_front_photo_ocr(
                     )
                     if orb_best_matches - orb_second_matches >= 5:
                         current_max = max((float(item.get("score") or 0.0) for item in scored), default=0.0)
-                        orb_best["score"] = round(min(95.0, max(87.0, current_max + 1.0)), 2)
+                        minimum_review_score = 74.0 if physical_japanese["strong"] else 87.0
+                        orb_best["score"] = round(min(95.0, max(minimum_review_score, current_max + 1.0)), 2)
                         orb_best["v14_7_jp_orb_override"] = True
                         orb_best["v14_7_jp_orb_margin"] = orb_best_matches - orb_second_matches
                         orb_best.setdefault("reasons", []).append(
@@ -1870,7 +1917,9 @@ def match_front_photo_ocr(
         and japanese_candidate
         and best.get("number_kind") in {"local_collector", "plain_collector", "conflicting_collector"}
     )
-    if back_type == "japanese" and japanese_candidate:
+    if physical_japanese["strong"] and japanese_candidate:
+        japanese_signal = "signal physique JP + candidat JAP"
+    elif back_type == "japanese" and japanese_candidate:
         japanese_signal = "verso JP + candidat JAP"
     elif japanese_candidate and bool(best.get("v14_7_jp_orb_override")):
         japanese_signal = "artwork JP confirmé par points de structure"
@@ -1880,7 +1929,7 @@ def match_front_photo_ocr(
         japanese_signal = "candidat JAP + artwork compatible"
     elif japanese_number_signal:
         japanese_signal = "numéro local compatible + candidat JAP"
-    elif back_type == "japanese":
+    elif physical_japanese["strong"]:
         japanese_signal = "verso JP mais candidat FR"
     if status == "unrecognized" and japanese_number_signal:
         status = "review"
@@ -2005,7 +2054,11 @@ def match_front_photo_ocr(
     # Visual shortlists are also useful when every candidate has zero identity
     # evidence. Keep those rows for diagnostics, but never expose their first
     # row as a real proposal or infer a language/not-in-Drop state from it.
-    proposal_reliable = bool(best and _safe_float(best.get("score"), 0.0) > 0.0)
+    proposal_reliable = bool(
+        best
+        and _safe_float(best.get("score"), 0.0) > 0.0
+        and _candidate_has_identity_evidence(best)
+    )
     if not proposal_reliable:
         status = "unrecognized"
         diagnostic_reason = "aucun candidat fiable"
@@ -2031,6 +2084,9 @@ def match_front_photo_ocr(
         "special_layout": special_layout,
         "v13_japanese_signal": japanese_signal,
         "v13_japanese_candidate": japanese_candidate,
+        "v16_physical_japanese_signal": physical_japanese,
+        "v16_language_conflict": bool(best and best.get("language_conflict")),
+        "language_compatibility_version": LANGUAGE_COMPATIBILITY_VERSION,
         "v13_visual_jp_override": bool(best and best.get("v13_visual_jp_override")),
         "v14_7_jp_orb_override": bool(best and best.get("v14_7_jp_orb_override")),
         "v14_7_jp_orb_margin": int((best or {}).get("v14_7_jp_orb_margin") or 0),
@@ -3931,7 +3987,11 @@ def analyze_sample(
                 str(cached_meta.get("proposal_reliability_version") or "")
                 != PROPOSAL_RELIABILITY_VERSION
             )
-            if cached_signature != candidates_signature or proposal_version_stale:
+            language_version_stale = (
+                str(cached_meta.get("language_compatibility_version") or "")
+                != LANGUAGE_COMPATIBILITY_VERSION
+            )
+            if cached_signature != candidates_signature or proposal_version_stale or language_version_stale:
                 cached_result = refresh_result_candidates(
                     cached_result,
                     data_path=data_path,
@@ -3998,6 +4058,7 @@ def analyze_sample(
             "candidate_signature": candidates_signature,
             "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
             "proposal_reliability_version": PROPOSAL_RELIABILITY_VERSION,
+            "language_compatibility_version": LANGUAGE_COMPATIBILITY_VERSION,
             "drop_membership_reconciliation_version": DROP_MEMBERSHIP_RECONCILIATION_VERSION,
             "result_cache_descriptor": descriptor,
         },
@@ -4179,6 +4240,21 @@ def _used_candidate_counts_before(groups: list[dict[str, Any]], stop_index: int)
     return counts
 
 
+def _group_needs_language_reconciliation(group: dict[str, Any]) -> bool:
+    for match in group.get("matches", []) or []:
+        ocr_payload = match.get("ocr") or {}
+        back_type = str(match.get("back_type") or "").removeprefix("back_")
+        signal = _physical_japanese_signal(ocr_payload, back_type)
+        candidate = proposed_candidate(match) or {}
+        if signal["strong"]:
+            return True
+        if match.get("v13_japanese_candidate") or match.get("v13_japanese_signal"):
+            return True
+        if candidate.get("japanese") and back_type == "western":
+            return True
+    return False
+
+
 def refresh_result_candidates(
     result: dict[str, Any],
     *,
@@ -4226,16 +4302,26 @@ def refresh_result_candidates(
         index
         for index, group in enumerate(groups)
         if any(
-            proposed_candidate(match) is None
-            and bool((((match.get("candidates") or [{}])[0]).get("candidate") or {}))
+            bool((((match.get("candidates") or [{}])[0]).get("candidate") or {}))
+            and not _candidate_has_identity_evidence((match.get("candidates") or [{}])[0])
             for match in group.get("matches", []) or []
         )
     ] if proposal_version_changed else []
+    language_version_changed = (
+        str(meta.get("language_compatibility_version") or "")
+        != LANGUAGE_COMPATIBILITY_VERSION
+    )
+    language_affected_indexes = [
+        index
+        for index, group in enumerate(groups)
+        if _group_needs_language_reconciliation(group)
+    ] if language_version_changed else []
     if (
         previous_signature == current_signature
         and not matching_version_changed
         and not membership_affected_indexes
         and not proposal_affected_indexes
+        and not language_affected_indexes
     ):
         duration = time.perf_counter() - started
         result["drop"] = drop
@@ -4244,13 +4330,15 @@ def refresh_result_candidates(
         meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
         meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
         meta["proposal_reliability_version"] = PROPOSAL_RELIABILITY_VERSION
+        meta["language_compatibility_version"] = LANGUAGE_COMPATIBILITY_VERSION
         metrics = result.setdefault("metrics", {})
         metrics["candidate_refresh_seconds"] = round(duration, 4)
         metrics["candidate_signature_changed"] = False
         metrics["candidate_groups_rematched"] = 0
         metrics["proposal_groups_rematched"] = 0
+        metrics["language_groups_rematched"] = 0
         metrics["candidate_refresh_mode"] = "noop"
-        if membership_version_changed or proposal_version_changed:
+        if membership_version_changed or proposal_version_changed or language_version_changed:
             cache_info = save_cached_analysis_result(result)
             metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
             metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
@@ -4269,6 +4357,7 @@ def refresh_result_candidates(
             set(affected_indexes)
             | set(membership_affected_indexes)
             | set(proposal_affected_indexes)
+            | set(language_affected_indexes)
         )
 
     candidate_indexes = _candidate_indexes(candidates)
@@ -4296,6 +4385,7 @@ def refresh_result_candidates(
     meta["matching_refresh_version"] = POC_MATCHING_REFRESH_VERSION
     meta["drop_membership_reconciliation_version"] = DROP_MEMBERSHIP_RECONCILIATION_VERSION
     meta["proposal_reliability_version"] = PROPOSAL_RELIABILITY_VERSION
+    meta["language_compatibility_version"] = LANGUAGE_COMPATIBILITY_VERSION
     metrics = _metrics_for_groups(
         ordered=result.get("ordered_photos", []) or [],
         photo_window=result.get("sample_photos", []) or [],
@@ -4311,9 +4401,12 @@ def refresh_result_candidates(
     metrics["candidate_signature_changed"] = previous_signature != current_signature
     metrics["candidate_groups_rematched"] = len(affected_indexes)
     metrics["proposal_groups_rematched"] = len(set(proposal_affected_indexes) & set(affected_indexes))
+    metrics["language_groups_rematched"] = len(set(language_affected_indexes) & set(affected_indexes))
     metrics["candidate_refresh_mode"] = (
         "full_version_upgrade"
         if matching_version_changed
+        else "language_reconciliation"
+        if language_affected_indexes and previous_signature == current_signature
         else "proposal_reconciliation"
         if proposal_affected_indexes and previous_signature == current_signature and not membership_affected_indexes
         else "membership_reconciliation"

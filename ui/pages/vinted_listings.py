@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from collections import Counter, OrderedDict
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
+from PIL import Image, ImageOps
 
 from services.vinted_drops_service import (
     DROP_ITEM_STATUSES,
@@ -42,6 +44,7 @@ from services.vinted_listing_service import (
 from services.custom_card_image_service import resolve_custom_card_image
 from services.card_identity import card_identity_fingerprint
 from services.photo_recognition_service import (
+    LANGUAGE_COMPATIBILITY_VERSION as PHOTO_LANGUAGE_COMPATIBILITY_VERSION,
     PROPOSAL_RELIABILITY_VERSION as PHOTO_PROPOSAL_RELIABILITY_VERSION,
     active_drop_candidates,
     analysis_summary as photo_analysis_summary,
@@ -1945,6 +1948,8 @@ def _load_photo_workflow_state(active_drop):
     if current_result is not None and (
         str((current_result.get("analysis_meta") or {}).get("proposal_reliability_version") or "")
         != PHOTO_PROPOSAL_RELIABILITY_VERSION
+        or str((current_result.get("analysis_meta") or {}).get("language_compatibility_version") or "")
+        != PHOTO_LANGUAGE_COMPATIBILITY_VERSION
     ):
         current_result, current_session = refresh_drop_analysis_candidates(
             current_result,
@@ -2273,6 +2278,40 @@ def _candidate_label(candidate):
     return " · ".join(bit for bit in bits if bit)
 
 
+def _review_photo_thumbnail(path, *, max_width=900, max_height=560):
+    """Return a persistent, lightweight preview without touching recognition caches."""
+    source = Path(path)
+    try:
+        stat = source.stat()
+    except OSError:
+        return str(source)
+    signature = f"{source.resolve()}|{stat.st_mtime_ns}|{stat.st_size}|{max_width}x{max_height}"
+    digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()
+    cache_dir = Path(".cache") / "photo_recognition" / "review_thumbnails"
+    target = cache_dir / f"{digest}.jpg"
+    if target.exists():
+        return str(target)
+    temporary = None
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(f".{os.getpid()}.tmp.jpg")
+        with Image.open(source) as raw_image:
+            image = ImageOps.exif_transpose(raw_image)
+            image.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            image.save(temporary, format="JPEG", quality=84, optimize=True)
+        os.replace(temporary, target)
+        return str(target)
+    except Exception:
+        try:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return str(source)
+
+
 def _render_physical_group_photos(group, mobile):
     entries = group.get("photos", []) or []
     if not entries:
@@ -2286,7 +2325,7 @@ def _render_physical_group_photos(group, mobile):
             path = _photo_path(photo)
             with col:
                 if path and Path(path).exists():
-                    st.image(path, width="stretch")
+                    st.image(_review_photo_thumbnail(path), width="stretch")
                 st.caption(f"#{_photo_capture_index(photo)} · {_photo_filename(photo)}")
 
 
@@ -2373,7 +2412,7 @@ def _render_candidate_correction(
         st.session_state.pop(f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}", None)
         if on_completed:
             on_completed(session, "✓ Identification associée")
-        st.rerun()
+        st.rerun(scope="fragment")
     return session
 
 
@@ -2421,9 +2460,8 @@ def _render_photo_match_review(
             if action_cols[0].button("Mauvais", key=f"vinted_photo_wrong_{group_id}_{subcard_id}", width="stretch"):
                 session = set_match_validation(session, group, match, match_index, "wrong")
                 _store_photo_workflow_state(active_drop, result, session)
-                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
                 on_advance(session, match_index, "Identification à corriger — cas conservé")
-                st.rerun()
+                st.rerun(scope="fragment")
             if action_cols[1].button(
                 "Correct",
                 key=f"vinted_photo_correct_{group_id}_{subcard_id}",
@@ -2432,9 +2470,8 @@ def _render_photo_match_review(
             ):
                 session = set_match_validation(session, group, match, match_index, "correct")
                 _store_photo_workflow_state(active_drop, result, session)
-                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
                 on_advance(session, match_index, "✓ Validation enregistrée")
-                st.rerun()
+                st.rerun(scope="fragment")
             if st.button(
                 "Corriger l’identification",
                 key=f"vinted_photo_correction_toggle_{group_id}_{subcard_id}",
@@ -2456,7 +2493,7 @@ def _render_photo_match_review(
                 width="stretch",
             ):
                 on_advance(session, match_index, "Cas conservé pour plus tard")
-                st.rerun()
+                st.rerun(scope="fragment")
         if st.session_state.get(correction_open_key, False):
             session = _render_candidate_correction(
                 drops_data,
@@ -2477,6 +2514,7 @@ def _render_photo_match_review(
     return session
 
 
+@st.fragment
 def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, available_cards):
     result, session, folder = _load_photo_workflow_state(active_drop)
     drop_id = str(active_drop.get("id") or "")
@@ -2501,6 +2539,7 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
             photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
         )
         if payload.get("ready") and st.button("Continuer vers la création des annonces", key=f"vinted_photo_go_creation_{drop_id}", type="primary"):
+            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
             st.session_state["vinted_drop_step"] = "Création des annonces"
             st.rerun()
         return
@@ -2608,21 +2647,20 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                 if st.button("Confirmer ce groupe", key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}"):
                     session = confirm_grouping(session, group)
                     _store_photo_workflow_state(active_drop, result, session)
-                    _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
                     advance_to_next_group("✓ Groupe confirmé")
-                    st.rerun()
+                    st.rerun(scope="fragment")
 
     previous_col, spacer, next_col = st.columns([1, 2, 1])
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
         st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
         st.session_state.pop(_photo_queue_focus_key(drop_id), None)
         st.session_state[index_key] = index - 1
-        st.rerun()
+        st.rerun(scope="fragment")
     if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", disabled=index >= len(queue) - 1, width="stretch"):
         st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
         st.session_state.pop(_photo_queue_focus_key(drop_id), None)
         st.session_state[index_key] = index + 1
-        st.rerun()
+        st.rerun(scope="fragment")
 
 
 

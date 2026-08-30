@@ -32,6 +32,7 @@ PHOTO_ROLES = engine.PHOTO_ROLES
 POC_ANALYSIS_PIPELINE_VERSION = engine.POC_ANALYSIS_PIPELINE_VERSION
 POC_MATCHING_REFRESH_VERSION = engine.POC_MATCHING_REFRESH_VERSION
 PROPOSAL_RELIABILITY_VERSION = engine.PROPOSAL_RELIABILITY_VERSION
+LANGUAGE_COMPATIBILITY_VERSION = engine.LANGUAGE_COMPATIBILITY_VERSION
 POC_DIR = engine.POC_DIR
 POC_GROUND_TRUTH_PATH = engine.POC_GROUND_TRUTH_PATH
 VALIDATED_GROUP_STATUSES = engine.VALIDATED_GROUP_STATUSES
@@ -102,9 +103,11 @@ def load_drop_photo_session(drop_id: str) -> dict[str, Any]:
         "pipeline_version": str(payload.get("pipeline_version") or ""),
         "candidate_signature": str(payload.get("candidate_signature") or ""),
         "proposal_reliability_version": str(payload.get("proposal_reliability_version") or ""),
+        "language_compatibility_version": str(payload.get("language_compatibility_version") or ""),
         "updated_at": str(payload.get("updated_at") or ""),
         "validations": dict(payload.get("validations") or {}),
         "grouping_confirmations": dict(payload.get("grouping_confirmations") or {}),
+        "poc_validation_reconciliation": dict(payload.get("poc_validation_reconciliation") or {}),
     }
 
 
@@ -196,9 +199,179 @@ def initialize_drop_photo_session(
             "proposal_reliability_version": str(
                 meta.get("proposal_reliability_version") or PROPOSAL_RELIABILITY_VERSION
             ),
+            "language_compatibility_version": str(
+                meta.get("language_compatibility_version") or LANGUAGE_COMPATIBILITY_VERSION
+            ),
         }
     )
     return save_drop_photo_session(session)
+
+
+def _poc_variant_label(candidate: dict[str, Any]) -> str:
+    variants = []
+    if candidate.get("japanese") or candidate.get("is_japanese") or candidate.get("lang") == "ja":
+        variants.append("JAP")
+    if candidate.get("reverse"):
+        variants.append("REVERSE")
+    if candidate.get("first_edition"):
+        variants.append("1RE")
+    if candidate.get("stamp"):
+        variants.append("STAMP")
+    if candidate.get("promo"):
+        variants.append("PROMO")
+    if candidate.get("master_ball"):
+        variants.append("MASTER BALL")
+    if candidate.get("poke_ball"):
+        variants.append("POKÉ BALL")
+    return " · ".join(variants) or "FR"
+
+
+def _poc_semantic_proposal(match: dict[str, Any]) -> dict[str, Any]:
+    candidate = current_candidate(match) or {}
+    status = str(match.get("v10_original_status") or match.get("status") or "fail").lower()
+    not_in_drop = str(match.get("v13_not_in_drop_confidence") or "").lower()
+    if not_in_drop in {"strong", "possible"} or status == "not_in_drop":
+        proposal_status = "not_in_drop"
+    elif status == "recognized":
+        proposal_status = "recognized"
+    elif status in {"review", "orange"}:
+        proposal_status = "review"
+    else:
+        proposal_status = "fail"
+    return {
+        "candidate_card_uid": str(candidate.get("card_uid") or ""),
+        "candidate_status": proposal_status,
+        "japanese": bool(candidate.get("japanese") or candidate.get("is_japanese") or candidate.get("lang") == "ja"),
+        "variant": _poc_variant_label(candidate),
+    }
+
+
+def _same_physical_subcard(validation: dict[str, Any], match: dict[str, Any]) -> bool:
+    stored = validation.get("subcard_photos") or {}
+    current = match.get("subcard_photos") or {}
+    stored_front = str(stored.get("front") or "")
+    current_front = str(current.get("front") or "")
+    if not stored_front or stored_front != current_front:
+        return False
+    stored_back = str(stored.get("back") or "")
+    current_back = str(current.get("back") or "")
+    return not stored_back or not current_back or stored_back == current_back
+
+
+def _poc_validation_for_match(
+    ground_group: dict[str, Any],
+    match: dict[str, Any],
+    match_index: int,
+) -> dict[str, Any]:
+    validations = ground_group.get("recognition_validation") or {}
+    subcard_id = stable_subcard_id(match, match_index)
+    direct = validations.get(subcard_id)
+    if isinstance(direct, dict):
+        return direct
+    physical = next(
+        (
+            validation
+            for validation in validations.values()
+            if isinstance(validation, dict) and _same_physical_subcard(validation, match)
+        ),
+        None,
+    )
+    if isinstance(physical, dict):
+        return physical
+    legacy = validations.get(str(match_index))
+    if not isinstance(legacy, dict):
+        return {}
+    if len(ground_group.get("semantic_subcard_ids") or []) > 1 and not _same_physical_subcard(legacy, match):
+        return {}
+    return legacy
+
+
+def reconcile_poc_validations(
+    result: dict[str, Any],
+    session: dict[str, Any],
+    *,
+    folder: str | Path,
+    drop_id: str,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Import only physically and semantically compatible POC judgements."""
+    meta = result.get("analysis_meta") or {}
+    sample_key = sample_ground_truth_key(
+        folder=folder,
+        drop_id=drop_id,
+        start_index=_safe_int(meta.get("start_index"), 1),
+        max_photos=_safe_int(meta.get("max_photos"), len(result.get("sample_photos") or [])),
+        target_announcements=_safe_int(meta.get("target_announcements"), len(result.get("sample_photos") or [])),
+    )
+    sample = (load_poc_ground_truth().get("samples") or {}).get(sample_key) or {}
+    ground_groups = {
+        str(group.get("group_id") or ""): group
+        for group in sample.get("groups", []) or []
+    }
+    metrics = {"compatible": 0, "imported": 0, "stale": 0, "already_present": 0}
+    validations = session.setdefault("validations", {})
+    changed = False
+    for group in result.get("groups", []) or []:
+        group_id = stable_group_id(group)
+        ground_group = ground_groups.get(group_id)
+        if not ground_group:
+            continue
+        for match_index, match in enumerate(group.get("matches", []) or []):
+            key = _validation_key(group, match, match_index)
+            if key in validations:
+                metrics["already_present"] += 1
+                continue
+            validation = _poc_validation_for_match(ground_group, match, match_index)
+            if not validation:
+                continue
+            status = str(validation.get("status") or "")
+            candidate = current_candidate(match)
+            candidate_key = semantic_candidate_key(candidate)
+            expected_key = str(
+                validation.get("expected_candidate_key")
+                or validation.get("selected_key")
+                or validation.get("drop_card_key")
+                or (validation.get("expected_candidate") or {}).get("card_uid")
+                or ""
+            )
+            explicit_compatible = bool(
+                expected_key
+                and expected_key in {
+                    candidate_key,
+                    str((candidate or {}).get("card_uid") or ""),
+                    str((candidate or {}).get("drop_card_key") or ""),
+                }
+            )
+            semantic_compatible = validation.get("semantic_proposal") == _poc_semantic_proposal(match)
+            if str(match.get("layout_type") or "") == "LEGEND_HALF" and validation.get("semantic_baseline_migrated") and not expected_key:
+                semantic_compatible = False
+            if not (explicit_compatible or semantic_compatible):
+                metrics["stale"] += 1
+                continue
+            if status not in {"correct", "wrong", "manual_choice"}:
+                continue
+            state = "manual" if status == "manual_choice" else status
+            validations[key] = {
+                "state": state,
+                "group_id": group_id,
+                "subcard_id": stable_subcard_id(match, match_index),
+                "subcard_photos": dict(match.get("subcard_photos") or {}),
+                "candidate_key": candidate_key,
+                "selected_candidate": candidate_identity(candidate) if state == "manual" else None,
+                "proposal_signature": proposal_signature(match, candidate),
+                "source": "poc_ground_truth",
+                "updated_at": str(validation.get("validated_at") or datetime.now().isoformat(timespec="seconds")),
+            }
+            metrics["compatible"] += 1
+            metrics["imported"] += 1
+            changed = True
+    session["poc_validation_reconciliation"] = {
+        **metrics,
+        "sample_key": sample_key,
+        "checked_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if changed:
+        session = save_drop_photo_session(session)
+    return session, metrics
 
 
 def _validation_key(group: dict[str, Any], match: dict[str, Any], match_index=0) -> str:
@@ -404,9 +577,19 @@ def restore_drop_analysis(folder: str | Path, drop_id: str) -> tuple[dict[str, A
             str(cached_meta.get("proposal_reliability_version") or "")
             != PROPOSAL_RELIABILITY_VERSION
         )
-        if cached_signature != current_signature or proposal_version_stale:
+        language_version_stale = (
+            str(cached_meta.get("language_compatibility_version") or "")
+            != LANGUAGE_COMPATIBILITY_VERSION
+        )
+        if cached_signature != current_signature or proposal_version_stale or language_version_stale:
             result = refresh_result_candidates(result, drop_id=drop_id)
         session = initialize_drop_photo_session(drop_id, folder, result)
+        session, _metrics = reconcile_poc_validations(
+            result,
+            session,
+            folder=folder,
+            drop_id=drop_id,
+        )
     return result, session
 
 
@@ -427,7 +610,9 @@ def analyze_drop_photos(
         max_photos=len(photos),
         force_rebuild=force_rebuild,
     )
-    return result, initialize_drop_photo_session(drop_id, folder, result)
+    session = initialize_drop_photo_session(drop_id, folder, result)
+    session, _metrics = reconcile_poc_validations(result, session, folder=folder, drop_id=drop_id)
+    return result, session
 
 
 def refresh_drop_analysis_candidates(
@@ -442,7 +627,20 @@ def refresh_drop_analysis_candidates(
         (refreshed.get("analysis_meta") or {}).get("proposal_reliability_version")
         or PROPOSAL_RELIABILITY_VERSION
     )
-    return refreshed, save_drop_photo_session(session)
+    session["language_compatibility_version"] = str(
+        (refreshed.get("analysis_meta") or {}).get("language_compatibility_version")
+        or LANGUAGE_COMPATIBILITY_VERSION
+    )
+    session = save_drop_photo_session(session)
+    folder = str(session.get("folder") or "")
+    if folder:
+        session, _metrics = reconcile_poc_validations(
+            refreshed,
+            session,
+            folder=folder,
+            drop_id=drop_id,
+        )
+    return refreshed, session
 
 
 def search_drop_candidates(result: dict[str, Any], query: str, *, limit=30) -> list[dict[str, Any]]:

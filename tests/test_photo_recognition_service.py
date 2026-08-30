@@ -14,6 +14,7 @@ from services.photo_recognition_service import (
     current_candidate,
     next_pending_subcard_index,
     normalize_photo_identity,
+    reconcile_poc_validations,
     set_match_validation,
     stable_group_id,
     unresolved_groups,
@@ -379,6 +380,84 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             drop_candidate_membership(same_name_other_identity, [card]),
             {"in_drop": False, "method": ""},
         )
+
+    def test_compatible_poc_validation_is_imported_by_physical_subcard(self):
+        from services import photo_recognition_service as service
+
+        result = _result()
+        group = result["groups"][0]
+        match = group["matches"][0]
+        semantic = service._poc_semantic_proposal(match)
+        ground_truth = {
+            "samples": {
+                "photos|drop=drop-1|start=1|photos=2|target=2": {
+                    "groups": [
+                        {
+                            "group_id": stable_group_id(group),
+                            "semantic_subcard_ids": ["physical-1"],
+                            "recognition_validation": {
+                                "physical-1": {
+                                    "status": "correct",
+                                    "subcard_photos": dict(match["subcard_photos"]),
+                                    "semantic_proposal": semantic,
+                                    "validated_at": "2026-01-01T10:00:00",
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)), patch.object(
+            service, "load_poc_ground_truth", return_value=ground_truth
+        ):
+            session, metrics = reconcile_poc_validations(
+                result,
+                _session(),
+                folder="C:/photos",
+                drop_id="drop-1",
+            )
+        validation = validation_for_match(session, group, match, 0)
+        self.assertEqual(metrics["imported"], 1)
+        self.assertEqual(validation["state"], "correct")
+        self.assertEqual(validation["source"], "poc_ground_truth")
+
+    def test_changed_poc_candidate_is_not_imported(self):
+        from services import photo_recognition_service as service
+
+        result = _result()
+        group = result["groups"][0]
+        match = group["matches"][0]
+        stale_semantic = {**service._poc_semantic_proposal(match), "candidate_card_uid": "old-card"}
+        ground_truth = {
+            "samples": {
+                "photos|drop=drop-1|start=1|photos=2|target=2": {
+                    "groups": [
+                        {
+                            "group_id": stable_group_id(group),
+                            "semantic_subcard_ids": ["physical-1"],
+                            "recognition_validation": {
+                                "physical-1": {
+                                    "status": "wrong",
+                                    "subcard_photos": dict(match["subcard_photos"]),
+                                    "semantic_proposal": stale_semantic,
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+        with patch.object(service, "load_poc_ground_truth", return_value=ground_truth):
+            session, metrics = reconcile_poc_validations(
+                result,
+                _session(),
+                folder="C:/photos",
+                drop_id="drop-1",
+            )
+        self.assertEqual(metrics["imported"], 0)
+        self.assertEqual(metrics["stale"], 1)
+        self.assertEqual(validation_for_match(session, group, match, 0)["state"], "unvalidated")
 
 
 if __name__ == "__main__":
