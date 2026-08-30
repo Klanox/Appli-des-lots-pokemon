@@ -2594,6 +2594,10 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
             seen_subcards,
         )
         if next_match_index is None:
+            group_token_prefix = f"{photo_stable_group_id(group)}:"
+            st.session_state[seen_key] = sorted(
+                token for token in seen_subcards if not token.startswith(group_token_prefix)
+            )
             advance_to_next_group(feedback_message)
             return
         _schedule_photo_review_subcard(

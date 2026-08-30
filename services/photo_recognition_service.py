@@ -472,6 +472,41 @@ def match_needs_manual_review(
     return _match_needs_manual_review(session, group, match, match_index)
 
 
+def multi_subcard_is_resolved(
+    session: dict[str, Any],
+    group: dict[str, Any],
+    match: dict[str, Any],
+    match_index: int,
+) -> bool:
+    """Return whether this physical subcard has an explicit accepted correction."""
+    validation = validation_for_match(session, group, match, match_index)
+    return bool(
+        validation.get("compatible")
+        and validation.get("state") in {"correct", "manual"}
+    )
+
+
+def pending_review_subcard_indexes(session: dict[str, Any], group: dict[str, Any]) -> list[int]:
+    """Return physical subcards that still need attention in the review workspace.
+
+    A multi-card listing is one review unit. Even an automatically recognized
+    subcard must be explicitly accepted before the group can advance: otherwise
+    the queue may disappear after validating only the one orange subcard.
+    """
+    matches = group.get("matches") or []
+    if len(matches) > 1:
+        return [
+            index
+            for index, match in enumerate(matches)
+            if not multi_subcard_is_resolved(session, group, match, index)
+        ]
+    return [
+        index
+        for index, match in enumerate(matches)
+        if match_needs_manual_review(session, group, match, index)
+    ]
+
+
 def next_pending_subcard_index(
     session: dict[str, Any],
     group: dict[str, Any],
@@ -480,11 +515,7 @@ def next_pending_subcard_index(
 ) -> int | None:
     """Return the next unresolved physical subcard of one multi-card listing."""
     matches = group.get("matches") or []
-    unresolved = [
-        index
-        for index, match in enumerate(matches)
-        if match_needs_manual_review(session, group, match, index)
-    ]
+    unresolved = pending_review_subcard_indexes(session, group)
     if not unresolved:
         return None
 
@@ -504,9 +535,7 @@ def group_review_reasons(session: dict[str, Any], group: dict[str, Any]) -> list
     matches = group.get("matches") or []
     if group.get("grouping_status") == "review" and not grouping_is_confirmed(session, group):
         reasons.append("grouping")
-    if len(matches) > 1 and any(
-        _match_needs_manual_review(session, group, match, index) for index, match in enumerate(matches)
-    ):
+    if len(matches) > 1 and pending_review_subcard_indexes(session, group):
         reasons.append("multi")
     if any(match.get("v13_japanese_candidate") or match.get("v13_japanese_signal") for match in matches):
         if any(_match_needs_manual_review(session, group, match, index) for index, match in enumerate(matches)):
