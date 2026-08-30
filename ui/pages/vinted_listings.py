@@ -54,6 +54,7 @@ from services.photo_recognition_service import (
     group_review_reasons,
     list_ordered_photos,
     load_drop_photo_session,
+    next_pending_subcard_index as photo_next_pending_subcard_index,
     photo_window_signature,
     persist_uploaded_photos,
     refresh_drop_analysis_candidates,
@@ -1867,11 +1868,35 @@ def _photo_queue_feedback_key(drop_id):
     return f"vinted_photo_recognition_queue_feedback_{drop_id}"
 
 
+def _photo_queue_focus_key(drop_id):
+    return f"vinted_photo_recognition_queue_focus_{drop_id}"
+
+
+def _photo_queue_seen_subcards_key(drop_id):
+    return f"vinted_photo_recognition_queue_seen_subcards_{drop_id}"
+
+
+def _photo_subcard_queue_token(group, match, match_index):
+    return f"{photo_stable_group_id(group)}:{photo_stable_subcard_id(match, match_index)}"
+
+
 def _schedule_photo_review_next(drop_id, queue, index, feedback):
     """Keep review navigation stable while the unresolved queue changes."""
     if queue:
         next_group = queue[(index + 1) % len(queue)]
         st.session_state[_photo_queue_next_group_key(drop_id)] = photo_stable_group_id(next_group)
+    st.session_state.pop(_photo_queue_focus_key(drop_id), None)
+    st.session_state[_photo_queue_feedback_key(drop_id)] = feedback
+
+
+def _schedule_photo_review_subcard(drop_id, group, match, match_index, feedback):
+    """Keep a multi-card review on its physical group and focus its next card."""
+    group_id = photo_stable_group_id(group)
+    st.session_state[_photo_queue_next_group_key(drop_id)] = group_id
+    st.session_state[_photo_queue_focus_key(drop_id)] = {
+        "group_id": group_id,
+        "subcard_id": photo_stable_subcard_id(match, match_index),
+    }
     st.session_state[_photo_queue_feedback_key(drop_id)] = feedback
 
 
@@ -2347,7 +2372,7 @@ def _render_candidate_correction(
         _store_photo_workflow_state(active_drop, result, session)
         st.session_state.pop(f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}", None)
         if on_completed:
-            on_completed("✓ Identification associée")
+            on_completed(session, "✓ Identification associée")
         st.rerun()
     return session
 
@@ -2363,6 +2388,7 @@ def _render_photo_match_review(
     proxy_img_func,
     available_cards,
     on_advance,
+    is_focused=False,
 ):
     candidate, source = photo_effective_candidate(session, group, match, match_index)
     validation = validation_for_match(session, group, match, match_index)
@@ -2376,6 +2402,17 @@ def _render_photo_match_review(
         )
         label = f"Carte {match_index + 1}" if len(group.get("matches", []) or []) > 1 else "Carte proposée"
         st.markdown(f"**{label}**")
+        if len(group.get("matches", []) or []) > 1:
+            validation_state = str(validation.get("state") or "unvalidated")
+            if validation.get("compatible") and validation_state in {"correct", "manual"}:
+                progress_label = "Validée ✓"
+            elif validation.get("compatible") and validation_state == "wrong":
+                progress_label = "À corriger"
+            else:
+                progress_label = "À vérifier"
+            if is_focused:
+                progress_label += " · Prochaine carte"
+            st.caption(progress_label)
         _render_candidate_identity(candidate, match, proxy_img_func)
         _render_photo_status_message(semantic_status)
         correction_open_key = f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}"
@@ -2385,7 +2422,7 @@ def _render_photo_match_review(
                 session = set_match_validation(session, group, match, match_index, "wrong")
                 _store_photo_workflow_state(active_drop, result, session)
                 _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-                on_advance("Identification à corriger — cas conservé")
+                on_advance(session, match_index, "Identification à corriger — cas conservé")
                 st.rerun()
             if action_cols[1].button(
                 "Correct",
@@ -2396,7 +2433,7 @@ def _render_photo_match_review(
                 session = set_match_validation(session, group, match, match_index, "correct")
                 _store_photo_workflow_state(active_drop, result, session)
                 _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-                on_advance("✓ Validation enregistrée")
+                on_advance(session, match_index, "✓ Validation enregistrée")
                 st.rerun()
             if st.button(
                 "Corriger l’identification",
@@ -2418,7 +2455,7 @@ def _render_photo_match_review(
                 key=f"vinted_photo_skip_{group_id}_{subcard_id}",
                 width="stretch",
             ):
-                on_advance("Cas conservé pour plus tard")
+                on_advance(session, match_index, "Cas conservé pour plus tard")
                 st.rerun()
         if st.session_state.get(correction_open_key, False):
             session = _render_candidate_correction(
@@ -2430,7 +2467,7 @@ def _render_photo_match_review(
                 match_index,
                 active_drop,
                 available_cards,
-                on_completed=on_advance,
+                on_completed=lambda updated_session, feedback: on_advance(updated_session, match_index, feedback),
             )
         with st.expander("Détails de reconnaissance", expanded=False):
             top = (match.get("candidates") or [])[:3]
@@ -2498,8 +2535,35 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     )
     st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
 
-    def advance_to_next(feedback_message):
+    def advance_to_next_group(feedback_message):
         _schedule_photo_review_next(drop_id, queue, index, feedback_message)
+
+    def advance_after_subcard(updated_session, match_index, feedback_message):
+        matches = group.get("matches") or []
+        if len(matches) <= 1:
+            advance_to_next_group(feedback_message)
+            return
+
+        seen_key = _photo_queue_seen_subcards_key(drop_id)
+        seen_subcards = set(st.session_state.get(seen_key, []) or [])
+        seen_subcards.add(_photo_subcard_queue_token(group, matches[match_index], match_index))
+        st.session_state[seen_key] = sorted(seen_subcards)
+        next_match_index = photo_next_pending_subcard_index(
+            updated_session,
+            group,
+            match_index,
+            seen_subcards,
+        )
+        if next_match_index is None:
+            advance_to_next_group(feedback_message)
+            return
+        _schedule_photo_review_subcard(
+            drop_id,
+            group,
+            matches[next_match_index],
+            next_match_index,
+            feedback_message,
+        )
 
     with st.container(border=True):
         st.markdown(
@@ -2512,7 +2576,18 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
             _render_physical_group_photos(group, mobile)
         with match_col:
             st.markdown("**Identification**")
-            for match_index, match in enumerate(group.get("matches", []) or []):
+            focus = st.session_state.get(_photo_queue_focus_key(drop_id), {}) or {}
+            focus_subcard_id = (
+                str(focus.get("subcard_id") or "")
+                if str(focus.get("group_id") or "") == photo_stable_group_id(group)
+                else ""
+            )
+            match_items = list(enumerate(group.get("matches", []) or []))
+            if focus_subcard_id:
+                match_items.sort(
+                    key=lambda item: photo_stable_subcard_id(item[1], item[0]) != focus_subcard_id
+                )
+            for match_index, match in match_items:
                 session = _render_photo_match_review(
                     drops_data,
                     active_drop,
@@ -2523,7 +2598,8 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     match_index,
                     proxy_img_func,
                     available_cards,
-                    advance_to_next,
+                    advance_after_subcard,
+                    is_focused=photo_stable_subcard_id(match, match_index) == focus_subcard_id,
                 )
             if group.get("grouping_status") == "review" and "grouping" in reasons:
                 _render_photo_status_message(
@@ -2533,16 +2609,18 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     session = confirm_grouping(session, group)
                     _store_photo_workflow_state(active_drop, result, session)
                     _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-                    advance_to_next("✓ Groupe confirmé")
+                    advance_to_next_group("✓ Groupe confirmé")
                     st.rerun()
 
     previous_col, spacer, next_col = st.columns([1, 2, 1])
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
         st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
+        st.session_state.pop(_photo_queue_focus_key(drop_id), None)
         st.session_state[index_key] = index - 1
         st.rerun()
     if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", disabled=index >= len(queue) - 1, width="stretch"):
         st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
+        st.session_state.pop(_photo_queue_focus_key(drop_id), None)
         st.session_state[index_key] = index + 1
         st.rerun()
 

@@ -289,6 +289,43 @@ def _match_needs_manual_review(
     return str(match.get("status") or "fail") != "recognized" or not current_candidate(match)
 
 
+def match_needs_manual_review(
+    session: dict[str, Any],
+    group: dict[str, Any],
+    match: dict[str, Any],
+    match_index: int,
+) -> bool:
+    """Return whether one physical subcard still blocks review completion."""
+    return _match_needs_manual_review(session, group, match, match_index)
+
+
+def next_pending_subcard_index(
+    session: dict[str, Any],
+    group: dict[str, Any],
+    current_index: int,
+    visited_subcards: set[str],
+) -> int | None:
+    """Return the next unresolved physical subcard of one multi-card listing."""
+    matches = group.get("matches") or []
+    unresolved = [
+        index
+        for index, match in enumerate(matches)
+        if match_needs_manual_review(session, group, match, index)
+    ]
+    if not unresolved:
+        return None
+
+    for offset in range(1, len(matches) + 1):
+        index = (current_index + offset) % len(matches)
+        if index not in unresolved:
+            continue
+        token = f"{stable_group_id(group)}:{stable_subcard_id(matches[index], index)}"
+        if token not in visited_subcards:
+            return index
+
+    return unresolved[0]
+
+
 def group_review_reasons(session: dict[str, Any], group: dict[str, Any]) -> list[str]:
     reasons = []
     matches = group.get("matches") or []

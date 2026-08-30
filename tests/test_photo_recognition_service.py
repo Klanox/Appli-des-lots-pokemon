@@ -12,6 +12,7 @@ from services.photo_recognition_service import (
     apply_recognition_statuses,
     build_step4_payload,
     current_candidate,
+    next_pending_subcard_index,
     normalize_photo_identity,
     set_match_validation,
     stable_group_id,
@@ -100,6 +101,27 @@ def _session():
         "validations": {},
         "grouping_confirmations": {},
     }
+
+
+def _multi_result(count=2):
+    result = _result()
+    group = result["groups"][0]
+    group["confidence_level"] = "orange"
+    group["matches"] = [
+        {
+            "status": "review",
+            "score": 80,
+            "subcard_id": f"physical-{index}",
+            "subcard_photos": {
+                "front": f"{index}:front-{index}.jpg",
+                "back": f"{index}:back-{index}.jpg",
+            },
+            "candidates": [{"candidate": _candidate(f"card-{index}", f"{index}/90"), "score": 80}],
+        }
+        for index in range(1, count + 1)
+    ]
+    result["candidates"] = [row["candidates"][0]["candidate"] for row in group["matches"]]
+    return result
 
 
 class PhotoRecognitionServiceTests(unittest.TestCase):
@@ -279,6 +301,68 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             group["confidence_level"] = "orange"
             session = set_match_validation(_session(), group, match, 0, "wrong")
             self.assertEqual(unresolved_groups(result, session), [group])
+
+    def test_multi_card_advances_to_the_next_physical_subcard_before_leaving_group(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(2)
+            group = result["groups"][0]
+            first, second = group["matches"]
+            session = set_match_validation(_session(), group, first, 0, "correct")
+            seen = {f"{stable_group_id(group)}:physical-1"}
+
+            self.assertEqual(next_pending_subcard_index(session, group, 0, seen), 1)
+            self.assertEqual(unresolved_groups(result, session), [group])
+
+            session = set_match_validation(session, group, second, 1, "correct")
+            seen.add(f"{stable_group_id(group)}:physical-2")
+            self.assertIsNone(next_pending_subcard_index(session, group, 1, seen))
+            self.assertEqual(unresolved_groups(result, session), [])
+
+    def test_multi_card_wrong_remains_unresolved_after_other_subcards_are_visited(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(2)
+            group = result["groups"][0]
+            first, second = group["matches"]
+            session = set_match_validation(_session(), group, first, 0, "correct")
+            session = set_match_validation(session, group, second, 1, "wrong")
+            seen = {f"{stable_group_id(group)}:physical-1", f"{stable_group_id(group)}:physical-2"}
+
+            self.assertEqual(next_pending_subcard_index(session, group, 1, seen), 1)
+            self.assertEqual(unresolved_groups(result, session), [group])
+
+    def test_v_union_navigation_only_completes_after_four_physical_subcards(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(4)
+            group = result["groups"][0]
+            session = _session()
+            seen = set()
+            for index, match in enumerate(group["matches"]):
+                session = set_match_validation(session, group, match, index, "correct")
+                seen.add(f"{stable_group_id(group)}:physical-{index + 1}")
+                expected = index + 1 if index < 3 else None
+                self.assertEqual(next_pending_subcard_index(session, group, index, seen), expected)
+
+            self.assertEqual(unresolved_groups(result, session), [])
+
+    def test_validation_stays_with_the_physical_subcard_when_multi_order_changes(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(2)
+            group = result["groups"][0]
+            first, second = group["matches"]
+            session = set_match_validation(_session(), group, first, 0, "correct")
+            group["matches"] = [second, first]
+
+            validation = validation_for_match(session, group, group["matches"][1], 1)
+            self.assertEqual(validation["state"], "correct")
+            self.assertTrue(validation["compatible"])
 
     def test_drop_membership_prefers_uid_then_strict_fingerprint(self):
         card = _candidate("card-1", "1/10")
