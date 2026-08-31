@@ -63,6 +63,7 @@ from services.photo_recognition_service import (
     photo_window_signature,
     persist_uploaded_photos,
     refresh_drop_analysis_candidates,
+    resolve_historical_drop_candidate,
     restore_drop_analysis,
     search_drop_candidates,
     set_match_validation,
@@ -2403,8 +2404,8 @@ def _render_candidate_correction(
     subcard_id = photo_stable_subcard_id(match, match_index)
     query_key = f"vinted_photo_candidate_query_{group_id}_{subcard_id}"
     query = st.text_input("Rechercher par nom, numéro ou UID", key=query_key)
-    candidates = search_drop_candidates(result, query) if query else []
-    drop_uids = {str(candidate.get("card_uid") or "") for candidate in result.get("candidates", []) or []}
+    _current_drop, historical_candidates = active_drop_candidates(drop_id=str(active_drop.get("id") or ""))
+    candidates = search_drop_candidates({"candidates": historical_candidates}, query) if query else []
     if query:
         for card in filter_cards_for_listing(available_cards, query, limit=30):
             uid = str(card.get("card_uid") or "")
@@ -2414,16 +2415,21 @@ def _render_candidate_correction(
         if query:
             st.caption("Aucune carte exacte trouvée dans ce Drop.")
         return session
-    labels = {
-        _candidate_label(candidate)
-        + (" · dans le Drop" if str(candidate.get("card_uid") or "") in drop_uids else " · hors Drop")
-        + f" · {candidate.get('card_uid', '')}": candidate
-        for candidate in candidates
-    }
+    labels = {}
+    for candidate in candidates:
+        resolved_candidate, membership = resolve_historical_drop_candidate(candidate, historical_candidates)
+        in_drop = bool(membership.get("in_drop"))
+        status = str(resolved_candidate.get("drop_status") or "")
+        suffix = " · Dans le Drop"
+        if status == "sold":
+            suffix += " · Vendue"
+        if not in_drop:
+            suffix = " · hors Drop"
+        label = _candidate_label(resolved_candidate) + suffix + f" · {resolved_candidate.get('card_uid', '')}"
+        labels[label] = (resolved_candidate, in_drop)
     selected_label = st.selectbox("Carte exacte", list(labels), key=f"vinted_photo_candidate_select_{group_id}_{subcard_id}")
-    selected_candidate = labels[selected_label]
+    selected_candidate, is_in_drop = labels[selected_label]
     selected_uid = str(selected_candidate.get("card_uid") or "")
-    is_in_drop = selected_uid in drop_uids
     action_label = "Utiliser cette carte" if is_in_drop else "Ajouter cette carte au Drop et l’utiliser"
     if st.button(action_label, key=f"vinted_photo_candidate_apply_{group_id}_{subcard_id}", type="primary"):
         if not is_in_drop:

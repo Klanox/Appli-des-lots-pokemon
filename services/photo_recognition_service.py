@@ -20,6 +20,7 @@ import unicodedata
 from typing import Any, Iterable
 
 from services import photo_recognition_poc_service as engine
+from services.card_identity import card_identity_fingerprint
 from services.vinted_drops_service import drop_card_key, drop_item_status, find_drop
 
 
@@ -58,6 +59,41 @@ proposed_candidate = engine.proposed_candidate
 sample_ground_truth_key = engine.sample_ground_truth_key
 stable_group_id_from_photos = engine.stable_group_id_from_photos
 update_ground_truth_sample = engine.update_ground_truth_sample
+
+
+def resolve_historical_drop_candidate(
+    candidate: dict[str, Any] | None,
+    drop_candidates: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, str | bool]]:
+    """Resolve a manual choice against current historical Drop membership.
+
+    Sold cards remain valid candidates for photo recognition. A matching UID is
+    preferred; the shared strict fingerprint is the compatibility fallback.
+    """
+    candidate = dict(candidate or {})
+    membership = engine.drop_candidate_membership(candidate, drop_candidates)
+    if not membership.get("in_drop"):
+        return candidate, membership
+
+    card_uid = str(candidate.get("card_uid") or "").strip()
+    if card_uid:
+        matched = next(
+            (item for item in drop_candidates if str(item.get("card_uid") or "").strip() == card_uid),
+            None,
+        )
+        if matched:
+            return dict(matched), membership
+
+    fingerprint = str(candidate.get("identity_fingerprint") or card_identity_fingerprint(candidate) or "").strip()
+    matched = next(
+        (
+            item
+            for item in drop_candidates
+            if str(item.get("identity_fingerprint") or card_identity_fingerprint(item) or "").strip() == fingerprint
+        ),
+        None,
+    )
+    return dict(matched or candidate), membership
 
 
 def _safe_int(value: Any, default=0) -> int:

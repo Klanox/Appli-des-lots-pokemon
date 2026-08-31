@@ -8,7 +8,7 @@ vinted_drops.json.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 import hashlib
@@ -389,6 +389,85 @@ def _analysis_result_cache_path(descriptor: dict[str, Any]) -> Path:
     return POC_CACHE_DIR / "results" / f"{digest}.pickle"
 
 
+_PHOTO_INFO_CACHE_FIELDS = (
+    "path",
+    "filename",
+    "capture_index",
+    "capture_datetime",
+    "order_source",
+    "size_bytes",
+)
+
+
+def _photo_info_cache_payload(value: Any) -> dict[str, Any] | None:
+    """Return a stable photo mapping for current or reloaded PhotoInfo objects."""
+    if not all(hasattr(value, field) for field in ("path", "filename", "capture_index")):
+        return None
+    return {
+        "path": str(getattr(value, "path") or ""),
+        "filename": str(getattr(value, "filename") or ""),
+        "capture_index": _safe_int(getattr(value, "capture_index"), 0),
+        "capture_datetime": str(getattr(value, "capture_datetime", "") or ""),
+        "order_source": str(getattr(value, "order_source", "") or ""),
+        "size_bytes": _safe_int(getattr(value, "size_bytes", 0), 0),
+    }
+
+
+def _cache_serializable_value(value: Any) -> Any:
+    """Detach persistent result data from runtime classes before pickling.
+
+    Streamlit can reload this module while a result is still held in session
+    state. An instance of the previous PhotoInfo class then cannot be pickled
+    by the new module, even though it exposes the same fields.
+    """
+    photo_payload = _photo_info_cache_payload(value)
+    if photo_payload is not None:
+        return photo_payload
+    if isinstance(value, Mapping):
+        return {str(key): _cache_serializable_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_cache_serializable_value(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            "__poc_cache_dataclass__": f"{type(value).__module__}.{type(value).__name__}",
+            "fields": {
+                field.name: _cache_serializable_value(getattr(value, field.name))
+                for field in fields(value)
+            },
+        }
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(
+        "Persistent recognition cache only accepts plain values or PhotoInfo-compatible objects "
+        f"(received {type(value).__module__}.{type(value).__name__})"
+    )
+
+
+def _rehydrate_cached_value(value: Any) -> Any:
+    """Restore stable photo mappings to the currently loaded PhotoInfo class."""
+    if isinstance(value, list):
+        return [_rehydrate_cached_value(item) for item in value]
+    if not isinstance(value, Mapping):
+        return value
+    payload = {str(key): _rehydrate_cached_value(item) for key, item in value.items()}
+    if "__poc_cache_dataclass__" in payload and isinstance(payload.get("fields"), Mapping):
+        return dict(payload["fields"])
+    if all(field in payload for field in _PHOTO_INFO_CACHE_FIELDS):
+        return PhotoInfo(
+            path=str(payload["path"] or ""),
+            filename=str(payload["filename"] or ""),
+            capture_index=_safe_int(payload["capture_index"], 0),
+            capture_datetime=str(payload["capture_datetime"] or ""),
+            order_source=str(payload["order_source"] or ""),
+            size_bytes=_safe_int(payload["size_bytes"], 0),
+        )
+    return payload
+
+
 def save_cached_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
     """Persist one local POC result atomically for fast server restarts."""
     meta = result.get("analysis_meta") or {}
@@ -411,7 +490,7 @@ def save_cached_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
         "cache_version": POC_RESULT_CACHE_VERSION,
         "descriptor": descriptor,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
-        "result": result,
+        "result": _cache_serializable_value(result),
     }
     try:
         with temporary.open("wb") as handle:
@@ -462,7 +541,7 @@ def load_cached_analysis_result(
         return None
     if payload.get("descriptor") != descriptor:
         return None
-    result = payload.get("result")
+    result = _rehydrate_cached_value(payload.get("result"))
     if not isinstance(result, dict):
         return None
     meta = result.get("analysis_meta") or {}
@@ -515,7 +594,7 @@ def load_latest_cached_analysis_result(
         photo_window = ordered[start_index - 1 : start_index - 1 + max_photos]
         if descriptor.get("photo_signature") != photo_window_signature(photo_window):
             continue
-        result = payload.get("result")
+        result = _rehydrate_cached_value(payload.get("result"))
         if not isinstance(result, dict):
             continue
         result.setdefault("metrics", {})["persistent_cache_restore_seconds"] = round(

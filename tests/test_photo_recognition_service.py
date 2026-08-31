@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+import pickle
 
 from services.photo_recognition_service import (
     analysis_summary,
@@ -20,6 +21,7 @@ from services.photo_recognition_service import (
     next_pending_subcard_index,
     normalize_photo_identity,
     reconcile_poc_validations,
+    resolve_historical_drop_candidate,
     set_match_validation,
     stable_group_id,
     stable_subcard_id,
@@ -39,6 +41,11 @@ class LegacyPhotoInfo:
     capture_datetime: str = ""
     order_source: str = ""
     size_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class ReloadSensitiveValue:
+    name: str
 
 
 def _photo(index, name):
@@ -212,6 +219,76 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
         self.assertEqual(normalize_photo_identity(mapped), mapped)
         with self.assertRaises(TypeError):
             dict(current)
+
+    def test_persistent_cache_normalizes_current_and_reloaded_photo_info(self):
+        from services import photo_recognition_poc_service as engine
+
+        with TemporaryDirectory() as directory, patch.object(engine, "POC_CACHE_DIR", Path(directory)):
+            current = engine.PhotoInfo("C:/photos/current.jpg", "current.jpg", 1, "", "filename", 10)
+            legacy = LegacyPhotoInfo("C:/photos/legacy.jpg", "legacy.jpg", 2)
+            result = {
+                "analysis_meta": {
+                    "folder": directory,
+                    "drop_id": "drop-1",
+                    "start_index": 1,
+                    "target_announcements": 0,
+                    "max_photos": 1,
+                    "photo_signature": engine.photo_window_signature([]),
+                    "pipeline_version": engine.POC_ANALYSIS_PIPELINE_VERSION,
+                    "matching_refresh_version": engine.POC_MATCHING_REFRESH_VERSION,
+                },
+                "ordered_photos": [current, legacy],
+                "sample_photos": [current],
+                "groups": [{"photos": [{"photo": legacy, "classification": {}}]}],
+                "metadata": {
+                    "plain": {"value": "kept"},
+                    "runtime": ReloadSensitiveValue("normalised"),
+                },
+            }
+
+            cache_info = engine.save_cached_analysis_result(result)
+            with Path(cache_info["path"]).open("rb") as handle:
+                raw = pickle.load(handle)["result"]
+            self.assertIsInstance(raw["ordered_photos"][0], dict)
+            self.assertIsInstance(raw["ordered_photos"][1], dict)
+            self.assertIsInstance(raw["groups"][0]["photos"][0]["photo"], dict)
+            self.assertEqual(raw["metadata"]["runtime"]["fields"], {"name": "normalised"})
+
+            restored = engine.load_cached_analysis_result(
+                folder=directory,
+                drop_id="drop-1",
+                start_index=1,
+                target_announcements=0,
+                max_photos=1,
+                ordered_photos=[],
+            )
+            self.assertIsInstance(restored["ordered_photos"][0], engine.PhotoInfo)
+            self.assertIsInstance(restored["ordered_photos"][1], engine.PhotoInfo)
+            self.assertIsInstance(restored["groups"][0]["photos"][0]["photo"], engine.PhotoInfo)
+            self.assertEqual(
+                restored["metadata"],
+                {"plain": {"value": "kept"}, "runtime": {"name": "normalised"}},
+            )
+
+    def test_historical_sold_candidate_is_reused_for_manual_correction(self):
+        source = {**_candidate("card-kaorine", "8/95"), "name": "Kaorine de Team Magma", "set": "EX Team Magma vs Team Aqua"}
+        historical = {
+            **source,
+            "drop_item_id": "drop-kaorine",
+            "drop_status": "sold",
+            "historical_drop_member": True,
+        }
+
+        resolved, membership = resolve_historical_drop_candidate(source, [historical])
+        self.assertEqual(membership, {"in_drop": True, "method": "card_uid"})
+        self.assertEqual(resolved["drop_item_id"], "drop-kaorine")
+        self.assertEqual(resolved["drop_status"], "sold")
+
+        absent, absent_membership = resolve_historical_drop_candidate(
+            _candidate("card-absent", "9/95"), [historical]
+        )
+        self.assertFalse(absent_membership["in_drop"])
+        self.assertEqual(absent["card_uid"], "card-absent")
 
     def test_payload_accepts_legacy_photo_info_without_dict_conversion(self):
         result = _result()
