@@ -1879,23 +1879,66 @@ def _photo_queue_seen_subcards_key(drop_id):
     return f"vinted_photo_recognition_queue_seen_subcards_{drop_id}"
 
 
-def _photo_subcard_queue_token(group, match, match_index):
-    return f"{photo_stable_group_id(group)}:{photo_stable_subcard_id(match, match_index)}"
+def _photo_review_pass_key(drop_id):
+    return f"vinted_photo_recognition_review_pass_{drop_id}"
 
 
-def _schedule_photo_review_next(drop_id, queue, index, feedback):
-    """Keep review navigation stable while the unresolved queue changes."""
-    if queue:
-        next_group = queue[(index + 1) % len(queue)]
-        st.session_state[_photo_queue_next_group_key(drop_id)] = photo_stable_group_id(next_group)
+def _new_photo_review_pass(groups, *, mode="review"):
+    return {
+        "mode": mode,
+        "group_ids": [photo_stable_group_id(group) for group in groups],
+        "position": 0,
+        "visited_group_ids": [],
+        "completed": False,
+    }
+
+
+def _advanced_photo_review_pass(pass_state):
+    """Return the next stable pass state without rebuilding its source queue."""
+    state = dict(pass_state or {})
+    group_ids = list(state.get("group_ids") or [])
+    position = _safe_int(state.get("position"), 0)
+    if position + 1 >= len(group_ids):
+        state["position"] = len(group_ids)
+        state["completed"] = True
+    else:
+        state["position"] = position + 1
+    return state
+
+
+def _review_pass_remaining_group_ids(pass_state, result, session):
+    unresolved_ids = {
+        photo_stable_group_id(group)
+        for group in photo_unresolved_groups(result, session)
+    }
+    return [group_id for group_id in pass_state.get("group_ids", []) if group_id in unresolved_ids]
+
+
+def _mark_photo_review_pass_group_visited(drop_id, group_id):
+    state = st.session_state.get(_photo_review_pass_key(drop_id)) or {}
+    visited = list(state.get("visited_group_ids") or [])
+    if group_id not in visited:
+        visited.append(group_id)
+    state["visited_group_ids"] = visited
+    st.session_state[_photo_review_pass_key(drop_id)] = state
+
+
+def _advance_photo_review_pass(drop_id, feedback):
+    """Advance one fixed review pass without wrapping back to its first group."""
+    state = st.session_state.get(_photo_review_pass_key(drop_id)) or {}
+    st.session_state[_photo_review_pass_key(drop_id)] = _advanced_photo_review_pass(state)
+    st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
     st.session_state.pop(_photo_queue_focus_key(drop_id), None)
     st.session_state[_photo_queue_feedback_key(drop_id)] = feedback
+
+
+def _photo_subcard_queue_token(group, match, match_index):
+    return f"{photo_stable_group_id(group)}:{photo_stable_subcard_id(match, match_index)}"
 
 
 def _schedule_photo_review_subcard(drop_id, group, match, match_index, feedback):
     """Keep a multi-card review on its physical group and focus its next card."""
     group_id = photo_stable_group_id(group)
-    st.session_state[_photo_queue_next_group_key(drop_id)] = group_id
     st.session_state[_photo_queue_focus_key(drop_id)] = {
         "group_id": group_id,
         "subcard_id": photo_stable_subcard_id(match, match_index),
@@ -2527,46 +2570,93 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
 
     summary = _render_photo_analysis_summary(result, session)
     show_all = st.toggle("Consulter aussi les reconnaissances automatiques", key=f"vinted_photo_show_all_{drop_id}")
-    queue = list(result.get("groups", []) or []) if show_all else photo_unresolved_groups(result, session)
+    mode = "all" if show_all else "review"
+    initial_queue = list(result.get("groups", []) or []) if show_all else photo_unresolved_groups(result, session)
+    pass_key = _photo_review_pass_key(drop_id)
+    pass_state = st.session_state.get(pass_key)
+    if not isinstance(pass_state, dict) or pass_state.get("mode") != mode:
+        pass_state = _new_photo_review_pass(initial_queue, mode=mode)
+        st.session_state[pass_key] = pass_state
+        st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
+        st.session_state.pop(_photo_queue_focus_key(drop_id), None)
     feedback = st.session_state.pop(_photo_queue_feedback_key(drop_id), "")
     if feedback:
         st.toast(feedback)
-    if not queue:
-        st.success("Toutes les annonces obligatoires sont résolues.")
-        payload = build_step4_payload(
-            result,
-            session,
-            photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
-        )
-        if payload.get("ready") and st.button("Continuer vers la création des annonces", key=f"vinted_photo_go_creation_{drop_id}", type="primary"):
-            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-            st.session_state["vinted_drop_step"] = "Création des annonces"
-            st.rerun()
+
+    pass_group_ids = list(pass_state.get("group_ids") or [])
+    current_unresolved_ids = _review_pass_remaining_group_ids(pass_state, result, session)
+    if pass_state.get("completed") or not pass_group_ids:
+        total = len(pass_group_ids)
+        remaining = len(current_unresolved_ids)
+        resolved = max(0, total - remaining)
+        with st.container(border=True):
+            st.markdown("### Vérification terminée")
+            st.caption(f"{total} cas parcourus · {resolved} résolus · {remaining} encore à corriger")
+            if remaining:
+                primary_col, secondary_col = st.columns(2) if not mobile else [st.container(), st.container()]
+                if primary_col.button(
+                    f"Revoir les {remaining} cas non résolus",
+                    key=f"vinted_photo_review_retry_{drop_id}",
+                    type="primary",
+                    width="stretch",
+                ):
+                    remaining_groups = [
+                        group
+                        for group in result.get("groups", []) or []
+                        if photo_stable_group_id(group) in set(current_unresolved_ids)
+                    ]
+                    st.session_state[pass_key] = _new_photo_review_pass(remaining_groups, mode="review")
+                    st.session_state.pop(_photo_queue_focus_key(drop_id), None)
+                    st.rerun(scope="fragment")
+                if secondary_col.button(
+                    "Retour à l'étape 3",
+                    key=f"vinted_photo_review_return_{drop_id}",
+                    width="stretch",
+                ):
+                    st.session_state[pass_key] = _new_photo_review_pass(initial_queue, mode=mode)
+                    st.session_state.pop(_photo_queue_focus_key(drop_id), None)
+                    st.rerun(scope="fragment")
+            else:
+                st.success("Tous les cas sont traités.")
+                payload = build_step4_payload(
+                    result,
+                    session,
+                    photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
+                )
+                if payload.get("ready") and st.button(
+                    "Continuer",
+                    key=f"vinted_photo_go_creation_{drop_id}",
+                    type="primary",
+                ):
+                    _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                    st.session_state["vinted_drop_step"] = "Création des annonces"
+                    st.rerun()
         return
 
-    index_key = _photo_queue_index_key(drop_id)
-    pending_group_id = str(st.session_state.pop(_photo_queue_next_group_key(drop_id), "") or "")
-    pending_index = next(
-        (
-            queue_index
-            for queue_index, queue_group in enumerate(queue)
-            if photo_stable_group_id(queue_group) == pending_group_id
-        ),
-        None,
-    )
-    index = (
-        pending_index
-        if pending_index is not None
-        else min(max(0, _safe_int(st.session_state.get(index_key), 0)), len(queue) - 1)
-    )
-    st.session_state[index_key] = index
-    group = queue[index]
+    group_by_id = {
+        photo_stable_group_id(group): group
+        for group in result.get("groups", []) or []
+    }
+    position = min(max(0, _safe_int(pass_state.get("position"), 0)), len(pass_group_ids) - 1)
+    group = group_by_id.get(pass_group_ids[position])
+    if group is None:
+        st.session_state[pass_key] = _advanced_photo_review_pass(pass_state)
+        st.rerun(scope="fragment")
+        return
+    index = position
+    queue = [group_by_id[group_id] for group_id in pass_group_ids if group_id in group_by_id]
+    st.session_state[_photo_queue_index_key(drop_id)] = index
+
+    if not queue:
+        st.session_state[pass_key] = _advanced_photo_review_pass(pass_state)
+        st.rerun(scope="fragment")
+        return
     reasons = group_review_reasons(session, group)
     group_status = _photo_group_semantic_status(session, group, reasons)
     st.markdown(
         f"""
 <div class="ps-photo-review-header">
-  <div class="ps-photo-review-title">À vérifier · {index + 1} / {len(queue)}</div>
+  <div class="ps-photo-review-title">À vérifier · {index + 1} / {len(pass_group_ids)}</div>
   {_photo_status_badge(group_status)}
 </div>
 """,
@@ -2575,7 +2665,8 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
 
     def advance_to_next_group(feedback_message):
-        _schedule_photo_review_next(drop_id, queue, index, feedback_message)
+        _mark_photo_review_pass_group_visited(drop_id, photo_stable_group_id(group))
+        _advance_photo_review_pass(drop_id, feedback_message)
 
     def advance_after_subcard(updated_session, match_index, feedback_message):
         matches = group.get("matches") or []
@@ -2658,12 +2749,11 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):
         st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
         st.session_state.pop(_photo_queue_focus_key(drop_id), None)
-        st.session_state[index_key] = index - 1
+        pass_state["position"] = index - 1
+        st.session_state[pass_key] = pass_state
         st.rerun(scope="fragment")
-    if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", disabled=index >= len(queue) - 1, width="stretch"):
-        st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
-        st.session_state.pop(_photo_queue_focus_key(drop_id), None)
-        st.session_state[index_key] = index + 1
+    if next_col.button("Suivant", key=f"vinted_photo_next_{drop_id}", width="stretch"):
+        advance_to_next_group("Cas parcouru")
         st.rerun(scope="fragment")
 
 
