@@ -15,6 +15,7 @@ from services.photo_recognition_service import (
     current_candidate,
     grouping_is_confirmed,
     grouping_needs_confirmation,
+    grouping_is_structurally_evident,
     group_review_reasons,
     next_pending_subcard_index,
     normalize_photo_identity,
@@ -536,6 +537,8 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             result = _result()
             group = result["groups"][0]
             group["grouping_status"] = "review"
+            group["photos"][0]["classification"]["class"] = "back_western"
+            group["grouping_reasons"] = ["faux back probable sur le recto"]
             match = group["matches"][0]
             session = set_match_validation(_session(), group, match, 0, "correct")
 
@@ -553,6 +556,35 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
 
             self.assertEqual(stable_group_id(reloaded_group), stable_group_id(group))
             self.assertTrue(grouping_is_confirmed(session, reloaded_group))
+
+    def test_clean_single_front_back_review_is_auto_confirmed_for_grouping(self):
+        result = _result()
+        group = result["groups"][0]
+        group["grouping_status"] = "review"
+        group["grouping_reasons"] = [
+            "segmentation V12 front/back",
+            "longue pause dans la paire (68s)",
+            "paire suivante temporellement plus probable",
+            "confiance de segmentation insuffisante pour validation automatique",
+        ]
+
+        self.assertTrue(grouping_is_structurally_evident(group))
+        self.assertFalse(grouping_needs_confirmation(_session(), group))
+        self.assertNotIn("grouping", group_review_reasons(_session(), group))
+
+    def test_ambiguous_single_grouping_review_is_not_auto_confirmed(self):
+        result = _result()
+        group = result["groups"][0]
+        group["grouping_status"] = "review"
+        group["photos"][0]["classification"]["class"] = "back_western"
+        group["grouping_reasons"] = ["faux back probable sur le recto"]
+
+        self.assertFalse(grouping_is_structurally_evident(group))
+        self.assertTrue(grouping_needs_confirmation(_session(), group))
+
+    def test_legend_and_v_union_grouping_reviews_are_never_auto_confirmed(self):
+        self.assertFalse(grouping_is_structurally_evident(_legend_result()["groups"][0]))
+        self.assertFalse(grouping_is_structurally_evident(_v_union_result()["groups"][0]))
 
     def test_multi_validation_never_counts_a_record_from_another_physical_subcard(self):
         from services import photo_recognition_service as service

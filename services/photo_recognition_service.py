@@ -431,9 +431,64 @@ def grouping_is_confirmed(session: dict[str, Any], group: dict[str, Any]) -> boo
     return str(confirmation.get("photo_signature") or "") == engine.group_photo_signature(_group_photo_payload(group))
 
 
+def _group_photo_capture_key(entry: dict[str, Any]) -> str:
+    photo = entry.get("photo") if isinstance(entry, dict) else entry
+    identity = normalize_photo_identity(photo)
+    return f"{identity.get('capture_index', 0)}:{identity.get('filename', '')}"
+
+
+def grouping_is_structurally_evident(group: dict[str, Any]) -> bool:
+    """Return whether a historical single-card review is structurally obvious.
+
+    V12 kept some front/back pairs in review purely because their capture timing
+    was unusual. They do not need a human grouping decision when the physical
+    pair, roles and subcard mapping are otherwise exact.
+    """
+    if group.get("grouping_status") != "review":
+        return False
+    matches = group.get("matches") or []
+    photos = group.get("photos") or []
+    if len(matches) != 1 or len(photos) != 2 or _safe_int(group.get("expected_cards"), 1) != 1:
+        return False
+
+    roles = [str((entry.get("classification") or {}).get("class") or "") for entry in photos]
+    if roles != ["primary_front", "back_western"] and roles != ["primary_front", "back_japanese"]:
+        return False
+    if any(_safe_int((entry.get("classification") or {}).get("card_count_hint"), 1) > 1 for entry in photos):
+        return False
+
+    match_photos = matches[0].get("subcard_photos") or {}
+    if {
+        "front": str(match_photos.get("front") or ""),
+        "back": str(match_photos.get("back") or ""),
+    } != {
+        "front": _group_photo_capture_key(photos[0]),
+        "back": _group_photo_capture_key(photos[1]),
+    }:
+        return False
+
+    reason_text = " ".join(_fold_text(reason) for reason in group.get("grouping_reasons") or [])
+    conflict_markers = (
+        "faux back",
+        "verso sous seuil",
+        "orphelin",
+        "ambig",
+        "incoherent",
+        "plusieurs",
+        "multiple",
+        "manquant",
+        "incomplet",
+    )
+    return not any(marker in reason_text for marker in conflict_markers)
+
+
 def grouping_needs_confirmation(session: dict[str, Any], group: dict[str, Any]) -> bool:
     """Return whether a stable grouping review still blocks this listing."""
-    return group.get("grouping_status") == "review" and not grouping_is_confirmed(session, group)
+    return bool(
+        group.get("grouping_status") == "review"
+        and not grouping_is_confirmed(session, group)
+        and not grouping_is_structurally_evident(group)
+    )
 
 
 def effective_candidate(
@@ -586,7 +641,7 @@ def analysis_summary(result: dict[str, Any], session: dict[str, Any] | None = No
         "review": review_groups,
         "fail": fail_groups,
         "unresolved": len(unresolved),
-        "grouping_review": sum(1 for group in groups if group.get("grouping_status") == "review"),
+        "grouping_review": sum(1 for group in groups if grouping_needs_confirmation(session, group)),
         "multi": sum(1 for group in groups if len(group.get("matches", []) or []) > 1),
     }
 
