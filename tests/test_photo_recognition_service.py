@@ -537,8 +537,8 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             result = _result()
             group = result["groups"][0]
             group["grouping_status"] = "review"
-            group["photos"][0]["classification"]["class"] = "back_western"
-            group["grouping_reasons"] = ["faux back probable sur le recto"]
+            group["photos"][0]["classification"]["class"] = "unknown"
+            group["grouping_reasons"] = ["segmentation ambigue"]
             match = group["matches"][0]
             session = set_match_validation(_session(), group, match, 0, "correct")
 
@@ -576,11 +576,25 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
         result = _result()
         group = result["groups"][0]
         group["grouping_status"] = "review"
-        group["photos"][0]["classification"]["class"] = "back_western"
-        group["grouping_reasons"] = ["faux back probable sur le recto"]
+        group["photos"][0]["classification"]["class"] = "unknown"
+        group["grouping_reasons"] = ["segmentation ambigue"]
 
         self.assertFalse(grouping_is_structurally_evident(group))
         self.assertTrue(grouping_needs_confirmation(_session(), group))
+
+    def test_single_pair_with_a_false_back_label_is_auto_confirmed(self):
+        result = _result()
+        group = result["groups"][0]
+        group["grouping_status"] = "review"
+        group["photos"][0]["classification"]["class"] = "back_western"
+        group["grouping_reasons"] = [
+            "premiere photo fortement back-like",
+            "faux back probable sur le recto",
+            "confiance de segmentation insuffisante pour validation automatique",
+        ]
+
+        self.assertTrue(grouping_is_structurally_evident(group))
+        self.assertFalse(grouping_needs_confirmation(_session(), group))
 
     def test_legend_and_v_union_grouping_reviews_are_never_auto_confirmed(self):
         self.assertFalse(grouping_is_structurally_evident(_legend_result()["groups"][0]))

@@ -452,7 +452,8 @@ def grouping_is_structurally_evident(group: dict[str, Any]) -> bool:
         return False
 
     roles = [str((entry.get("classification") or {}).get("class") or "") for entry in photos]
-    if roles != ["primary_front", "back_western"] and roles != ["primary_front", "back_japanese"]:
+    allowed_roles = {"primary_front", "back_western", "back_japanese"}
+    if any(role not in allowed_roles for role in roles):
         return False
     if any(_safe_int((entry.get("classification") or {}).get("card_count_hint"), 1) > 1 for entry in photos):
         return False
@@ -469,8 +470,6 @@ def grouping_is_structurally_evident(group: dict[str, Any]) -> bool:
 
     reason_text = " ".join(_fold_text(reason) for reason in group.get("grouping_reasons") or [])
     conflict_markers = (
-        "faux back",
-        "verso sous seuil",
         "orphelin",
         "ambig",
         "incoherent",
@@ -479,7 +478,13 @@ def grouping_is_structurally_evident(group: dict[str, Any]) -> bool:
         "manquant",
         "incomplet",
     )
-    return not any(marker in reason_text for marker in conflict_markers)
+    if any(marker in reason_text for marker in conflict_markers):
+        return False
+
+    # The back classifier can call a holographic or brightly lit front a back.
+    # Its label alone is not a user-facing grouping ambiguity when the sequence
+    # still maps one physical front/back pair to the only subcard exactly.
+    return True
 
 
 def grouping_needs_confirmation(session: dict[str, Any], group: dict[str, Any]) -> bool:
