@@ -54,10 +54,12 @@ from services.photo_recognition_service import (
     candidate_set_signature,
     confirm_grouping,
     effective_candidate as photo_effective_candidate,
+    grouping_needs_confirmation as photo_grouping_needs_confirmation,
     group_review_reasons,
     list_ordered_photos,
     load_drop_photo_session,
     next_pending_subcard_index as photo_next_pending_subcard_index,
+    pending_review_subcard_indexes as photo_pending_review_subcard_indexes,
     photo_window_signature,
     persist_uploaded_photos,
     refresh_drop_analysis_candidates,
@@ -2671,6 +2673,13 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
     def advance_after_subcard(updated_session, match_index, feedback_message):
         matches = group.get("matches") or []
         if len(matches) <= 1:
+            if photo_grouping_needs_confirmation(updated_session, group):
+                st.session_state[_photo_queue_focus_key(drop_id)] = {
+                    "group_id": photo_stable_group_id(group),
+                    "kind": "grouping",
+                }
+                st.session_state[_photo_queue_feedback_key(drop_id)] = "✓ Carte identifiée — grouping à confirmer"
+                return
             advance_to_next_group(feedback_message)
             return
 
@@ -2689,6 +2698,13 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
             st.session_state[seen_key] = sorted(
                 token for token in seen_subcards if not token.startswith(group_token_prefix)
             )
+            if photo_grouping_needs_confirmation(updated_session, group):
+                st.session_state[_photo_queue_focus_key(drop_id)] = {
+                    "group_id": photo_stable_group_id(group),
+                    "kind": "grouping",
+                }
+                st.session_state[_photo_queue_feedback_key(drop_id)] = "✓ Cartes identifiées — grouping à confirmer"
+                return
             advance_to_next_group(feedback_message)
             return
         _schedule_photo_review_subcard(
@@ -2735,15 +2751,35 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     advance_after_subcard,
                     is_focused=photo_stable_subcard_id(match, match_index) == focus_subcard_id,
                 )
-            if group.get("grouping_status") == "review" and "grouping" in reasons:
+            grouping_needs_confirmation = photo_grouping_needs_confirmation(session, group)
+            subcards_pending = photo_pending_review_subcard_indexes(session, group)
+            if grouping_needs_confirmation and not subcards_pending:
                 _render_photo_status_message(
-                    {"tone": "warning", "message": "Grouping à confirmer"}
+                    {"tone": "warning", "message": f"✓ {len(group.get('matches', []) or [])} cartes identifiées · Grouping à confirmer"}
                 )
-                if st.button("Confirmer ce groupe", key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}"):
+                st.caption("Ces photos correspondent-elles bien à une seule annonce ?")
+                grouping_actions = st.columns(2)
+                if grouping_actions[0].button(
+                    "Grouping incorrect",
+                    key=f"vinted_photo_group_incorrect_{photo_stable_group_id(group)}",
+                    width="stretch",
+                ):
+                    advance_to_next_group("Grouping à corriger — cas conservé")
+                    st.rerun(scope="fragment")
+                if grouping_actions[1].button(
+                    "Confirmer le grouping",
+                    key=f"vinted_photo_group_confirm_{photo_stable_group_id(group)}",
+                    type="primary",
+                    width="stretch",
+                ):
                     session = confirm_grouping(session, group)
                     _store_photo_workflow_state(active_drop, result, session)
-                    advance_to_next_group("✓ Groupe confirmé")
+                    advance_to_next_group("✓ Grouping confirmé")
                     st.rerun(scope="fragment")
+            elif grouping_needs_confirmation:
+                _render_photo_status_message(
+                    {"tone": "warning", "message": "Grouping à confirmer après validation des cartes"}
+                )
 
     previous_col, spacer, next_col = st.columns([1, 2, 1])
     if previous_col.button("Précédent", key=f"vinted_photo_previous_{drop_id}", disabled=index <= 0, width="stretch"):

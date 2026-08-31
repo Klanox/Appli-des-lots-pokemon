@@ -431,6 +431,11 @@ def grouping_is_confirmed(session: dict[str, Any], group: dict[str, Any]) -> boo
     return str(confirmation.get("photo_signature") or "") == engine.group_photo_signature(_group_photo_payload(group))
 
 
+def grouping_needs_confirmation(session: dict[str, Any], group: dict[str, Any]) -> bool:
+    """Return whether a stable grouping review still blocks this listing."""
+    return group.get("grouping_status") == "review" and not grouping_is_confirmed(session, group)
+
+
 def effective_candidate(
     session: dict[str, Any],
     group: dict[str, Any],
@@ -535,7 +540,7 @@ def next_pending_subcard_index(
 def group_review_reasons(session: dict[str, Any], group: dict[str, Any]) -> list[str]:
     reasons = []
     matches = group.get("matches") or []
-    if group.get("grouping_status") == "review" and not grouping_is_confirmed(session, group):
+    if grouping_needs_confirmation(session, group):
         reasons.append("grouping")
     if len(matches) > 1 and pending_review_subcard_indexes(session, group):
         reasons.append("multi")

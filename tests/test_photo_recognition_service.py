@@ -11,7 +11,10 @@ from services.photo_recognition_service import (
     analysis_summary,
     apply_recognition_statuses,
     build_step4_payload,
+    confirm_grouping,
     current_candidate,
+    grouping_is_confirmed,
+    grouping_needs_confirmation,
     group_review_reasons,
     next_pending_subcard_index,
     normalize_photo_identity,
@@ -485,6 +488,71 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             session = set_match_validation(session, group, half_90, 1, "correct")
             seen.add(f"{stable_group_id(group)}:{stable_subcard_id(half_90, 1)}")
             self.assertIsNone(next_pending_subcard_index(session, group, 1, seen))
+            self.assertTrue(grouping_needs_confirmation(session, group))
+            self.assertIn("grouping", group_review_reasons(session, group))
+
+            session = confirm_grouping(session, group)
+            self.assertTrue(grouping_is_confirmed(session, group))
+            self.assertFalse(grouping_needs_confirmation(session, group))
+            self.assertEqual(group_review_reasons(session, group), [])
+
+    def test_grouping_review_blocks_a_three_card_multi_after_every_card_is_validated(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(3)
+            group = result["groups"][0]
+            group["grouping_status"] = "review"
+            session = _session()
+            seen = set()
+            for index, match in enumerate(group["matches"]):
+                session = set_match_validation(session, group, match, index, "correct")
+                seen.add(f"{stable_group_id(group)}:{stable_subcard_id(match, index)}")
+
+            self.assertIsNone(next_pending_subcard_index(session, group, 2, seen))
+            self.assertTrue(grouping_needs_confirmation(session, group))
+            self.assertEqual(group_review_reasons(session, group), ["grouping"])
+
+    def test_multi_without_grouping_review_advances_when_every_card_is_validated(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _multi_result(2)
+            group = result["groups"][0]
+            session = _session()
+            seen = set()
+            for index, match in enumerate(group["matches"]):
+                session = set_match_validation(session, group, match, index, "correct")
+                seen.add(f"{stable_group_id(group)}:{stable_subcard_id(match, index)}")
+
+            self.assertIsNone(next_pending_subcard_index(session, group, 1, seen))
+            self.assertFalse(grouping_needs_confirmation(session, group))
+            self.assertEqual(group_review_reasons(session, group), [])
+
+    def test_single_grouping_review_stays_unresolved_after_its_card_is_validated(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _result()
+            group = result["groups"][0]
+            group["grouping_status"] = "review"
+            match = group["matches"][0]
+            session = set_match_validation(_session(), group, match, 0, "correct")
+
+            self.assertTrue(grouping_needs_confirmation(session, group))
+            self.assertEqual(group_review_reasons(session, group), ["grouping"])
+
+    def test_grouping_confirmation_survives_a_result_rerun_with_the_same_group_id(self):
+        from services import photo_recognition_service as service
+
+        with TemporaryDirectory() as directory, patch.object(service, "PRODUCTION_CACHE_DIR", Path(directory)):
+            result = _legend_result()
+            group = result["groups"][0]
+            session = confirm_grouping(_session(), group)
+            reloaded_group = deepcopy(group)
+
+            self.assertEqual(stable_group_id(reloaded_group), stable_group_id(group))
+            self.assertTrue(grouping_is_confirmed(session, reloaded_group))
 
     def test_multi_validation_never_counts_a_record_from_another_physical_subcard(self):
         from services import photo_recognition_service as service
