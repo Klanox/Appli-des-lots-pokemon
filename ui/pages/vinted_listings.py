@@ -3444,6 +3444,122 @@ def _recognition_listing_statuses(active_drop, listing):
     return [by_uid.get(str(uid), "needs_review") for uid in listing.get("card_uids", []) or []]
 
 
+def _recognition_payload_summary(active_drop, recognition_payload):
+    listings = recognition_payload.get("listings", []) or []
+    photos = [photo for listing in listings for photo in listing.get("photos", []) or []]
+    cards = [card for listing in listings for card in listing.get("cards", []) or []]
+    payload_uids = {
+        str(card.get("card_uid") or "").strip()
+        for card in cards
+        if str(card.get("card_uid") or "").strip()
+    }
+    drop_refs = active_drop.get("cards", []) or []
+    drop_uids = {
+        str(ref.get("card_uid") or "").strip()
+        for ref in drop_refs
+        if str(ref.get("card_uid") or "").strip()
+    }
+    return {
+        "announcements": len(listings),
+        "photos": len(photos),
+        "cards": len(cards),
+        "multi": sum(1 for listing in listings if len(listing.get("cards", []) or []) > 1),
+        "anomalies": len(recognition_payload.get("diagnostic_errors", []) or []),
+        "drop_items": sum(max(1, _safe_int(ref.get("quantity"), 1)) for ref in drop_refs),
+        "missing_card_uids": sum(1 for card in cards if not str(card.get("card_uid") or "").strip()),
+        "missing_primary_fronts": sum(1 for listing in listings if not listing.get("primary_front")),
+        "unrepresented_drop_uids": sorted(drop_uids - payload_uids),
+    }
+
+
+def _recognition_photo_path(recognition_payload, photo):
+    direct = str((photo or {}).get("path") or "").strip()
+    if direct:
+        return Path(direct)
+    folder = str(recognition_payload.get("photo_folder") or "").strip()
+    filename = str((photo or {}).get("filename") or "").strip()
+    return Path(folder) / filename if folder and filename else Path()
+
+
+def _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, mobile):
+    summary = _recognition_payload_summary(active_drop, recognition_payload)
+    launched_at = str(active_drop.get("drop_launched_at") or "")
+    launch_mode = " · Publication manuelle" if active_drop.get("launch_mode") == "manual" else ""
+    st.success(f"Drop en ligne depuis le {launched_at}{launch_mode}")
+    st.markdown("**Aperçu / contrôle du payload**")
+    st.caption("Ce Drop est déjà lancé. Cette étape est en lecture seule et ne peut créer aucun brouillon.")
+    st.markdown(
+        f"**{summary['announcements']} annonces prêtes** · {summary['photos']} photos · "
+        f"{summary['cards']} cartes photographiées · {summary['multi']} multi · "
+        f"{summary['anomalies']} anomalie"
+    )
+    st.caption(f"{summary['drop_items']} items appartiennent actuellement au Drop.")
+
+    if summary["unrepresented_drop_uids"]:
+        by_uid = {
+            str(card.get("card_uid") or "").strip(): card
+            for card in available_cards or []
+            if str(card.get("card_uid") or "").strip()
+        }
+        labels = []
+        for uid in summary["unrepresented_drop_uids"]:
+            card = by_uid.get(uid) or next(
+                (
+                    ref
+                    for ref in active_drop.get("cards", []) or []
+                    if str(ref.get("card_uid") or "").strip() == uid
+                ),
+                {},
+            )
+            labels.append(_card_display_title(card) or uid)
+        st.warning(
+            f"{len(labels)} item(s) du Drop ne figurent pas dans cette série de photos : "
+            + ", ".join(labels)
+            + "."
+        )
+
+    preview_key = f"vinted_recognition_payload_preview_{active_drop.get('id')}"
+    if st.button("Prévisualiser les annonces", key=f"toggle_{preview_key}"):
+        st.session_state[preview_key] = not bool(st.session_state.get(preview_key))
+        st.rerun()
+    if not st.session_state.get(preview_key):
+        return True
+
+    listings = recognition_payload.get("listings", []) or []
+    if not listings:
+        st.caption("Aucune annonce à prévisualiser.")
+        return True
+    selected = st.number_input(
+        "Annonce à contrôler",
+        min_value=1,
+        max_value=len(listings),
+        value=1,
+        step=1,
+        key=f"{preview_key}_index",
+    )
+    listing = listings[int(selected) - 1]
+    cards = _recognition_listing_cards(listing, available_cards)
+    photo_col, identity_col = st.columns([1, 2]) if not mobile else (st.container(), st.container())
+    with photo_col:
+        primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
+        if primary_path.is_file():
+            st.image(str(primary_path), width="stretch", caption="Photo principale")
+        else:
+            st.caption("Photo principale indisponible dans l’aperçu.")
+    with identity_col:
+        st.markdown(
+            f"**Annonce #{listing.get('creation_order', selected)}** · "
+            f"{len(listing.get('photos', []) or [])} photos · {len(cards)} carte(s)"
+        )
+        for card in cards:
+            st.markdown(f"**{_card_display_title(card)}** · {_card_set(card) or 'Extension N/A'}")
+    with st.expander("Ordre des photos", expanded=False):
+        for position, photo in enumerate(listing.get("photos", []) or [], start=1):
+            filename = str(photo.get("filename") or photo.get("name") or Path(str(photo.get("path") or "")).name)
+            st.caption(f"{position}. {photo.get('role', 'photo')} · {filename or 'Photo'}")
+    return True
+
+
 def _set_recognition_listing_status(drops_data, active_drop, listing, status):
     changed = False
     wanted = {str(uid) for uid in listing.get("card_uids", []) or [] if uid}
@@ -3466,6 +3582,9 @@ def _render_recognition_creation_step(
     mobile,
     recognition_payload,
 ):
+    if active_drop.get("drop_launched_at"):
+        return _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, mobile)
+
     if not recognition_payload.get("ready"):
         st.warning("La vérification photo doit être terminée avant de créer les annonces.")
         unresolved = recognition_payload.get("diagnostic_errors", []) or []
@@ -3519,11 +3638,11 @@ def _render_recognition_creation_step(
         f"**Annonce #{listing.get('creation_order', 1)} sur {total}** · "
         f"{len(cards)} carte(s) · validation {listing.get('validation_source', 'auto')}"
     )
-    primary_path = str((listing.get("primary_front") or {}).get("path") or "")
+    primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
     photo_col, card_col = st.columns([1, 2]) if not mobile else [st.container(), st.container()]
     with photo_col:
-        if primary_path and Path(primary_path).exists():
-            st.image(primary_path, width="stretch", caption="Photo principale")
+        if primary_path.is_file():
+            st.image(str(primary_path), width="stretch", caption="Photo principale")
     with card_col:
         for card in cards:
             st.markdown(f"**{_card_display_title(card)}** · {_card_set(card) or 'Extension N/A'}")
@@ -3773,7 +3892,7 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
     elif step == "Création des annonces":
         recognition_result, recognition_session, _folder = _load_photo_workflow_state(active_drop)
         recognition_payload = None
-        if recognition_result is not None and not active_drop.get("drop_launched_at"):
+        if recognition_result is not None:
             recognition_payload = build_step4_payload(
                 recognition_result,
                 recognition_session,

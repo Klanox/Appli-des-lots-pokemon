@@ -12,6 +12,8 @@ from tests.test_photo_recognition_service import _result, _session
 from ui.pages.vinted_listings import (
     _advanced_photo_review_pass,
     _new_photo_review_pass,
+    _recognition_payload_summary,
+    _render_recognition_creation_step,
     _review_pass_remaining_group_ids,
 )
 
@@ -29,6 +31,57 @@ def _review_groups(count=5):
 
 
 class VintedPhotoReviewNavigationTests(unittest.TestCase):
+    def test_step4_summary_keeps_listing_and_drop_item_units_distinct(self):
+        payload = {
+            "listings": [
+                {
+                    "recognition_group_id": "group-1",
+                    "photos": [{"capture_index": 1}, {"capture_index": 2}],
+                    "primary_front": {"capture_index": 1},
+                    "cards": [{"card_uid": "card-1"}],
+                }
+            ],
+            "diagnostic_errors": [],
+        }
+        drop = {
+            "cards": [
+                {"card_uid": "card-1", "quantity": 1, "status": "sold"},
+                {"card_uid": "card-2", "quantity": 1, "status": "online"},
+            ]
+        }
+
+        summary = _recognition_payload_summary(drop, payload)
+
+        self.assertEqual(summary["announcements"], 1)
+        self.assertEqual(summary["photos"], 2)
+        self.assertEqual(summary["cards"], 1)
+        self.assertEqual(summary["drop_items"], 2)
+        self.assertEqual(summary["unrepresented_drop_uids"], ["card-2"])
+
+    @patch("ui.pages.vinted_listings._render_launched_recognition_preview", return_value=True)
+    def test_launched_drop_routes_step4_to_read_only_preview(self, preview):
+        drop = {
+            "id": "drop-1",
+            "drop_launched_at": "2026-08-27T17:27:35",
+            "launch_mode": "manual",
+            "cards": [{"card_uid": "card-1", "status": "online"}],
+        }
+        payload = {"ready": True, "listings": []}
+
+        rendered = _render_recognition_creation_step(
+            {"drops": [drop]},
+            drop,
+            [],
+            None,
+            None,
+            None,
+            False,
+            payload,
+        )
+
+        self.assertTrue(rendered)
+        preview.assert_called_once_with(drop, [], payload, False)
+
     def test_completed_pass_never_wraps_to_its_first_group(self):
         result, groups = _review_groups()
         state = _new_photo_review_pass(groups)

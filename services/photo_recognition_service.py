@@ -887,6 +887,7 @@ def build_step4_payload(
         "drop_id": str((result.get("analysis_meta") or {}).get("drop_id") or ""),
         "pipeline_version": str((result.get("analysis_meta") or {}).get("pipeline_version") or ""),
         "photo_signature": str((result.get("analysis_meta") or {}).get("photo_signature") or ""),
+        "photo_folder": str((result.get("analysis_meta") or {}).get("folder") or ""),
         "photo_capture_direction": photo_capture_direction,
         "listings": listings,
         "errors": errors if require_ready else [],

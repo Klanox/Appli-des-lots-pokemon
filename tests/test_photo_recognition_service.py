@@ -207,6 +207,35 @@ class PhotoRecognitionServiceTests(unittest.TestCase):
             ["primary_front", "back_western"],
         )
 
+    def test_capture_direction_only_reverses_listing_order(self):
+        result = _result()
+        second = deepcopy(result["groups"][0])
+        second["announcement_index"] = 2
+        second["ground_truth_group_id"] = "group-second"
+        second["photos"] = [
+            {"photo": _photo(3, "front-2.jpg"), "classification": {"class": "primary_front"}},
+            {"photo": _photo(4, "back-2.jpg"), "classification": {"class": "back_western"}},
+        ]
+        second["primary_front"] = {"photo": second["photos"][0]["photo"]}
+        second["group_back"] = {
+            "photo": second["photos"][1]["photo"],
+            "classification": {"class": "back_western"},
+        }
+        second["matches"][0]["subcard_photos"] = {
+            "front": "3:front-2.jpg",
+            "back": "4:back-2.jpg",
+        }
+        result["groups"].append(second)
+        result["sample_photos"].extend([_photo(3, "front-2.jpg"), _photo(4, "back-2.jpg")])
+
+        payload = build_step4_payload(result, _session(), photo_capture_direction="end_to_start")
+
+        self.assertEqual([row["announcement_index"] for row in payload["listings"]], [2, 1])
+        self.assertEqual(
+            [[photo["role"] for photo in row["photos"]] for row in payload["listings"]],
+            [["primary_front", "back_western"], ["primary_front", "back_western"]],
+        )
+
     def test_normalize_photo_identity_accepts_current_mapping_and_legacy_shapes(self):
         from services.photo_recognition_service import PhotoInfo
 
