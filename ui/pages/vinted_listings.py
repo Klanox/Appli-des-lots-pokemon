@@ -38,6 +38,7 @@ from services.vinted_listing_service import (
     filter_cards_for_listing,
     full_card_number,
     listing_price_text,
+    normalize_search_text,
     prepare_listing,
     suggested_price,
 )
@@ -245,9 +246,17 @@ def _inject_vinted_styles():
     padding:.45rem 0;
     white-space:nowrap;
 }
+.ps-recognition-focus-header {
+    color:#111827;
+    font-size:1rem;
+    font-weight:850;
+    line-height:2.4rem;
+    white-space:nowrap;
+}
 @media (max-width: 640px) {
     .ps-recognition-toolbar-label { font-size:.8rem; }
     .ps-recognition-identity-title { font-size:1rem; }
+    .ps-recognition-focus-header { font-size:.92rem; line-height:1.4; margin-bottom:.45rem; }
 }
 .ps-photo-state {
     border:1px solid #e2e8f0;
@@ -3508,6 +3517,33 @@ def _recognition_payload_summary(active_drop, recognition_payload):
     }
 
 
+def _current_step4_payload(active_drop, recognition_result, recognition_session):
+    """Keep the already-built Step 4 payload available through lightweight UI reruns."""
+    drop_id = str(active_drop.get("id") or "")
+    meta = recognition_result.get("analysis_meta") or {}
+    signature_source = {
+        "photo_signature": meta.get("photo_signature"),
+        "candidate_signature": meta.get("candidate_signature"),
+        "pipeline_version": meta.get("pipeline_version"),
+        "direction": _drop_photo_direction(active_drop) or "start_to_end",
+        "validations": recognition_session.get("validations") or {},
+        "grouping": recognition_session.get("grouping_confirmations") or {},
+    }
+    signature = hashlib.sha1(json.dumps(signature_source, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    cache_key = f"vinted_step4_payload_{drop_id}"
+    cached = st.session_state.get(cache_key)
+    if isinstance(cached, dict) and cached.get("signature") == signature:
+        return cached["payload"]
+
+    payload = build_step4_payload(
+        recognition_result,
+        recognition_session,
+        photo_capture_direction=signature_source["direction"],
+    )
+    st.session_state[cache_key] = {"signature": signature, "payload": payload}
+    return payload
+
+
 def _recognition_photo_path(recognition_payload, photo):
     direct = str((photo or {}).get("path") or "").strip()
     if direct:
@@ -3527,13 +3563,65 @@ def _recognition_listing_content(listing, available_cards):
 def _recognition_photo_role_label(photo, *, multi=False):
     role = str((photo or {}).get("role") or "")
     if role == "primary_front":
-        return "Photo groupe" if multi else "Principale"
+        return "Groupe" if multi else "Principale"
     return {
         "card_front": "Recto",
         "card_back": "Verso",
         "back_western": "Verso",
         "back_japanese": "Verso",
     }.get(role, "Photo")
+
+
+def _step4_preview_mode_key(drop_id):
+    return f"step4_preview_mode_{drop_id}"
+
+
+def _recognition_preview_index_key(drop_id):
+    return f"vinted_recognition_preview_index_{drop_id}"
+
+
+def _recognition_payload_search_signature(recognition_payload):
+    return ":".join(
+        (
+            str(id(recognition_payload)),
+            str(recognition_payload.get("photo_signature") or ""),
+            str(recognition_payload.get("pipeline_version") or ""),
+            str(len(recognition_payload.get("listings", []) or [])),
+        )
+    )
+
+
+def _recognition_listing_search_index(active_drop, recognition_payload, available_cards):
+    """Build a tiny payload-only card index once per current recognition result."""
+    drop_id = str(active_drop.get("id") or "")
+    signature = _recognition_payload_search_signature(recognition_payload)
+    state_key = f"vinted_recognition_preview_search_{drop_id}"
+    cached = st.session_state.get(state_key)
+    if isinstance(cached, dict) and cached.get("signature") == signature:
+        return cached.get("entries", [])
+
+    entries = []
+    for listing_index, listing in enumerate(recognition_payload.get("listings", []) or [], start=1):
+        for card in _recognition_listing_cards(listing, available_cards):
+            name = _card_display_title(card)
+            number = _card_number(card)
+            extension = _card_set(card)
+            entries.append(
+                {
+                    "listing_index": listing_index,
+                    "label": " · ".join(part for part in (name, number, extension) if part),
+                    "search_text": normalize_search_text(" ".join(str(part or "") for part in (name, number, extension))),
+                }
+            )
+    st.session_state[state_key] = {"signature": signature, "entries": entries}
+    return entries
+
+
+def _recognition_listing_search_results(entries, query, *, limit=12):
+    terms = [term for term in normalize_search_text(query).split() if term]
+    if not terms:
+        return []
+    return [entry for entry in entries if all(term in entry["search_text"] for term in terms)][:limit]
 
 
 def _render_recognition_listing_workspace(
@@ -3569,7 +3657,7 @@ def _render_recognition_listing_workspace(
                 with columns[offset]:
                     photo_path = _recognition_photo_path(recognition_payload, photo)
                     if photo_path.is_file():
-                        st.image(str(photo_path), width="stretch")
+                        st.image(str(photo_path), width=68 if mobile else 58)
                     st.markdown(
                         f'<div class="ps-recognition-photo-caption">{_recognition_photo_role_label(photo, multi=len(cards) > 1)}</div>',
                         unsafe_allow_html=True,
@@ -3635,6 +3723,96 @@ def _render_recognition_listing_workspace(
             st.caption(f"{position}. {photo.get('role', 'photo')} · {filename or 'Photo'}")
 
 
+def _render_recognition_preview_workspace(
+    active_drop,
+    available_cards,
+    recognition_payload,
+    run_html_func,
+    mobile,
+):
+    listings = recognition_payload.get("listings", []) or []
+    if not listings:
+        st.caption("Aucune annonce à prévisualiser.")
+        return
+
+    drop_id = str(active_drop.get("id") or "")
+    preview_key = _step4_preview_mode_key(drop_id)
+    index_key = _recognition_preview_index_key(drop_id)
+    selected = max(1, min(len(listings), int(st.session_state.get(index_key, 1) or 1)))
+
+    if mobile:
+        previous_col, label_col, next_col = st.columns([0.55, 1.8, 0.55])
+    else:
+        previous_col, label_col, next_col, search_col, jump_col = st.columns([0.38, 1.45, 0.38, 2.7, 0.75])
+    with previous_col:
+        if st.button("←", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
+            st.session_state[index_key] = selected - 1
+            st.rerun()
+    with label_col:
+        st.markdown(
+            f'<div class="ps-recognition-toolbar-label">Annonce {selected} / {len(listings)}</div>',
+            unsafe_allow_html=True,
+        )
+    with next_col:
+        if st.button("→", key=f"next_{preview_key}", disabled=selected >= len(listings), width="stretch"):
+            st.session_state[index_key] = selected + 1
+            st.rerun()
+
+    if mobile:
+        search_col = st.container()
+        jump_col = None
+    with search_col:
+        search_query = st.text_input(
+            "Rechercher une carte",
+            key=f"{preview_key}_search",
+            placeholder="🔎 Rechercher une carte…",
+            label_visibility="collapsed",
+        )
+    if jump_col is not None:
+        with jump_col:
+            with st.popover("Aller à…", use_container_width=True):
+                jump_to = st.number_input(
+                    "Numéro d’annonce",
+                    min_value=1,
+                    max_value=len(listings),
+                    value=selected,
+                    step=1,
+                    key=f"{preview_key}_jump",
+                )
+                if st.button("Afficher", key=f"jump_{preview_key}", width="stretch"):
+                    st.session_state[index_key] = int(jump_to)
+                    st.rerun()
+
+    search_results = _recognition_listing_search_results(
+        _recognition_listing_search_index(active_drop, recognition_payload, available_cards),
+        search_query,
+    )
+    if search_query.strip():
+        if search_results:
+            st.caption(f"{len(search_results)} annonce(s) trouvée(s)")
+            for result_number, result in enumerate(search_results, start=1):
+                if st.button(
+                    f"{result['label']} · Annonce {result['listing_index']}",
+                    key=f"{preview_key}_search_result_{result_number}_{result['listing_index']}",
+                    width="stretch",
+                ):
+                    st.session_state[index_key] = result["listing_index"]
+                    st.rerun()
+        else:
+            st.caption("Aucune carte de ces annonces ne correspond à cette recherche.")
+
+    with st.container(border=True):
+        _render_recognition_listing_workspace(
+            active_drop,
+            recognition_payload,
+            listings[selected - 1],
+            available_cards,
+            run_html_func,
+            mobile,
+            read_only=True,
+        )
+
+
 def _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, run_html_func, mobile):
     summary = _recognition_payload_summary(active_drop, recognition_payload)
     launched_at = str(active_drop.get("drop_launched_at") or "")
@@ -3672,57 +3850,33 @@ def _render_launched_recognition_preview(active_drop, available_cards, recogniti
             + "."
         )
 
-    preview_key = f"vinted_recognition_payload_preview_{active_drop.get('id')}"
-    if st.button("Prévisualiser les annonces", key=f"toggle_{preview_key}"):
-        st.session_state[preview_key] = not bool(st.session_state.get(preview_key))
+    preview_key = _step4_preview_mode_key(active_drop.get("id"))
+    if st.button("Prévisualiser les annonces", key=f"open_{preview_key}"):
+        st.session_state[preview_key] = True
         st.rerun()
-    if not st.session_state.get(preview_key):
-        return True
+    return True
 
-    listings = recognition_payload.get("listings", []) or []
-    if not listings:
-        st.caption("Aucune annonce à prévisualiser.")
-        return True
-    index_key = f"{preview_key}_index"
-    selected = max(1, min(len(listings), int(st.session_state.get(index_key, 1) or 1)))
-    previous_col, label_col, next_col, jump_col = st.columns([0.45, 2.1, 0.45, 0.9])
-    with previous_col:
-        if st.button("←", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
-            st.session_state[index_key] = selected - 1
-            st.rerun()
-    with label_col:
+
+def _render_step4_focus_preview(active_drop, available_cards, recognition_payload, run_html_func, mobile):
+    """Render the read-only preview without the regular Drop workflow chrome."""
+    drop_id = str(active_drop.get("id") or "")
+    title_col, quit_col = st.columns([5, 1]) if not mobile else (st.container(), st.container())
+    with title_col:
         st.markdown(
-            f'<div class="ps-recognition-toolbar-label">Annonce {selected} / {len(listings)}</div>',
+            f'<div class="ps-recognition-focus-header">{_html_escape(active_drop.get("name") or "Drop")} · Étape 4 · Aperçu</div>',
             unsafe_allow_html=True,
         )
-    with next_col:
-        if st.button("→", key=f"next_{preview_key}", disabled=selected >= len(listings), width="stretch"):
-            st.session_state[index_key] = selected + 1
+    with quit_col:
+        if st.button("Quitter l’aperçu", key=f"close_{_step4_preview_mode_key(drop_id)}", width="stretch"):
+            st.session_state.pop(_step4_preview_mode_key(drop_id), None)
             st.rerun()
-    with jump_col:
-        with st.popover("Aller à…", use_container_width=True):
-            jump_to = st.number_input(
-                "Numéro d’annonce",
-                min_value=1,
-                max_value=len(listings),
-                value=selected,
-                step=1,
-                key=f"{preview_key}_jump",
-            )
-            if st.button("Afficher", key=f"jump_{preview_key}", width="stretch"):
-                st.session_state[index_key] = int(jump_to)
-                st.rerun()
-    with st.container(border=True):
-        _render_recognition_listing_workspace(
-            active_drop,
-            recognition_payload,
-            listings[selected - 1],
-            available_cards,
-            run_html_func,
-            mobile,
-            read_only=True,
-        )
-    return True
+    _render_recognition_preview_workspace(
+        active_drop,
+        available_cards,
+        recognition_payload,
+        run_html_func,
+        mobile,
+    )
 
 
 def _set_recognition_listing_status(drops_data, active_drop, listing, status):
@@ -4071,11 +4225,7 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
         recognition_result, recognition_session, _folder = _load_photo_workflow_state(active_drop)
         recognition_payload = None
         if recognition_result is not None:
-            recognition_payload = build_step4_payload(
-                recognition_result,
-                recognition_session,
-                photo_capture_direction=_drop_photo_direction(active_drop) or "start_to_end",
-            )
+            recognition_payload = _current_step4_payload(active_drop, recognition_result, recognition_session)
         _render_drop_creation_step(
             drops_data,
             active_drop,
@@ -4170,16 +4320,6 @@ def render_vinted_listings_page(
     calc_cout_lot_func=None,
     effective_purchase_price_func=None,
 ):
-    if page_mode == "individual":
-        st.markdown(
-            render_page_header_func("Annonces individuelles", "Créer une annonce ponctuelle hors drop", "📝"),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            render_page_header_func("Drop Vinted", "Préparer, suivre et analyser tes drops Vinted", "🛍️"),
-            unsafe_allow_html=True,
-        )
     _inject_vinted_styles()
 
     d = ld_func()
@@ -4193,15 +4333,44 @@ def render_vinted_listings_page(
     if perf_count_func:
         perf_count_func("vinted_cards_available", len(cards))
 
+    drops_data = load_vinted_drops()
+    mobile = bool(is_mobile_mode_func and is_mobile_mode_func())
+
     if page_mode == "individual" and not cards:
+        st.markdown(
+            render_page_header_func("Annonces individuelles", "Créer une annonce ponctuelle hors drop", "📝"),
+            unsafe_allow_html=True,
+        )
         st.info("Aucune carte disponible à la vente pour le moment.")
         return
 
-    mobile = bool(is_mobile_mode_func and is_mobile_mode_func())
-    drops_data = load_vinted_drops()
     if page_mode == "individual":
+        st.markdown(
+            render_page_header_func("Annonces individuelles", "Créer une annonce ponctuelle hors drop", "📝"),
+            unsafe_allow_html=True,
+        )
         _render_classic_listing_section(cards, drops_data, proxy_img_func, fp_func, run_html_func, mobile, allow_drop_add=False)
         return
+
+    active_drop = find_drop(drops_data, _active_drop_id(drops_data))
+    if active_drop and st.session_state.get(_step4_preview_mode_key(active_drop.get("id"))):
+        recognition_result, recognition_session, _folder = _load_photo_workflow_state(active_drop)
+        if recognition_result is not None:
+            recognition_payload = _current_step4_payload(active_drop, recognition_result, recognition_session)
+            _render_step4_focus_preview(
+                active_drop,
+                source_cards,
+                recognition_payload,
+                run_html_func,
+                mobile,
+            )
+            return
+        st.session_state.pop(_step4_preview_mode_key(active_drop.get("id")), None)
+
+    st.markdown(
+        render_page_header_func("Drop Vinted", "Préparer, suivre et analyser tes drops Vinted", "🛍️"),
+        unsafe_allow_html=True,
+    )
 
     step = _render_drop_step_nav(mobile)
     _render_drops_manager(

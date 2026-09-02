@@ -13,6 +13,7 @@ from ui.pages.vinted_listings import (
     _advanced_photo_review_pass,
     _new_photo_review_pass,
     _recognition_listing_content,
+    _recognition_listing_search_results,
     _recognition_photo_role_label,
     _recognition_payload_summary,
     _render_recognition_creation_step,
@@ -102,9 +103,19 @@ class VintedPhotoReviewNavigationTests(unittest.TestCase):
 
     def test_photo_gallery_uses_customer_facing_labels(self):
         self.assertEqual(_recognition_photo_role_label({"role": "primary_front"}), "Principale")
-        self.assertEqual(_recognition_photo_role_label({"role": "primary_front"}, multi=True), "Photo groupe")
+        self.assertEqual(_recognition_photo_role_label({"role": "primary_front"}, multi=True), "Groupe")
         self.assertEqual(_recognition_photo_role_label({"role": "card_front"}), "Recto")
         self.assertEqual(_recognition_photo_role_label({"role": "back_japanese"}), "Verso")
+
+    def test_preview_search_matches_partial_names_without_accents(self):
+        entries = [
+            {"listing_index": 13, "label": "Kaorine de Team Magma · 8 · EX Team Magma", "search_text": "kaorine de team magma 8 ex team magma"},
+            {"listing_index": 150, "label": "Koraidon · 8 · Promo", "search_text": "koraidon 8 promo"},
+            {"listing_index": 42, "label": "Feunnec · 059 · MEP", "search_text": "feunnec 059 mep"},
+        ]
+
+        self.assertEqual(_recognition_listing_search_results(entries, "KAORINE"), [entries[0]])
+        self.assertEqual(_recognition_listing_search_results(entries, "feun"), [entries[2]])
 
     def test_completed_pass_never_wraps_to_its_first_group(self):
         result, groups = _review_groups()
