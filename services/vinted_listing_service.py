@@ -171,7 +171,7 @@ def card_status_text(card):
         parts.append("Reverse")
     if card.get("is_ed1"):
         parts.append("1ère édition")
-    if card.get("lang") == "ja" or card.get("is_japanese"):
+    if card.get("lang") == "ja" or card.get("japanese") or card.get("is_japanese"):
         parts.append("Japonaise")
     if special:
         parts.append(special)
@@ -200,6 +200,18 @@ def card_listing_name(card):
 
 def card_extension(card):
     return clean_text(card.get("set", ""), "Pokémon")
+
+
+def listing_language_label(cards):
+    languages = {
+        "JAP" if card.get("lang") == "ja" or card.get("japanese") or card.get("is_japanese") else "FR"
+        for card in cards or []
+    }
+    if languages == {"JAP"}:
+        return "JAP"
+    if languages == {"FR", "JAP"}:
+        return "FR/JAP"
+    return "FR"
 
 
 def suggested_price(card):
@@ -267,27 +279,29 @@ def generate_title(cards, listing_type="Carte seule"):
     cards = list(cards or [])
     if not cards:
         return ""
+    language = listing_language_label(cards)
     if listing_type == "Plusieurs cartes" or len(cards) > 1:
         names = [card_listing_name(card) for card in cards[:3]]
-        return clean_text(f"Lot cartes Pokémon - {', '.join(names)} - FR")
+        return clean_text(f"Lot cartes Pokémon - {', '.join(names)} - {language}")
 
     card = cards[0]
     listing_name = card_listing_name(card)
     extension = card_extension(card)
-    return clean_text(f"Carte Pokémon - {listing_name} - {extension} - FR")
+    return clean_text(f"Carte Pokémon - {listing_name} - {extension} - {language}")
 
 
 def generate_description(cards, listing_type="Carte seule"):
     cards = list(cards or [])
     if not cards:
         return ""
+    language = listing_language_label(cards)
     if listing_type == "Plusieurs cartes" or len(cards) > 1:
         first_line = "Vends lot de cartes Pokémon comprenant : " + ", ".join(
             card_listing_name(card) for card in cards
-        )
+        ) + f" - {language}"
     else:
         card = cards[0]
-        first_line = f"Vends {card_listing_name(card)} - {card_extension(card)} - FR"
+        first_line = f"Vends {card_listing_name(card)} - {card_extension(card)} - {language}"
 
     return (
         f"{first_line}\n\n"

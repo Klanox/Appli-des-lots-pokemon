@@ -12,6 +12,7 @@ from tests.test_photo_recognition_service import _result, _session
 from ui.pages.vinted_listings import (
     _advanced_photo_review_pass,
     _new_photo_review_pass,
+    _recognition_listing_content,
     _recognition_payload_summary,
     _render_recognition_creation_step,
     _review_pass_remaining_group_ids,
@@ -80,7 +81,23 @@ class VintedPhotoReviewNavigationTests(unittest.TestCase):
         )
 
         self.assertTrue(rendered)
-        preview.assert_called_once_with(drop, [], payload, False)
+        preview.assert_called_once_with(drop, [], payload, None, False)
+
+    def test_recognition_listing_content_uses_one_vinted_text_for_a_multi(self):
+        listing = {
+            "cards": [{"card_uid": "card-a"}, {"card_uid": "card-b"}],
+        }
+        available_cards = [
+            {"card_uid": "card-a", "name": "Marisson", "number": "058", "set": "MEP"},
+            {"card_uid": "card-b", "name": "Feunnec", "number": "059", "set": "MEP"},
+        ]
+
+        cards, _listing_cards, listing_type, prepared = _recognition_listing_content(listing, available_cards)
+
+        self.assertEqual(len(cards), 2)
+        self.assertEqual(listing_type, "Plusieurs cartes")
+        self.assertEqual(prepared["title"], "Lot cartes Pokémon - Marisson 058, Feunnec 059 - FR")
+        self.assertIn("Marisson 058, Feunnec 059", prepared["description"])
 
     def test_completed_pass_never_wraps_to_its_first_group(self):
         result, groups = _review_groups()

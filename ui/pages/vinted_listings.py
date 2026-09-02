@@ -3481,7 +3481,84 @@ def _recognition_photo_path(recognition_payload, photo):
     return Path(folder) / filename if folder and filename else Path()
 
 
-def _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, mobile):
+def _recognition_listing_content(listing, available_cards):
+    cards = _recognition_listing_cards(listing, available_cards)
+    listing_type = "Plusieurs cartes" if len(cards) > 1 else "Carte seule"
+    listing_cards = [_card_with_drop_quantity(card, 1) for card in cards]
+    return cards, listing_cards, listing_type, prepare_listing(listing_cards, listing_type)
+
+
+def _render_recognition_listing_preview(
+    active_drop,
+    recognition_payload,
+    listing,
+    available_cards,
+    run_html_func,
+    mobile,
+):
+    cards, _listing_cards, _listing_type, prepared = _recognition_listing_content(listing, available_cards)
+    listing_key = str(listing.get("recognition_group_id") or listing.get("creation_order") or "listing")
+    st.markdown(
+        f"**Annonce {listing.get('creation_order', 1)} / {len(recognition_payload.get('listings', []) or [])}**  \n"
+        f"{len(listing.get('photos', []) or [])} photos · {len(cards)} carte(s)"
+    )
+    photo_col, content_col = st.columns([1, 1.35]) if not mobile else (st.container(), st.container())
+    with photo_col:
+        primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
+        if primary_path.is_file():
+            st.image(str(primary_path), width="stretch" if mobile else 320, caption="Photo principale")
+        else:
+            st.caption("Photo principale indisponible dans l’aperçu.")
+        photos = listing.get("photos", []) or []
+        if photos:
+            st.caption("Photos de l’annonce")
+        for start in range(0, len(photos), 4):
+            row = photos[start : start + 4]
+            columns = st.columns(len(row))
+            for offset, photo in enumerate(row):
+                with columns[offset]:
+                    photo_path = _recognition_photo_path(recognition_payload, photo)
+                    if photo_path.is_file():
+                        st.image(str(photo_path), width="stretch")
+                    st.caption(f"{start + offset + 1}. {str(photo.get('role') or 'photo').replace('_', ' ')}")
+    with content_col:
+        st.markdown("**Carte(s) de l’annonce**")
+        for card in cards:
+            details = _card_set(card) or "Extension N/A"
+            st.markdown(f"**{_card_display_title(card)}** · {details}")
+
+        st.text_input(
+            "Titre Vinted",
+            value=prepared["title"],
+            disabled=True,
+            key=f"vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+        )
+        _copy_button(
+            "Copier le titre",
+            prepared["title"],
+            f"copy_vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+            run_html_func,
+        )
+        st.text_area(
+            "Description",
+            value=prepared["description"],
+            height=220 if mobile else 260,
+            disabled=True,
+            key=f"vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+        )
+        _copy_button(
+            "Copier la description",
+            prepared["description"],
+            f"copy_vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+            run_html_func,
+        )
+    with st.expander("Détails de l’ordre des photos", expanded=False):
+        for position, photo in enumerate(listing.get("photos", []) or [], start=1):
+            filename = str(photo.get("filename") or photo.get("name") or Path(str(photo.get("path") or "")).name)
+            st.caption(f"{position}. {photo.get('role', 'photo')} · {filename or 'Photo'}")
+
+
+def _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, run_html_func, mobile):
     summary = _recognition_payload_summary(active_drop, recognition_payload)
     launched_at = str(active_drop.get("drop_launched_at") or "")
     launch_mode = " · Publication manuelle" if active_drop.get("launch_mode") == "manual" else ""
@@ -3529,34 +3606,37 @@ def _render_launched_recognition_preview(active_drop, available_cards, recogniti
     if not listings:
         st.caption("Aucune annonce à prévisualiser.")
         return True
-    selected = st.number_input(
-        "Annonce à contrôler",
-        min_value=1,
-        max_value=len(listings),
-        value=1,
-        step=1,
-        key=f"{preview_key}_index",
+    index_key = f"{preview_key}_index"
+    selected = max(1, min(len(listings), int(st.session_state.get(index_key, 1) or 1)))
+    previous_col, next_col = st.columns(2)
+    with previous_col:
+        if st.button("← Précédente", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
+            st.session_state[index_key] = selected - 1
+            st.rerun()
+    with next_col:
+        if st.button("Suivante →", key=f"next_{preview_key}", disabled=selected >= len(listings), width="stretch"):
+            st.session_state[index_key] = selected + 1
+            st.rerun()
+    _render_recognition_listing_preview(
+        active_drop,
+        recognition_payload,
+        listings[selected - 1],
+        available_cards,
+        run_html_func,
+        mobile,
     )
-    listing = listings[int(selected) - 1]
-    cards = _recognition_listing_cards(listing, available_cards)
-    photo_col, identity_col = st.columns([1, 2]) if not mobile else (st.container(), st.container())
-    with photo_col:
-        primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
-        if primary_path.is_file():
-            st.image(str(primary_path), width="stretch", caption="Photo principale")
-        else:
-            st.caption("Photo principale indisponible dans l’aperçu.")
-    with identity_col:
-        st.markdown(
-            f"**Annonce #{listing.get('creation_order', selected)}** · "
-            f"{len(listing.get('photos', []) or [])} photos · {len(cards)} carte(s)"
+    with st.expander("Aller directement à une annonce", expanded=False):
+        jump_to = st.number_input(
+            "Numéro d’annonce",
+            min_value=1,
+            max_value=len(listings),
+            value=selected,
+            step=1,
+            key=f"{preview_key}_jump",
         )
-        for card in cards:
-            st.markdown(f"**{_card_display_title(card)}** · {_card_set(card) or 'Extension N/A'}")
-    with st.expander("Ordre des photos", expanded=False):
-        for position, photo in enumerate(listing.get("photos", []) or [], start=1):
-            filename = str(photo.get("filename") or photo.get("name") or Path(str(photo.get("path") or "")).name)
-            st.caption(f"{position}. {photo.get('role', 'photo')} · {filename or 'Photo'}")
+        if st.button("Afficher cette annonce", key=f"jump_{preview_key}"):
+            st.session_state[index_key] = int(jump_to)
+            st.rerun()
     return True
 
 
@@ -3583,7 +3663,13 @@ def _render_recognition_creation_step(
     recognition_payload,
 ):
     if active_drop.get("drop_launched_at"):
-        return _render_launched_recognition_preview(active_drop, available_cards, recognition_payload, mobile)
+        return _render_launched_recognition_preview(
+            active_drop,
+            available_cards,
+            recognition_payload,
+            run_html_func,
+            mobile,
+        )
 
     if not recognition_payload.get("ready"):
         st.warning("La vérification photo doit être terminée avant de créer les annonces.")
@@ -3630,9 +3716,7 @@ def _render_recognition_creation_step(
         return True
 
     listing = pending[0]
-    cards = _recognition_listing_cards(listing, available_cards)
-    listing_type = "Plusieurs cartes" if len(cards) > 1 else "Carte seule"
-    listing_cards = [_card_with_drop_quantity(card, 1) for card in cards]
+    cards, listing_cards, listing_type, _prepared = _recognition_listing_content(listing, available_cards)
     _sync_listing_text(listing_cards, listing_type, fp_func)
     st.markdown(
         f"**Annonce #{listing.get('creation_order', 1)} sur {total}** · "
