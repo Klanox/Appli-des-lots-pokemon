@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import unittest
+
+from ui.pages.vinted_listings import _drop_metrics, _physical_price_band_rows, _sales_scope_metrics
+
+
+def _sale_row(sale_id, card_uid, quantity, revenue, *, drop_item_id=None, off_stock=False):
+    return {
+        "sale": {"sale_id": sale_id, "drop_item_id": drop_item_id},
+        "card": {"card_uid": card_uid},
+        "quantity": quantity,
+        "revenue": revenue,
+        "profit": revenue / 2,
+        "date": "2026-09-02",
+        "card_name": card_uid or "Vente hors stock",
+        "is_off_stock": off_stock,
+    }
+
+
+class VintedDropAnalyticsTests(unittest.TestCase):
+    def setUp(self):
+        self.drop = {
+            "cards": [
+                {"drop_item_id": "item-low", "card_uid": "card-low", "price_at_add": 1.5, "quantity": 2, "status": "sold"},
+                {"drop_item_id": "item-mid", "card_uid": "card-mid", "price_at_add": 6.0, "quantity": 2, "status": "sold"},
+            ]
+        }
+        self.rows = [
+            _sale_row("sale-low", "card-low", 2, 3.0, drop_item_id="item-low"),
+            _sale_row("sale-mid", "card-mid", 2, 10.0, drop_item_id="item-mid"),
+            _sale_row("off-stock", None, 0, 19.0, off_stock=True),
+        ]
+
+    def test_scope_keeps_off_stock_out_of_physical_card_metrics(self):
+        scope = _sales_scope_metrics(self.rows)
+        metrics = _drop_metrics(self.drop, self.rows)
+
+        self.assertEqual(scope["sold_cards"], 4)
+        self.assertEqual(scope["card_transactions"], 2)
+        self.assertEqual(scope["off_stock_transactions"], 1)
+        self.assertEqual(metrics["ca_total"], 32.0)
+        self.assertEqual(metrics["ca_cards"], 13.0)
+        self.assertEqual(metrics["ca_off_stock"], 19.0)
+        self.assertEqual(metrics["avg_cards_per_transaction"], 2.0)
+
+    def test_price_bands_use_each_physical_item_published_price(self):
+        paired = _physical_price_band_rows(self.drop, self.rows)
+
+        self.assertEqual([(row["sale"]["sale_id"], price) for row, price in paired], [
+            ("sale-low", 1.5),
+            ("sale-mid", 6.0),
+        ])
+        self.assertNotIn("off-stock", [row["sale"]["sale_id"] for row, _ in paired])
+
+    def test_multi_card_transaction_counts_once(self):
+        rows = [
+            _sale_row("bundle", "card-low", 1, 1.5, drop_item_id="item-low"),
+            _sale_row("bundle", "card-mid", 1, 6.0, drop_item_id="item-mid"),
+        ]
+
+        scope = _sales_scope_metrics(rows)
+
+        self.assertEqual(scope["sold_cards"], 2)
+        self.assertEqual(scope["card_transactions"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

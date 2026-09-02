@@ -3238,14 +3238,77 @@ def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None, effective_
     return rows
 
 
+def _analytics_transaction_key(row, index):
+    sale = row.get("sale") or {}
+    sale_id = str(sale.get("sale_id") or "").strip()
+    if sale_id:
+        return sale_id
+    return f"{row.get('date')}:{row.get('card_name', '')}:{index}"
+
+
+def _sales_scope_metrics(rows):
+    """Keep card-only and total Drop-sale metrics on explicit, compatible scopes."""
+    rows = list(rows or [])
+    physical_rows = [row for row in rows if _safe_int(row.get("quantity"), 0) > 0]
+    off_stock_rows = [row for row in rows if row.get("is_off_stock")]
+    all_transaction_keys = {_analytics_transaction_key(row, index) for index, row in enumerate(rows)}
+    card_transaction_keys = {_analytics_transaction_key(row, index) for index, row in enumerate(physical_rows)}
+    off_stock_transaction_keys = {
+        _analytics_transaction_key(row, index)
+        for index, row in enumerate(rows)
+        if row.get("is_off_stock") and _analytics_transaction_key(row, index) not in card_transaction_keys
+    }
+    sold_cards = sum(_safe_int(row.get("quantity"), 0) for row in physical_rows)
+    ca_cards = sum(_safe_float(row.get("revenue")) for row in physical_rows)
+    ca_off_stock = sum(_safe_float(row.get("revenue")) for row in off_stock_rows)
+    return {
+        "physical_rows": physical_rows,
+        "off_stock_rows": off_stock_rows,
+        "sold_cards": sold_cards,
+        "ca_total": sum(_safe_float(row.get("revenue")) for row in rows),
+        "ca_cards": ca_cards,
+        "ca_off_stock": ca_off_stock,
+        "total_transactions": len(all_transaction_keys),
+        "card_transactions": len(card_transaction_keys),
+        "off_stock_transactions": len(off_stock_transaction_keys),
+    }
+
+
+def _physical_price_band_rows(drop, rows):
+    """Return physical sales paired with their published Drop price, never off-stock sales."""
+    refs_by_item_id = {
+        str(ref.get("drop_item_id") or ""): ref
+        for ref in drop.get("cards", []) or []
+        if str(ref.get("drop_item_id") or "")
+    }
+    refs_by_uid = {}
+    for ref in drop.get("cards", []) or []:
+        uid = str(ref.get("card_uid") or "")
+        if uid:
+            refs_by_uid.setdefault(uid, []).append(ref)
+
+    paired = []
+    for row in _sales_scope_metrics(rows)["physical_rows"]:
+        sale = row.get("sale") or {}
+        ref = refs_by_item_id.get(str(sale.get("drop_item_id") or ""))
+        if ref is None:
+            options = refs_by_uid.get(str((row.get("card") or {}).get("card_uid") or ""), [])
+            ref = options[0] if len(options) == 1 else None
+        if ref is None:
+            continue
+        published_price = _safe_float(ref.get("price_at_add"))
+        if published_price > 0:
+            paired.append((row, published_price))
+    return paired
+
+
 def _drop_metrics(drop, sales_rows):
     counts = _drop_status_counts(drop)
     total_cards = _drop_card_total(drop)
-    revenue = sum(row["revenue"] for row in sales_rows)
+    scope = _sales_scope_metrics(sales_rows)
+    revenue = scope["ca_total"]
     known_profits = [row["profit"] for row in sales_rows if row.get("profit") is not None]
-    sold_cards = sum(row["quantity"] for row in sales_rows) or counts.get("sold", 0)
-    sold_card_revenue = sum(row["revenue"] for row in sales_rows if row.get("quantity", 0) > 0)
-    transactions = {row["sale"].get("sale_id") or f"{row['date']}-{idx}" for idx, row in enumerate(sales_rows)}
+    sold_cards = scope["sold_cards"] or counts.get("sold", 0)
     return {
         "cards": total_cards,
         "draft_ready": counts.get("draft_ready", 0),
@@ -3253,11 +3316,17 @@ def _drop_metrics(drop, sales_rows):
         "sold": sold_cards,
         "published_value": _drop_value_total(drop),
         "revenue": revenue,
+        "ca_total": revenue,
+        "ca_cards": scope["ca_cards"],
+        "ca_off_stock": scope["ca_off_stock"],
         "profit": sum(known_profits) if known_profits else None,
+        "profit_total": sum(known_profits) if known_profits else None,
         "sell_through": (sold_cards / total_cards * 100.0) if total_cards else None,
-        "avg_sold_price": (sold_card_revenue / sold_cards) if sold_cards else None,
-        "avg_basket": (revenue / len(transactions)) if transactions else None,
-        "avg_cards_per_transaction": (sold_cards / len(transactions)) if transactions else None,
+        "avg_sold_price": (scope["ca_cards"] / sold_cards) if sold_cards else None,
+        "avg_basket": (revenue / scope["total_transactions"]) if scope["total_transactions"] else None,
+        "card_transactions": scope["card_transactions"],
+        "off_stock_transactions": scope["off_stock_transactions"],
+        "avg_cards_per_transaction": (sold_cards / scope["card_transactions"]) if scope["card_transactions"] else None,
     }
 
 
@@ -3402,6 +3471,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     selected_name = st.selectbox("Drop", drop_names, key="vinted_analysis_drop")
     selected = filtered if selected_name == "Tous les drops" else [drop for drop in filtered if drop.get("name", "Drop sans nom") == selected_name]
     all_rows = []
+    rows_by_drop_id = {}
     aggregate = {
         "cards": 0,
         "draft_ready": 0,
@@ -3414,6 +3484,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     }
     for drop in selected:
         rows = _sale_rows_for_drop(stock_data, drop.get("id"), calc_cout_lot_func, effective_purchase_price_func)
+        rows_by_drop_id[str(drop.get("id") or "")] = rows
         all_rows.extend(rows)
         metrics = _drop_metrics(drop, rows)
         for key in ("cards", "draft_ready", "online", "sold", "published_value", "revenue"):
@@ -3423,11 +3494,19 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
             aggregate["known_profit"] = True
     aggregate["profit"] = aggregate["profit"] if aggregate.pop("known_profit") else None
     aggregate["sell_through"] = aggregate["sold"] / aggregate["cards"] * 100.0 if aggregate["cards"] else None
-    tx_count = len({row["sale"].get("sale_id") for row in all_rows if row["sale"].get("sale_id")})
-    card_revenue = sum(row["revenue"] for row in all_rows if row.get("quantity", 0) > 0)
-    aggregate["avg_sold_price"] = card_revenue / aggregate["sold"] if aggregate["sold"] else None
-    aggregate["avg_basket"] = aggregate["revenue"] / tx_count if tx_count else None
-    aggregate["avg_cards_per_transaction"] = aggregate["sold"] / tx_count if tx_count else None
+    scope = _sales_scope_metrics(all_rows)
+    aggregate.update({
+        "ca_total": aggregate["revenue"],
+        "ca_cards": scope["ca_cards"],
+        "ca_off_stock": scope["ca_off_stock"],
+        "profit_total": aggregate["profit"],
+        "sold_cards": aggregate["sold"],
+        "card_transactions": scope["card_transactions"],
+        "off_stock_transactions": scope["off_stock_transactions"],
+    })
+    aggregate["avg_sold_price"] = scope["ca_cards"] / aggregate["sold"] if aggregate["sold"] else None
+    aggregate["avg_basket"] = aggregate["revenue"] / scope["total_transactions"] if scope["total_transactions"] else None
+    aggregate["avg_cards_per_transaction"] = aggregate["sold"] / scope["card_transactions"] if scope["card_transactions"] else None
     _render_kpis(aggregate, fp_func)
 
     neg = _negotiation_stats(all_rows)
@@ -3465,11 +3544,12 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
                 qty = max(1, _safe_int(ref.get("quantity"), 1))
                 if low <= price < high:
                     published += qty
-        for row in all_rows:
-            unit = row["revenue"] / max(1, row["quantity"])
-            if low <= unit < high:
-                sold += row["quantity"]
-                ca += row["revenue"]
+        for drop in selected:
+            rows = rows_by_drop_id.get(str(drop.get("id") or ""), [])
+            for row, published_price in _physical_price_band_rows(drop, rows):
+                if low <= published_price < high:
+                    sold += row["quantity"]
+                    ca += row["revenue"]
         rate = sold / published * 100.0 if published else None
         st.caption(f"{label} : {published} publiée(s) · {sold} vendue(s) · {f'{rate:.0f}%' if rate is not None else 'N/A'} · {fp_func(ca)}")
 
