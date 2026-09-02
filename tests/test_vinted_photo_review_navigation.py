@@ -13,6 +13,7 @@ from ui.pages.vinted_listings import (
     _advanced_photo_review_pass,
     _new_photo_review_pass,
     _recognition_listing_content,
+    _recognition_photo_role_label,
     _recognition_payload_summary,
     _render_recognition_creation_step,
     _review_pass_remaining_group_ids,
@@ -98,6 +99,12 @@ class VintedPhotoReviewNavigationTests(unittest.TestCase):
         self.assertEqual(listing_type, "Plusieurs cartes")
         self.assertEqual(prepared["title"], "Lot cartes Pokémon - Marisson 058, Feunnec 059 - FR")
         self.assertIn("Marisson 058, Feunnec 059", prepared["description"])
+
+    def test_photo_gallery_uses_customer_facing_labels(self):
+        self.assertEqual(_recognition_photo_role_label({"role": "primary_front"}), "Principale")
+        self.assertEqual(_recognition_photo_role_label({"role": "primary_front"}, multi=True), "Photo groupe")
+        self.assertEqual(_recognition_photo_role_label({"role": "card_front"}), "Recto")
+        self.assertEqual(_recognition_photo_role_label({"role": "back_japanese"}), "Verso")
 
     def test_completed_pass_never_wraps_to_its_first_group(self):
         result, groups = _review_groups()

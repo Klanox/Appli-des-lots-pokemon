@@ -217,6 +217,38 @@ def _inject_vinted_styles():
     font-size:1.05rem;
     margin-top:.2rem;
 }
+.ps-recognition-identity-title {
+    color:#111827;
+    font-size:1.06rem;
+    font-weight:850;
+    line-height:1.25;
+    margin:.05rem 0;
+}
+.ps-recognition-identity-meta {
+    color:#64748b;
+    font-size:.82rem;
+    font-weight:650;
+    margin:0 0 .32rem;
+}
+.ps-recognition-photo-caption {
+    color:#64748b;
+    font-size:.69rem;
+    line-height:1.2;
+    text-align:center;
+    margin-top:.1rem;
+}
+.ps-recognition-toolbar-label {
+    color:#111827;
+    font-size:.88rem;
+    font-weight:820;
+    text-align:center;
+    padding:.45rem 0;
+    white-space:nowrap;
+}
+@media (max-width: 640px) {
+    .ps-recognition-toolbar-label { font-size:.8rem; }
+    .ps-recognition-identity-title { font-size:1rem; }
+}
 .ps-photo-state {
     border:1px solid #e2e8f0;
     border-radius:10px;
@@ -1493,16 +1525,17 @@ def _safe_js_id(key):
     return re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
 
 
-def _copy_button(label, value, key, run_html_func=None, field_labels=None):
+def _copy_button(label, value, key, run_html_func=None, field_labels=None, *, compact=False):
     field_labels = field_labels or []
     if run_html_func:
         button_id = f"copy_{_safe_js_id(key)}"
         js_labels = json.dumps(field_labels, ensure_ascii=False)
         js_fallback = json.dumps(value or "", ensure_ascii=False)
+        width = "auto;min-width:104px;padding:0 .7rem;" if compact else "width:100%;"
         run_html_func(
             f"""
 <button id="{button_id}" type="button" style="
-width:100%;min-height:38px;border:1px solid #d8e2ef;border-radius:8px;
+{width}min-height:34px;border:1px solid #d8e2ef;border-radius:8px;
 background:#ffffff;color:#0f1f36;font-weight:700;cursor:pointer;">
 {label}
 </button>
@@ -1550,11 +1583,14 @@ background:#ffffff;color:#0f1f36;font-weight:700;cursor:pointer;">
 }})();
 </script>
 """,
-            height=45,
+            height=40 if compact else 45,
         )
         return
 
-    if st.button(label, key=key, disabled=not bool(value), width="stretch"):
+    button_args = {"key": key, "disabled": not bool(value)}
+    if not compact:
+        button_args["width"] = "stretch"
+    if st.button(label, **button_args):
         st.session_state["vinted_copy_buffer"] = value
         st.toast("Texte prêt à copier juste en dessous.")
 
@@ -3488,30 +3524,44 @@ def _recognition_listing_content(listing, available_cards):
     return cards, listing_cards, listing_type, prepare_listing(listing_cards, listing_type)
 
 
-def _render_recognition_listing_preview(
+def _recognition_photo_role_label(photo, *, multi=False):
+    role = str((photo or {}).get("role") or "")
+    if role == "primary_front":
+        return "Photo groupe" if multi else "Principale"
+    return {
+        "card_front": "Recto",
+        "card_back": "Verso",
+        "back_western": "Verso",
+        "back_japanese": "Verso",
+    }.get(role, "Photo")
+
+
+def _render_recognition_listing_workspace(
     active_drop,
     recognition_payload,
     listing,
     available_cards,
     run_html_func,
     mobile,
+    *,
+    read_only,
+    fp_func=None,
 ):
-    cards, _listing_cards, _listing_type, prepared = _recognition_listing_content(listing, available_cards)
+    cards, listing_cards, listing_type, prepared = _recognition_listing_content(listing, available_cards)
+    if not read_only:
+        prepared = _sync_listing_text(listing_cards, listing_type, fp_func)
     listing_key = str(listing.get("recognition_group_id") or listing.get("creation_order") or "listing")
-    st.markdown(
-        f"**Annonce {listing.get('creation_order', 1)} / {len(recognition_payload.get('listings', []) or [])}**  \n"
-        f"{len(listing.get('photos', []) or [])} photos · {len(cards)} carte(s)"
-    )
-    photo_col, content_col = st.columns([1, 1.35]) if not mobile else (st.container(), st.container())
+    photo_col, content_col = st.columns([1, 1.85]) if not mobile else (st.container(), st.container())
     with photo_col:
+        st.markdown("**Photo principale**")
         primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
         if primary_path.is_file():
-            st.image(str(primary_path), width="stretch" if mobile else 320, caption="Photo principale")
+            st.image(str(primary_path), width="stretch" if mobile else 260)
         else:
             st.caption("Photo principale indisponible dans l’aperçu.")
         photos = listing.get("photos", []) or []
         if photos:
-            st.caption("Photos de l’annonce")
+            st.caption(f"Photos · {len(photos)}")
         for start in range(0, len(photos), 4):
             row = photos[start : start + 4]
             columns = st.columns(len(row))
@@ -3520,38 +3570,65 @@ def _render_recognition_listing_preview(
                     photo_path = _recognition_photo_path(recognition_payload, photo)
                     if photo_path.is_file():
                         st.image(str(photo_path), width="stretch")
-                    st.caption(f"{start + offset + 1}. {str(photo.get('role') or 'photo').replace('_', ' ')}")
+                    st.markdown(
+                        f'<div class="ps-recognition-photo-caption">{_recognition_photo_role_label(photo, multi=len(cards) > 1)}</div>',
+                        unsafe_allow_html=True,
+                    )
     with content_col:
-        st.markdown("**Carte(s) de l’annonce**")
+        st.markdown(f"**{len(cards)} carte(s)**" if len(cards) > 1 else "**Carte**")
         for card in cards:
-            details = _card_set(card) or "Extension N/A"
-            st.markdown(f"**{_card_display_title(card)}** · {details}")
+            language = "JAP" if card.get("japanese") or card.get("is_japanese") or card.get("lang") == "ja" else "FR"
+            st.markdown(
+                f'<div class="ps-recognition-identity-title">{_html_escape(_card_display_title(card))}</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div class="ps-recognition-identity-meta">{_html_escape(_card_set(card) or "Extension N/A")} · {language}</div>',
+                unsafe_allow_html=True,
+            )
 
-        st.text_input(
-            "Titre Vinted",
-            value=prepared["title"],
-            disabled=True,
-            key=f"vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
-        )
-        _copy_button(
-            "Copier le titre",
-            prepared["title"],
-            f"copy_vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
-            run_html_func,
-        )
-        st.text_area(
-            "Description",
-            value=prepared["description"],
-            height=220 if mobile else 260,
-            disabled=True,
-            key=f"vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
-        )
-        _copy_button(
-            "Copier la description",
-            prepared["description"],
-            f"copy_vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
-            run_html_func,
-        )
+        title_col, title_copy_col = st.columns([4, 1])
+        with title_col:
+            if read_only:
+                st.text_input(
+                    "Titre Vinted",
+                    value=prepared["title"],
+                    disabled=True,
+                    key=f"vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+                )
+            else:
+                st.text_input("Titre Vinted", key="vinted_listing_title")
+        with title_copy_col:
+            _copy_button(
+                "📋 Copier",
+                prepared["title"] if read_only else st.session_state.get("vinted_listing_title", ""),
+                f"copy_vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+                run_html_func,
+                ["Titre Vinted"] if not read_only else None,
+                compact=True,
+            )
+
+        description_col, description_copy_col = st.columns([4, 1])
+        with description_col:
+            if read_only:
+                st.text_area(
+                    "Description",
+                    value=prepared["description"],
+                    height=180 if mobile else 205,
+                    disabled=True,
+                    key=f"vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+                )
+            else:
+                st.text_area("Description", key="vinted_listing_description", height=180 if mobile else 205)
+        with description_copy_col:
+            _copy_button(
+                "📋 Copier",
+                prepared["description"] if read_only else st.session_state.get("vinted_listing_description", ""),
+                f"copy_vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+                run_html_func,
+                ["Description"] if not read_only else None,
+                compact=True,
+            )
     with st.expander("Détails de l’ordre des photos", expanded=False):
         for position, photo in enumerate(listing.get("photos", []) or [], start=1):
             filename = str(photo.get("filename") or photo.get("name") or Path(str(photo.get("path") or "")).name)
@@ -3608,35 +3685,43 @@ def _render_launched_recognition_preview(active_drop, available_cards, recogniti
         return True
     index_key = f"{preview_key}_index"
     selected = max(1, min(len(listings), int(st.session_state.get(index_key, 1) or 1)))
-    previous_col, next_col = st.columns(2)
+    previous_col, label_col, next_col, jump_col = st.columns([0.45, 2.1, 0.45, 0.9])
     with previous_col:
-        if st.button("← Précédente", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
+        if st.button("←", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
             st.session_state[index_key] = selected - 1
             st.rerun()
+    with label_col:
+        st.markdown(
+            f'<div class="ps-recognition-toolbar-label">Annonce {selected} / {len(listings)}</div>',
+            unsafe_allow_html=True,
+        )
     with next_col:
-        if st.button("Suivante →", key=f"next_{preview_key}", disabled=selected >= len(listings), width="stretch"):
+        if st.button("→", key=f"next_{preview_key}", disabled=selected >= len(listings), width="stretch"):
             st.session_state[index_key] = selected + 1
             st.rerun()
-    _render_recognition_listing_preview(
-        active_drop,
-        recognition_payload,
-        listings[selected - 1],
-        available_cards,
-        run_html_func,
-        mobile,
-    )
-    with st.expander("Aller directement à une annonce", expanded=False):
-        jump_to = st.number_input(
-            "Numéro d’annonce",
-            min_value=1,
-            max_value=len(listings),
-            value=selected,
-            step=1,
-            key=f"{preview_key}_jump",
+    with jump_col:
+        with st.popover("Aller à…", use_container_width=True):
+            jump_to = st.number_input(
+                "Numéro d’annonce",
+                min_value=1,
+                max_value=len(listings),
+                value=selected,
+                step=1,
+                key=f"{preview_key}_jump",
+            )
+            if st.button("Afficher", key=f"jump_{preview_key}", width="stretch"):
+                st.session_state[index_key] = int(jump_to)
+                st.rerun()
+    with st.container(border=True):
+        _render_recognition_listing_workspace(
+            active_drop,
+            recognition_payload,
+            listings[selected - 1],
+            available_cards,
+            run_html_func,
+            mobile,
+            read_only=True,
         )
-        if st.button("Afficher cette annonce", key=f"jump_{preview_key}"):
-            st.session_state[index_key] = int(jump_to)
-            st.rerun()
     return True
 
 
@@ -3716,37 +3801,46 @@ def _render_recognition_creation_step(
         return True
 
     listing = pending[0]
-    cards, listing_cards, listing_type, _prepared = _recognition_listing_content(listing, available_cards)
-    _sync_listing_text(listing_cards, listing_type, fp_func)
-    st.markdown(
-        f"**Annonce #{listing.get('creation_order', 1)} sur {total}** · "
-        f"{len(cards)} carte(s) · validation {listing.get('validation_source', 'auto')}"
-    )
-    primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
-    photo_col, card_col = st.columns([1, 2]) if not mobile else [st.container(), st.container()]
-    with photo_col:
-        if primary_path.is_file():
-            st.image(str(primary_path), width="stretch", caption="Photo principale")
-    with card_col:
-        for card in cards:
-            st.markdown(f"**{_card_display_title(card)}** · {_card_set(card) or 'Extension N/A'}")
-
-    st.text_input("Titre généré", key="vinted_listing_title")
-    _copy_button("Copier titre", st.session_state.get("vinted_listing_title", ""), "copy_vinted_recognition_title", run_html_func, ["Titre généré"])
-    st.text_input("Prix", key="vinted_listing_price")
-    _copy_button("Copier prix", st.session_state.get("vinted_listing_price", ""), "copy_vinted_recognition_price", run_html_func, ["Prix"])
-    st.text_area("Description générée", key="vinted_listing_description", height=220 if mobile else 260)
-    _copy_button("Copier description", st.session_state.get("vinted_listing_description", ""), "copy_vinted_recognition_description", run_html_func, ["Description générée"])
-    st.link_button("Ouvrir Vinted", "https://www.vinted.fr/items/new", width="stretch")
-    if st.button(
-        "✓ Brouillon créé",
-        key=f"draft_ready_recognition_group_{active_drop.get('id')}_{listing.get('recognition_group_id')}",
-        type="primary",
-        width="stretch",
-    ):
-        if _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
-            save_vinted_drops(drops_data)
-            st.rerun()
+    with st.container(border=True):
+        st.markdown(
+            f"**Annonce {listing.get('creation_order', 1)} / {total}**  \n"
+            f"{len(listing.get('photos', []) or [])} photos · validation {listing.get('validation_source', 'auto')}"
+        )
+        _render_recognition_listing_workspace(
+            active_drop,
+            recognition_payload,
+            listing,
+            available_cards,
+            run_html_func,
+            mobile,
+            read_only=False,
+            fp_func=fp_func,
+        )
+        price_col, price_copy_col = st.columns([4, 1])
+        with price_col:
+            st.text_input("Prix", key="vinted_listing_price")
+        with price_copy_col:
+            _copy_button(
+                "📋 Copier",
+                st.session_state.get("vinted_listing_price", ""),
+                "copy_vinted_recognition_price",
+                run_html_func,
+                ["Prix"],
+                compact=True,
+            )
+        action_col, draft_col = st.columns(2) if not mobile else (st.container(), st.container())
+        with action_col:
+            st.link_button("Ouvrir Vinted", "https://www.vinted.fr/items/new", width="stretch")
+        with draft_col:
+            if st.button(
+                "✓ Brouillon créé",
+                key=f"draft_ready_recognition_group_{active_drop.get('id')}_{listing.get('recognition_group_id')}",
+                type="primary",
+                width="stretch",
+            ):
+                if _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
+                    save_vinted_drops(drops_data)
+                    st.rerun()
     return True
 
 
