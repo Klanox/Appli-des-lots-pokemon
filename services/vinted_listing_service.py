@@ -9,24 +9,7 @@ import unicodedata
 
 
 VINTED_TAGS = (
-    "Ex, Mega, GX, V, Vmax, X, Star, Brillant, Lumineux, Obscur, radieux, "
-    "Espèces delta, shiny, Holo, Reverse, Rainbow, ds, 3ds, Full art, alternative, "
-    "Alt, Magnifique, Amazing, Secrete, gold, Wizards, set de base, Neo, jungle, "
-    "fossile, rocket, aquapolis, expédition, bloc Ex, diamant perle, noir, blanc, "
-    "XY, Soleil Lune, ecarlate, violet, SL, EB, EV, Rivalités Destinées, force "
-    "temporelle, couronne stellaire, soleil et lune, étincelles déferlantes, "
-    "Edition Jungle, Fossil, Team Rocket, Gym Heroes, Etb, coffret dresseur, "
-    "display, tripack, booster, blister, tin box, whisper, jackmad, pokebox, "
-    "loose, scellé, Destinees radieuses, occultes, Evolutions, Voltage éclatant, "
-    "Styles de combat, Règne de glace, Evolution céleste, Poing de fusion, Mcdo, "
-    "Dracaufeu, Florizarre, Tortank, Salameche, Reptincel, Carapuce, Carabaffe, "
-    "Bulbizarre, Herbizarre, Mew, Mewtwo, Pikachu, Evoli, Voltali, Aquali, Pyroli, "
-    "Noctali, Mentali, Phylalli, Givrali, Nymphali, Groudon, Kyogre, Rayquaza, "
-    "Pingoleon, Brasegali, Dialga, Palkia, Giratina, Arceus, Lucario, Electhor, "
-    "Artikodin, Rayquaza, 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 "
-    "87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 "
-    "108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 "
-    "126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142"
+    "Pokémon, carte Pokémon, cartes Pokémon, JCC Pokémon, collection Pokémon, carte rare, vintage, EX, Méga, GX, V, VMAX, VSTAR, Niveau X, Star, Brillant, Radieux, Espèces Delta, Chromatique, Holo, Reverse, Arc-en-ciel, Full Art, Alternative, Illustration Rare, Illustration Spéciale Rare, Ultra Rare, Hyper Rare, Secrète, Dorée, Promo, Wizards, Set de Base, Jungle, Fossile, Team Rocket, Neo, bloc EX, Diamant Perle, Platine, Noir Blanc, XY, Soleil Lune, Épée Bouclier, Écarlate Violet, Destinées Occultes, Destinées Radieuses, Évolutions, Voltage Éclatant, Règne de Glace, Évolution Céleste, Poing de Fusion, Célébrations, Stars Étincelantes, Origine Perdue, Zénith Suprême, Évolutions à Paldea, Flammes Obsidiennes, 151, Faille Paradoxe, Destinées de Paldea, Forces Temporelles, Mascarade Crépusculaire, Couronne Stellaire, Étincelles Déferlantes, Évolutions Prismatiques, Aventures Ensemble, Rivalités Destinées, coffret dresseur, display, booster, tripack, blister, pokébox, coffret, scellé, Dracaufeu, Florizarre, Tortank, Salamèche, Pikachu, Évoli, Voltali, Aquali, Pyroli, Noctali, Mentali, Nymphali, Mew, Mewtwo, Ectoplasma, Lugia, Groudon, Kyogre, Rayquaza, Dialga, Palkia, Giratina, Arceus, Lucario, Gardevoir, Dracolosse, Tyranocif"
 )
 
 

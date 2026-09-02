@@ -3657,7 +3657,7 @@ def _render_recognition_listing_workspace(
                 with columns[offset]:
                     photo_path = _recognition_photo_path(recognition_payload, photo)
                     if photo_path.is_file():
-                        st.image(str(photo_path), width=68 if mobile else 58)
+                        st.image(str(photo_path), width=78 if mobile else 72)
                     st.markdown(
                         f'<div class="ps-recognition-photo-caption">{_recognition_photo_role_label(photo, multi=len(cards) > 1)}</div>',
                         unsafe_allow_html=True,
@@ -3729,6 +3729,8 @@ def _render_recognition_preview_workspace(
     recognition_payload,
     run_html_func,
     mobile,
+    *,
+    focus_mode=False,
 ):
     listings = recognition_payload.get("listings", []) or []
     if not listings:
@@ -3741,9 +3743,23 @@ def _render_recognition_preview_workspace(
     selected = max(1, min(len(listings), int(st.session_state.get(index_key, 1) or 1)))
 
     if mobile:
-        previous_col, label_col, next_col = st.columns([0.55, 1.8, 0.55])
+        previous_col, label_col, next_col, quit_col = st.columns([0.55, 1.35, 0.55, 1.05])
+        search_col = st.container()
+        jump_col = None
+        header_col = None
+    elif focus_mode:
+        header_col, previous_col, label_col, next_col, search_col, jump_col, quit_col = st.columns(
+            [1.65, 0.35, 1.35, 0.35, 2.75, 0.78, 0.95]
+        )
     else:
         previous_col, label_col, next_col, search_col, jump_col = st.columns([0.38, 1.45, 0.38, 2.7, 0.75])
+        header_col = quit_col = None
+    if header_col is not None:
+        with header_col:
+            st.markdown(
+                f'<div class="ps-recognition-focus-header">{_html_escape(active_drop.get("name") or "Drop")} · Aperçu</div>',
+                unsafe_allow_html=True,
+            )
     with previous_col:
         if st.button("←", key=f"previous_{preview_key}", disabled=selected <= 1, width="stretch"):
             st.session_state[index_key] = selected - 1
@@ -3758,9 +3774,6 @@ def _render_recognition_preview_workspace(
             st.session_state[index_key] = selected + 1
             st.rerun()
 
-    if mobile:
-        search_col = st.container()
-        jump_col = None
     with search_col:
         search_query = st.text_input(
             "Rechercher une carte",
@@ -3782,6 +3795,11 @@ def _render_recognition_preview_workspace(
                 if st.button("Afficher", key=f"jump_{preview_key}", width="stretch"):
                     st.session_state[index_key] = int(jump_to)
                     st.rerun()
+    if quit_col is not None:
+        with quit_col:
+            if st.button("Quitter", key=f"close_{preview_key}", width="stretch"):
+                st.session_state.pop(preview_key, None)
+                st.rerun()
 
     search_results = _recognition_listing_search_results(
         _recognition_listing_search_index(active_drop, recognition_payload, available_cards),
@@ -3859,23 +3877,17 @@ def _render_launched_recognition_preview(active_drop, available_cards, recogniti
 
 def _render_step4_focus_preview(active_drop, available_cards, recognition_payload, run_html_func, mobile):
     """Render the read-only preview without the regular Drop workflow chrome."""
-    drop_id = str(active_drop.get("id") or "")
-    title_col, quit_col = st.columns([5, 1]) if not mobile else (st.container(), st.container())
-    with title_col:
-        st.markdown(
-            f'<div class="ps-recognition-focus-header">{_html_escape(active_drop.get("name") or "Drop")} · Étape 4 · Aperçu</div>',
-            unsafe_allow_html=True,
-        )
-    with quit_col:
-        if st.button("Quitter l’aperçu", key=f"close_{_step4_preview_mode_key(drop_id)}", width="stretch"):
-            st.session_state.pop(_step4_preview_mode_key(drop_id), None)
-            st.rerun()
+    st.markdown(
+        "<style>[data-testid='stMainBlockContainer']{padding-top:.55rem !important;}</style>",
+        unsafe_allow_html=True,
+    )
     _render_recognition_preview_workspace(
         active_drop,
         available_cards,
         recognition_payload,
         run_html_func,
         mobile,
+        focus_mode=True,
     )
 
 
