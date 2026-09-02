@@ -1779,7 +1779,14 @@ with rerun_phase("header_theme_css"):
         str(st.session_state.get("current_page", "")).lower() in {"marché", "marchã©"}
         or _early_query_page in {"market", "marche", "marché"}
     )
-    if not wrapped_story_active and not market_dashboard_active:
+    step4_focus_active = (
+        st.session_state.get("current_page") == "Annonces Vinted"
+        and any(
+            str(key).startswith("step4_preview_mode_") and bool(value)
+            for key, value in st.session_state.items()
+        )
+    )
+    if not wrapped_story_active and not market_dashboard_active and not step4_focus_active:
         st.markdown(
             render_app_header(logo_src, mobile=is_mobile_mode()),
             unsafe_allow_html=True,
