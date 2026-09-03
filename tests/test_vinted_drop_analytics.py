@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import nullcontext
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
+from ui.pages import vinted_listings as vinted_page
 from ui.pages.vinted_listings import (
     _analytics_price_bands,
     _analytics_remaining_items,
     _analytics_timing,
     _drop_metrics,
     _physical_price_band_rows,
+    _render_analytics_charts,
     _sales_scope_metrics,
 )
 
@@ -98,6 +102,38 @@ class VintedDropAnalyticsTests(unittest.TestCase):
         self.assertTrue(timing["checkpoints"][3]["upcoming"])
         self.assertEqual(remaining["remaining_cards"], 1)
         self.assertEqual(remaining["top_online"][0]["name"], "Carte en ligne")
+
+    def test_charts_render_two_altair_specs_with_safe_data_fields(self):
+        class ChartStreamlit:
+            def __init__(self):
+                self.charts = []
+
+            def columns(self, count, **_kwargs):
+                return [nullcontext() for _ in range(count)]
+
+            def altair_chart(self, chart, **_kwargs):
+                self.charts.append(chart)
+
+            def caption(self, _value):
+                raise AssertionError("A chart series should not use the empty fallback")
+
+        streamlit = ChartStreamlit()
+        series = [{
+            "Jour": "J0",
+            "CA cumulé": 100.0,
+            "Bénéfice cumulé": 60.0,
+            "Cartes vendues": 20,
+            "Taux d'écoulement": 25.0,
+        }]
+
+        with patch.object(vinted_page, "st", streamlit):
+            _render_analytics_charts(series)
+
+        self.assertEqual(len(streamlit.charts), 2)
+        for chart in streamlit.charts:
+            spec = chart.to_dict(validate=True)
+            self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "day_label")
+            self.assertNotIn("Taux d'écoulement:Q", str(spec))
 
 
 if __name__ == "__main__":

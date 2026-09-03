@@ -887,6 +887,8 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-checkpoint small { display:block; color:#6b7280; font-size:.68rem; font-weight:650; margin-top:.1rem; }
 .ps-analytics-table-note { flex:0 0 auto; color:#6d28d9; font-size:.7rem; font-weight:800; }
 .ps-analytics-bands { display:grid; gap:.42rem; }
+.ps-analytics-band-header { display:grid; grid-template-columns:58px 1fr minmax(80px,1.2fr) 42px 68px; gap:.55rem; margin-bottom:.08rem; color:#6b7280; font-size:.65rem; font-weight:800; }
+.ps-analytics-band-header span:nth-child(3),.ps-analytics-band-header span:nth-child(4) { text-align:right; }
 .ps-analytics-band { display:grid; grid-template-columns:58px 1fr minmax(80px,1.2fr) 42px 68px; align-items:center; gap:.55rem; color:#4b5563; font-size:.72rem; }
 .ps-analytics-band > strong { color:#111827; font-size:.75rem; }
 .ps-analytics-band > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -900,7 +902,7 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-remaining-row span { min-width:0; }
 .ps-analytics-remaining-row strong { display:block; overflow:hidden; color:#111827; font-size:.76rem; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
 .ps-analytics-remaining-row small { display:block; margin-top:.13rem; color:#6b7280; font-size:.65rem; font-weight:650; white-space:nowrap; }
-.ps-analytics-remaining-row b { color:#111827; font-size:.75rem; white-space:nowrap; }
+.ps-analytics-remaining-row b { color:#111827; font-size:.88rem; font-weight:850; white-space:nowrap; }
 .ps-analytics-highlights { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
 .ps-analytics-highlight { padding:.62rem .7rem; border-left:2px solid #d8b4fe; background:#fafafa; }
 .ps-analytics-highlight span,.ps-analytics-highlight strong,.ps-analytics-highlight b { display:block; }
@@ -953,7 +955,11 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-timeline { grid-template-columns:1fr; }
     .ps-analytics-checkpoints { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-band { grid-template-columns:52px 1fr 62px; gap:.4rem; }
+    .ps-analytics-band-header { grid-template-columns:52px 1fr 62px; gap:.4rem; }
     .ps-analytics-band > span,.ps-analytics-band > b { display:none; }
+    .ps-analytics-band-header span:nth-child(2),.ps-analytics-band-header span:nth-child(3) { display:none; }
+    .ps-analytics-band-header span:nth-child(4) { grid-column:2; text-align:right; }
+    .ps-analytics-band-header span:nth-child(5) { grid-column:3; text-align:right; }
     .ps-analytics-remaining-list { grid-template-columns:1fr; }
 }
 </style>
@@ -961,6 +967,25 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
         unsafe_allow_html=True,
     )
 
+
+def _inject_vinted_analytics_compact_styles():
+    """Tighten only the analytics step without changing the shared workflow shell."""
+    st.markdown(
+        """
+<style>
+.main .block-container { padding-top:.65rem !important; }
+.ps-app-header { padding:.45rem 0 !important; margin-bottom:.35rem !important; }
+.ps-app-title { font-size:1.15rem !important; }
+.ps-app-tagline { font-size:.72rem !important; margin-top:.04rem !important; }
+.ps-page-header { padding:.58rem .78rem !important; margin-bottom:.55rem !important; }
+.ps-page-icon { width:2rem !important; height:2rem !important; font-size:.96rem !important; }
+.ps-page-title, h2.ps-page-title { font-size:1.18rem !important; }
+.ps-page-subtitle { font-size:.76rem !important; margin-top:.08rem !important; }
+div[class*="st-key-vinted_drop_step_"] button { min-height:36px !important; padding:.34rem .56rem !important; }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
 
 def _html_escape(value):
     import html
@@ -3773,9 +3798,9 @@ def _analytics_remaining_items(selected, *, now=None, limit=5):
                 "band": band,
                 "status": drop_item_status_label(ref),
                 "online_label": (
-                    f"En ligne depuis {days_online} j · {drop_item_status_label(ref)}"
+                    f"{days_online} j en ligne"
                     if days_online is not None
-                    else drop_item_status_label(ref)
+                    else "En ligne"
                 ),
             })
     items.sort(key=lambda item: item["price"], reverse=True)
@@ -3840,31 +3865,40 @@ def _render_analytics_charts(series):
         st.line_chart({"CA cumulé": [point["CA cumulé"] for point in series], "Bénéfice cumulé": [point["Bénéfice cumulé"] for point in series]})
         return
 
-    frame = pd.DataFrame(series)
+    frame = pd.DataFrame([
+        {
+            "day_label": point["Jour"],
+            "ca": point["CA cumulé"],
+            "profit": point["Bénéfice cumulé"],
+            "sold": point["Cartes vendues"],
+            "sell_through": point["Taux d'écoulement"],
+        }
+        for point in series
+    ])
     tooltip = [
-        alt.Tooltip("Jour:N", title="Jour"),
-        alt.Tooltip("CA cumulé:Q", title="CA cumulé", format=".2f"),
-        alt.Tooltip("Bénéfice cumulé:Q", title="Bénéfice cumulé", format=".2f"),
-        alt.Tooltip("Cartes vendues:Q", title="Cartes vendues", format=".0f"),
-        alt.Tooltip("Taux d'écoulement:Q", title="Taux d'écoulement", format=".1f"),
+        alt.Tooltip("day_label:N", title="Jour"),
+        alt.Tooltip("ca:Q", title="CA cumulé", format=".2f"),
+        alt.Tooltip("profit:Q", title="Bénéfice cumulé", format=".2f"),
+        alt.Tooltip("sold:Q", title="Cartes vendues", format=".0f"),
+        alt.Tooltip("sell_through:Q", title="Taux d'écoulement", format=".1f"),
     ]
     base = alt.Chart(frame).encode(
-        x=alt.X("Jour:N", title=None, axis=alt.Axis(labelAngle=0, labelPadding=8)),
+        x=alt.X("day_label:N", title=None, axis=alt.Axis(labelAngle=0, labelPadding=8)),
         tooltip=tooltip,
     )
     financial = alt.layer(
-        base.mark_line(color="#6d28d9", strokeWidth=2.5, point=True).encode(y=alt.Y("CA cumulé:Q", title="€")),
-        base.mark_line(color="#16a34a", strokeWidth=2.5, point=True).encode(y=alt.Y("Bénéfice cumulé:Q", title="€")),
-    ).resolve_scale(y="shared").properties(height=240, title="CA et bénéfice cumulés")
+        base.mark_line(color="#6d28d9", strokeWidth=2.5, point=True).encode(y=alt.Y("ca:Q", title="€")),
+        base.mark_line(color="#16a34a", strokeWidth=2.5, point=True).encode(y=alt.Y("profit:Q", title="€")),
+    ).resolve_scale(y="shared").properties(height=240, title="CA cumulé (violet) · Bénéfice cumulé (vert)")
     stock = alt.layer(
-        base.mark_line(color="#2563eb", strokeWidth=2.5, point=True).encode(y=alt.Y("Cartes vendues:Q", title="Cartes")),
-        base.mark_line(color="#f97316", strokeWidth=2.5, point=True, strokeDash=[5, 3]).encode(y=alt.Y("Taux d'écoulement:Q", title="%")),
-    ).resolve_scale(y="independent").properties(height=240, title="Cartes vendues et taux d’écoulement")
+        base.mark_line(color="#2563eb", strokeWidth=2.5, point=True).encode(y=alt.Y("sold:Q", title="Cartes")),
+        base.mark_line(color="#f97316", strokeWidth=2.5, point=True, strokeDash=[5, 3]).encode(y=alt.Y("sell_through:Q", title="%")),
+    ).resolve_scale(y="independent").properties(height=240, title="Cartes vendues (bleu) · Taux d’écoulement (orange)")
     first, second = st.columns(2, gap="large")
     with first:
-        st.altair_chart(financial, use_container_width=True)
+        st.altair_chart(financial, width="stretch", key="vinted_analytics_financial_chart")
     with second:
-        st.altair_chart(stock, use_container_width=True)
+        st.altair_chart(stock, width="stretch", key="vinted_analytics_stock_chart")
 
 
 def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None, effective_purchase_price_func=None, *, active_drop=None):
@@ -4045,11 +4079,12 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         f'<div class="ps-analytics-band"><strong>{_html_escape(band["label"])}</strong><span>{band["published"]} publiées · {band["sold"]} vendues</span><div><i class="{"good" if (band["sell_through"] or 0) >= 40 else "watch"}" style="width:{band["sell_through"] or 0:.2f}%"></i></div><b>{"N/A" if band["sell_through"] is None else f"{band["sell_through"]:.0f} %"}</b><em>{_html_escape(fp_func(band["ca"]))}</em></div>'
         for band in price_bands
     )
+    bands_header = '<div class="ps-analytics-band-header"><span>Tranche</span><span>Publiées / vendues</span><span></span><span>Sell-through</span><span>CA cartes</span></div>'
     neg_col, bands_col = st.columns([.9, 1.3], gap="large")
     with neg_col:
         st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Négociation</h3><p>Cartes avec prix de référence.</p></div></div><div class="ps-analytics-stat-grid ps-analytics-stat-grid--stacked">{neg_html}</div></section>', unsafe_allow_html=True)
     with bands_col:
-        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Tranches de prix</h3><p>Cartes physiques uniquement.</p></div><span class="ps-analytics-table-note">CA cartes</span></div><div class="ps-analytics-bands">{bands_html}</div></section>', unsafe_allow_html=True)
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Tranches de prix</h3><p>Cartes physiques uniquement.</p></div></div><div class="ps-analytics-bands">{bands_header}{bands_html}</div></section>', unsafe_allow_html=True)
 
     remaining_items_html = "".join(
         f'<div class="ps-analytics-remaining-row"><span><strong>{_html_escape(item["name"])} {_html_escape(item["number"])}</strong><small>{_html_escape(item["band"])} · {_html_escape(item["online_label"])}</small></span><b>{_html_escape(fp_func(item["price"]))}</b></div>'
@@ -4988,6 +5023,9 @@ def render_vinted_listings_page(
             )
             return
         st.session_state.pop(_step4_preview_mode_key(active_drop.get("id")), None)
+
+    if st.session_state.get("vinted_drop_step") == "Analyse des drops":
+        _inject_vinted_analytics_compact_styles()
 
     st.markdown(
         render_page_header_func("Drop Vinted", "Préparer, suivre et analyser tes drops Vinted", "🛍️"),
