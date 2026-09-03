@@ -109,7 +109,7 @@ class VintedDropAnalyticsTests(unittest.TestCase):
                 self.charts = []
 
             def columns(self, count, **_kwargs):
-                return [nullcontext() for _ in range(count)]
+                return [nullcontext() for _ in range(len(count) if isinstance(count, (list, tuple)) else count)]
 
             def altair_chart(self, chart, **_kwargs):
                 self.charts.append(chart)

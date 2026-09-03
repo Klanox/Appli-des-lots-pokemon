@@ -753,7 +753,7 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     display:grid;
     grid-template-columns:repeat(4,minmax(0,1fr));
     gap:.7rem;
-    margin:.8rem 0 .55rem;
+    margin:.58rem 0 .4rem;
 }
 .ps-analytics-kpi,
 .ps-analytics-stat,
@@ -764,8 +764,8 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     background:#fff;
 }
 .ps-analytics-kpi {
-    min-height:92px;
-    padding:.85rem .92rem;
+    min-height:82px;
+    padding:.68rem .8rem;
     border-top:3px solid #d1d5db;
 }
 .ps-analytics-kpi--violet { border-top-color:#6d28d9; }
@@ -779,7 +779,7 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 }
 .ps-analytics-kpi strong {
     display:block;
-    margin-top:.36rem;
+    margin-top:.24rem;
     color:#111827;
     font-size:1.48rem;
     font-weight:850;
@@ -789,14 +789,14 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     display:grid;
     grid-template-columns:repeat(5,minmax(0,1fr));
     gap:.55rem;
-    margin:0 0 1rem;
+    margin:0 0 .68rem;
 }
 .ps-analytics-stat {
-    padding:.58rem .68rem;
+    padding:.46rem .6rem;
 }
 .ps-analytics-stat strong {
     display:block;
-    margin-top:.22rem;
+    margin-top:.14rem;
     color:#1f2937;
     font-size:.94rem;
     font-weight:800;
@@ -807,15 +807,15 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 }
 .ps-analytics-surface,
 .ps-analytics-section {
-    padding:1rem;
-    margin:.18rem 0 1rem;
+    padding:.76rem .84rem;
+    margin:.12rem 0 .68rem;
 }
 .ps-analytics-section-heading {
     display:flex;
     align-items:flex-start;
     justify-content:space-between;
     gap:.75rem;
-    margin-bottom:.82rem;
+    margin-bottom:.52rem;
 }
 .ps-analytics-section-heading h3 {
     margin:0;
@@ -867,24 +867,27 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-timeline {
     display:grid;
     grid-template-columns:repeat(9,minmax(0,1fr));
-    gap:.45rem;
+    gap:.22rem;
 }
 .ps-analytics-timeline-item {
     position:relative;
     min-width:0;
-    padding:.18rem .42rem .12rem .62rem;
+    padding:.08rem .28rem .08rem .48rem;
     border-left:2px solid #d8b4fe;
 }
 .ps-analytics-timeline-item:first-child { border-left-color:#6d28d9; }
 .ps-analytics-timeline-item span,
 .ps-analytics-timeline-item strong { display:block; }
-.ps-analytics-timeline-item span { color:#6b7280; font-size:.68rem; font-weight:700; }
-.ps-analytics-timeline-item strong { color:#111827; font-size:.77rem; font-weight:850; line-height:1.25; margin-top:.14rem; }
-.ps-analytics-checkpoints { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.55rem; }
-.ps-analytics-checkpoint { min-height:72px; padding:.6rem .65rem; border:1px solid #e5e7eb; border-radius:8px; }
-.ps-analytics-checkpoint span { display:block; color:#6b7280; font-size:.7rem; font-weight:800; }
-.ps-analytics-checkpoint strong { display:block; color:#111827; font-size:.98rem; font-weight:850; margin-top:.22rem; }
-.ps-analytics-checkpoint small { display:block; color:#6b7280; font-size:.68rem; font-weight:650; margin-top:.1rem; }
+.ps-analytics-timeline-item span { color:#6b7280; font-size:.65rem; font-weight:700; }
+.ps-analytics-timeline-item strong { color:#111827; font-size:.73rem; font-weight:850; line-height:1.2; margin-top:.08rem; }
+.ps-analytics-charts-heading { margin:.2rem 0 .35rem; }
+.ps-analytics-charts-heading .ps-analytics-section-heading { margin-bottom:0; }
+.ps-analytics-checkpoints { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); overflow:hidden; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
+.ps-analytics-checkpoint { min-width:0; padding:.42rem .56rem; border-right:1px solid #e5e7eb; }
+.ps-analytics-checkpoint:last-child { border-right:0; }
+.ps-analytics-checkpoint span { display:block; color:#6b7280; font-size:.66rem; font-weight:800; }
+.ps-analytics-checkpoint strong { display:block; overflow:hidden; color:#111827; font-size:.84rem; font-weight:850; margin-top:.1rem; text-overflow:ellipsis; white-space:nowrap; }
+.ps-analytics-checkpoint small { display:block; color:#6b7280; font-size:.64rem; font-weight:650; margin-top:.04rem; }
 .ps-analytics-table-note { flex:0 0 auto; color:#6d28d9; font-size:.7rem; font-weight:800; }
 .ps-analytics-bands { display:grid; gap:.42rem; }
 .ps-analytics-band-header { display:grid; grid-template-columns:58px 1fr minmax(80px,1.2fr) 42px 68px; gap:.55rem; margin-bottom:.08rem; color:#6b7280; font-size:.65rem; font-weight:800; }
@@ -898,19 +901,30 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-band b { color:#374151; font-size:.72rem; text-align:right; }
 .ps-analytics-band em { color:#111827; font-size:.73rem; font-style:normal; font-weight:800; text-align:right; }
 .ps-analytics-remaining-list { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.48rem; }
-.ps-analytics-remaining-row { display:flex; align-items:flex-start; justify-content:space-between; gap:.48rem; min-width:0; padding:.58rem .62rem; border:1px solid #eef0f3; border-radius:8px; }
+.ps-analytics-remaining-row { display:flex; align-items:flex-start; justify-content:space-between; gap:.48rem; min-width:0; padding:.45rem .54rem; border:1px solid #eef0f3; border-radius:8px; }
 .ps-analytics-remaining-row span { min-width:0; }
 .ps-analytics-remaining-row strong { display:block; overflow:hidden; color:#111827; font-size:.76rem; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
 .ps-analytics-remaining-row small { display:block; margin-top:.13rem; color:#6b7280; font-size:.65rem; font-weight:650; white-space:nowrap; }
 .ps-analytics-remaining-row b { color:#111827; font-size:.88rem; font-weight:850; white-space:nowrap; }
-.ps-analytics-highlights { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
-.ps-analytics-highlight { padding:.62rem .7rem; border-left:2px solid #d8b4fe; background:#fafafa; }
+.ps-analytics-highlights { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; overflow:hidden; border:1px solid #e5e7eb; border-radius:8px; }
+.ps-analytics-highlight { min-width:0; padding:.48rem .6rem; border-right:1px solid #e5e7eb; background:#fff; }
+.ps-analytics-highlight:last-child { border-right:0; }
 .ps-analytics-highlight span,.ps-analytics-highlight strong,.ps-analytics-highlight b { display:block; }
 .ps-analytics-highlight span { color:#6b7280; font-size:.68rem; font-weight:750; }
-.ps-analytics-highlight strong { min-height:2.05em; margin:.18rem 0; color:#111827; font-size:.78rem; font-weight:850; line-height:1.25; }
+.ps-analytics-highlight strong { min-height:0; margin:.12rem 0; overflow:hidden; color:#111827; font-size:.76rem; font-weight:850; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
 .ps-analytics-highlight b { color:#6d28d9; font-size:.78rem; font-weight:850; }
 .ps-analytics-insights { border-left:3px solid #6d28d9; }
-.ps-analytics-insights ul { display:grid; gap:.38rem; margin:0; padding-left:1.15rem; color:#374151; font-size:.78rem; line-height:1.45; }
+.ps-analytics-insights ul { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.55rem; margin:0; padding:0; color:#374151; font-size:.74rem; line-height:1.35; list-style:none; }
+.ps-analytics-insights li { min-width:0; }
+.ps-analytics-negotiation { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:0; overflow:hidden; border:1px solid #e5e7eb; border-radius:8px; }
+.ps-analytics-negotiation-item { min-width:0; padding:.45rem .5rem; border-right:1px solid #e5e7eb; }
+.ps-analytics-negotiation-item:last-child { border-right:0; }
+.ps-analytics-negotiation-item span,.ps-analytics-negotiation-item strong { display:block; }
+.ps-analytics-negotiation-item span { color:#6b7280; font-size:.65rem; font-weight:750; }
+.ps-analytics-negotiation-item strong { overflow:hidden; margin-top:.12rem; color:#111827; font-size:.8rem; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
+.ps-analytics-negotiation-bar { display:flex; height:5px; margin-top:.52rem; overflow:hidden; border-radius:999px; background:#f1f3f5; }
+.ps-analytics-negotiation-bar i { display:block; height:100%; background:#16a34a; }
+.ps-analytics-negotiation-bar b { display:block; height:100%; background:#f59e0b; }
 .ps-analytics-note { display:flex; align-items:center; gap:.55rem; color:#6b7280; font-size:.8rem; }
 .ps-analytics-note strong { color:#374151; }
 .ps-analytics-empty { color:#6b7280; font-size:.78rem; padding:.5rem 0; }
@@ -937,8 +951,16 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-timeline { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .ps-analytics-checkpoints { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .ps-analytics-checkpoint:nth-child(3) { border-right:0; }
+    .ps-analytics-checkpoint:nth-child(n+4) { border-top:1px solid #e5e7eb; }
     .ps-analytics-remaining-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-highlights { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-highlight:nth-child(2) { border-right:0; }
+    .ps-analytics-highlight:nth-child(n+3) { border-top:1px solid #e5e7eb; }
+    .ps-analytics-insights ul { grid-template-columns:1fr; }
+    .ps-analytics-negotiation { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .ps-analytics-negotiation-item:nth-child(3) { border-right:0; }
+    .ps-analytics-negotiation-item:nth-child(n+4) { border-top:1px solid #e5e7eb; }
     [data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] {
         gap:8px !important;
     }
@@ -954,6 +976,10 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-surface,.ps-analytics-section { padding:.8rem; }
     .ps-analytics-timeline { grid-template-columns:1fr; }
     .ps-analytics-checkpoints { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-checkpoint { border-top:1px solid #e5e7eb; }
+    .ps-analytics-checkpoint:nth-child(odd) { border-right:1px solid #e5e7eb; }
+    .ps-analytics-checkpoint:nth-child(even) { border-right:0; }
+    .ps-analytics-checkpoint:nth-child(-n+2) { border-top:0; }
     .ps-analytics-band { grid-template-columns:52px 1fr 62px; gap:.4rem; }
     .ps-analytics-band-header { grid-template-columns:52px 1fr 62px; gap:.4rem; }
     .ps-analytics-band > span,.ps-analytics-band > b { display:none; }
@@ -961,6 +987,10 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-band-header span:nth-child(4) { grid-column:2; text-align:right; }
     .ps-analytics-band-header span:nth-child(5) { grid-column:3; text-align:right; }
     .ps-analytics-remaining-list { grid-template-columns:1fr; }
+    .ps-analytics-negotiation { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-negotiation-item:nth-child(2) { border-right:0; }
+    .ps-analytics-negotiation-item:nth-child(3) { border-top:1px solid #e5e7eb; border-right:1px solid #e5e7eb; }
+    .ps-analytics-negotiation-item:nth-child(n+4) { border-top:1px solid #e5e7eb; }
 }
 </style>
 """,
@@ -977,11 +1007,12 @@ def _inject_vinted_analytics_compact_styles():
 .ps-app-header { padding:.45rem 0 !important; margin-bottom:.35rem !important; }
 .ps-app-title { font-size:1.15rem !important; }
 .ps-app-tagline { font-size:.72rem !important; margin-top:.04rem !important; }
-.ps-page-header { padding:.58rem .78rem !important; margin-bottom:.55rem !important; }
+.ps-page-header { padding:.46rem .72rem !important; margin-bottom:.38rem !important; }
 .ps-page-icon { width:2rem !important; height:2rem !important; font-size:.96rem !important; }
 .ps-page-title, h2.ps-page-title { font-size:1.18rem !important; }
 .ps-page-subtitle { font-size:.76rem !important; margin-top:.08rem !important; }
 div[class*="st-key-vinted_drop_step_"] button { min-height:36px !important; padding:.34rem .56rem !important; }
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-vinted-drop-head) { margin-top:-.16rem; margin-bottom:-.16rem; }
 </style>
 """,
         unsafe_allow_html=True,
@@ -3889,12 +3920,21 @@ def _render_analytics_charts(series):
     financial = alt.layer(
         base.mark_line(color="#6d28d9", strokeWidth=2.5, point=True).encode(y=alt.Y("ca:Q", title="€")),
         base.mark_line(color="#16a34a", strokeWidth=2.5, point=True).encode(y=alt.Y("profit:Q", title="€")),
-    ).resolve_scale(y="shared").properties(height=240, title="CA cumulé (violet) · Bénéfice cumulé (vert)")
+    ).resolve_scale(y="shared").properties(height=210, title="CA cumulé · Bénéfice cumulé")
     stock = alt.layer(
         base.mark_line(color="#2563eb", strokeWidth=2.5, point=True).encode(y=alt.Y("sold:Q", title="Cartes")),
         base.mark_line(color="#f97316", strokeWidth=2.5, point=True, strokeDash=[5, 3]).encode(y=alt.Y("sell_through:Q", title="%")),
-    ).resolve_scale(y="independent").properties(height=240, title="Cartes vendues (bleu) · Taux d’écoulement (orange)")
-    first, second = st.columns(2, gap="large")
+    ).resolve_scale(y="independent").properties(height=126, title="Cartes vendues · Taux d’écoulement")
+    def apply_chart_style(chart):
+        return (
+            chart.configure_view(stroke=None)
+            .configure_axis(domain=False, gridColor="#eef0f3", gridOpacity=1, labelColor="#6b7280", tickColor="#d1d5db", titleColor="#4b5563")
+            .configure_title(color="#111827", fontSize=13, fontWeight=700, anchor="start", offset=8)
+        )
+
+    financial = apply_chart_style(financial)
+    stock = apply_chart_style(stock)
+    first, second = st.columns([1.55, .85], gap="large")
     with first:
         st.altair_chart(financial, width="stretch", key="vinted_analytics_financial_chart")
     with second:
@@ -4055,7 +4095,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         )
         st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Vitesse du Drop</h3><p>Depuis le lancement officiel du Drop.</p></div></div><div class="ps-analytics-timeline">{timeline_html}</div></section>', unsafe_allow_html=True)
 
-        st.markdown('<div class="ps-analytics-section-heading"><div><h3>Performance dans le temps</h3><p>CA, bénéfice, cartes vendues et taux d’écoulement cumulés.</p></div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="ps-analytics-charts-heading"><div class="ps-analytics-section-heading"><div><h3>Performance dans le temps</h3><p>CA, bénéfice, cartes vendues et taux d’écoulement cumulés.</p></div></div></div>', unsafe_allow_html=True)
         _render_analytics_charts(timing["series"])
 
         checkpoint_html = "".join(
@@ -4074,7 +4114,17 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         ("Sous prix", f"{neg['under_pct']:.1f} %" if neg.get("under_pct") is not None else "N/A"),
         ("Impact total", fp_func(neg["total_diff"])),
     ]
-    neg_html = "".join(f'<div class="ps-analytics-stat"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>' for label, value in neg_items)
+    neg_html = "".join(
+        f'<div class="ps-analytics-negotiation-item"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>'
+        for label, value in neg_items
+    )
+    equal_pct = max(0.0, min(100.0, _safe_float(neg.get("equal_pct"))))
+    under_pct = max(0.0, min(100.0, _safe_float(neg.get("under_pct"))))
+    negotiation_html = (
+        f'<div class="ps-analytics-negotiation">{neg_html}</div>'
+        f'<div class="ps-analytics-negotiation-bar" title="Au prix : {equal_pct:.1f} % · Sous prix : {under_pct:.1f} %">'
+        f'<i style="width:{equal_pct:.2f}%"></i><b style="width:{under_pct:.2f}%"></b></div>'
+    )
     bands_html = "".join(
         f'<div class="ps-analytics-band"><strong>{_html_escape(band["label"])}</strong><span>{band["published"]} publiées · {band["sold"]} vendues</span><div><i class="{"good" if (band["sell_through"] or 0) >= 40 else "watch"}" style="width:{band["sell_through"] or 0:.2f}%"></i></div><b>{"N/A" if band["sell_through"] is None else f"{band["sell_through"]:.0f} %"}</b><em>{_html_escape(fp_func(band["ca"]))}</em></div>'
         for band in price_bands
@@ -4082,7 +4132,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     bands_header = '<div class="ps-analytics-band-header"><span>Tranche</span><span>Publiées / vendues</span><span></span><span>Sell-through</span><span>CA cartes</span></div>'
     neg_col, bands_col = st.columns([.9, 1.3], gap="large")
     with neg_col:
-        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Négociation</h3><p>Cartes avec prix de référence.</p></div></div><div class="ps-analytics-stat-grid ps-analytics-stat-grid--stacked">{neg_html}</div></section>', unsafe_allow_html=True)
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Négociation</h3><p>Cartes avec prix de référence.</p></div></div>{negotiation_html}</section>', unsafe_allow_html=True)
     with bands_col:
         st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Tranches de prix</h3><p>Cartes physiques uniquement.</p></div></div><div class="ps-analytics-bands">{bands_header}{bands_html}</div></section>', unsafe_allow_html=True)
 
