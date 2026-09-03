@@ -731,6 +731,187 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     font-weight:760;
     margin-top:.2rem;
 }
+.ps-analytics-title {
+    padding:.08rem 0 .18rem;
+}
+.ps-analytics-title strong {
+    display:block;
+    color:#111827;
+    font-size:1.28rem;
+    font-weight:850;
+    letter-spacing:0;
+}
+.ps-analytics-title span,
+.ps-analytics-section-heading p {
+    display:block;
+    margin:.16rem 0 0;
+    color:#6b7280;
+    font-size:.78rem;
+    font-weight:650;
+}
+.ps-analytics-kpi-grid {
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:.7rem;
+    margin:.8rem 0 .55rem;
+}
+.ps-analytics-kpi,
+.ps-analytics-stat,
+.ps-analytics-surface,
+.ps-analytics-section {
+    border:1px solid #e5e7eb;
+    border-radius:9px;
+    background:#fff;
+}
+.ps-analytics-kpi {
+    min-height:92px;
+    padding:.85rem .92rem;
+    border-top:3px solid #d1d5db;
+}
+.ps-analytics-kpi--violet { border-top-color:#6d28d9; }
+.ps-analytics-kpi--success { border-top-color:#16a34a; }
+.ps-analytics-kpi span,
+.ps-analytics-stat span {
+    display:block;
+    color:#6b7280;
+    font-size:.73rem;
+    font-weight:750;
+}
+.ps-analytics-kpi strong {
+    display:block;
+    margin-top:.36rem;
+    color:#111827;
+    font-size:1.48rem;
+    font-weight:850;
+    letter-spacing:0;
+}
+.ps-analytics-stat-grid {
+    display:grid;
+    grid-template-columns:repeat(5,minmax(0,1fr));
+    gap:.55rem;
+    margin:0 0 1rem;
+}
+.ps-analytics-stat {
+    padding:.58rem .68rem;
+}
+.ps-analytics-stat strong {
+    display:block;
+    margin-top:.22rem;
+    color:#1f2937;
+    font-size:.94rem;
+    font-weight:800;
+}
+.ps-analytics-stat-grid--stacked {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    margin:0;
+}
+.ps-analytics-surface,
+.ps-analytics-section {
+    padding:1rem;
+    margin:.18rem 0 1rem;
+}
+.ps-analytics-section-heading {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:.75rem;
+    margin-bottom:.82rem;
+}
+.ps-analytics-section-heading h3 {
+    margin:0;
+    color:#111827;
+    font-size:1rem;
+    font-weight:850;
+    line-height:1.2;
+}
+.ps-analytics-revenue-total {
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    padding:.2rem 0 .6rem;
+}
+.ps-analytics-revenue-total span { color:#374151; font-size:.84rem; font-weight:750; }
+.ps-analytics-revenue-total strong { color:#111827; font-size:1.38rem; font-weight:850; }
+.ps-analytics-breakdown {
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:.36rem .8rem;
+    border-top:1px solid #eef0f3;
+    padding-top:.68rem;
+    color:#6b7280;
+    font-size:.78rem;
+}
+.ps-analytics-breakdown strong { color:#374151; font-weight:800; }
+.ps-analytics-stock-counts {
+    display:flex;
+    gap:.78rem;
+    flex-wrap:wrap;
+    color:#6b7280;
+    font-size:.77rem;
+    margin:.42rem 0 .82rem;
+}
+.ps-analytics-stock-counts strong { color:#111827; font-size:1.02rem; }
+.ps-analytics-progress {
+    height:8px;
+    overflow:hidden;
+    border-radius:999px;
+    background:#eceff3;
+}
+.ps-analytics-progress i {
+    display:block;
+    height:100%;
+    border-radius:inherit;
+    background:#16a34a;
+}
+.ps-analytics-progress-label { margin-top:.42rem; color:#166534; font-size:.76rem; font-weight:800; }
+.ps-analytics-timeline {
+    display:grid;
+    grid-template-columns:repeat(9,minmax(0,1fr));
+    gap:.45rem;
+}
+.ps-analytics-timeline-item {
+    position:relative;
+    min-width:0;
+    padding:.18rem .42rem .12rem .62rem;
+    border-left:2px solid #d8b4fe;
+}
+.ps-analytics-timeline-item:first-child { border-left-color:#6d28d9; }
+.ps-analytics-timeline-item span,
+.ps-analytics-timeline-item strong { display:block; }
+.ps-analytics-timeline-item span { color:#6b7280; font-size:.68rem; font-weight:700; }
+.ps-analytics-timeline-item strong { color:#111827; font-size:.77rem; font-weight:850; line-height:1.25; margin-top:.14rem; }
+.ps-analytics-checkpoints { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.55rem; }
+.ps-analytics-checkpoint { min-height:72px; padding:.6rem .65rem; border:1px solid #e5e7eb; border-radius:8px; }
+.ps-analytics-checkpoint span { display:block; color:#6b7280; font-size:.7rem; font-weight:800; }
+.ps-analytics-checkpoint strong { display:block; color:#111827; font-size:.98rem; font-weight:850; margin-top:.22rem; }
+.ps-analytics-checkpoint small { display:block; color:#6b7280; font-size:.68rem; font-weight:650; margin-top:.1rem; }
+.ps-analytics-table-note { flex:0 0 auto; color:#6d28d9; font-size:.7rem; font-weight:800; }
+.ps-analytics-bands { display:grid; gap:.42rem; }
+.ps-analytics-band { display:grid; grid-template-columns:58px 1fr minmax(80px,1.2fr) 42px 68px; align-items:center; gap:.55rem; color:#4b5563; font-size:.72rem; }
+.ps-analytics-band > strong { color:#111827; font-size:.75rem; }
+.ps-analytics-band > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ps-analytics-band > div { height:6px; overflow:hidden; border-radius:999px; background:#eceff3; }
+.ps-analytics-band > div i { display:block; height:100%; border-radius:inherit; background:#f59e0b; }
+.ps-analytics-band > div i.good { background:#16a34a; }
+.ps-analytics-band b { color:#374151; font-size:.72rem; text-align:right; }
+.ps-analytics-band em { color:#111827; font-size:.73rem; font-style:normal; font-weight:800; text-align:right; }
+.ps-analytics-remaining-list { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.48rem; }
+.ps-analytics-remaining-row { display:flex; align-items:flex-start; justify-content:space-between; gap:.48rem; min-width:0; padding:.58rem .62rem; border:1px solid #eef0f3; border-radius:8px; }
+.ps-analytics-remaining-row span { min-width:0; }
+.ps-analytics-remaining-row strong { display:block; overflow:hidden; color:#111827; font-size:.76rem; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+.ps-analytics-remaining-row small { display:block; margin-top:.13rem; color:#6b7280; font-size:.65rem; font-weight:650; white-space:nowrap; }
+.ps-analytics-remaining-row b { color:#111827; font-size:.75rem; white-space:nowrap; }
+.ps-analytics-highlights { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
+.ps-analytics-highlight { padding:.62rem .7rem; border-left:2px solid #d8b4fe; background:#fafafa; }
+.ps-analytics-highlight span,.ps-analytics-highlight strong,.ps-analytics-highlight b { display:block; }
+.ps-analytics-highlight span { color:#6b7280; font-size:.68rem; font-weight:750; }
+.ps-analytics-highlight strong { min-height:2.05em; margin:.18rem 0; color:#111827; font-size:.78rem; font-weight:850; line-height:1.25; }
+.ps-analytics-highlight b { color:#6d28d9; font-size:.78rem; font-weight:850; }
+.ps-analytics-insights { border-left:3px solid #6d28d9; }
+.ps-analytics-insights ul { display:grid; gap:.38rem; margin:0; padding-left:1.15rem; color:#374151; font-size:.78rem; line-height:1.45; }
+.ps-analytics-note { display:flex; align-items:center; gap:.55rem; color:#6b7280; font-size:.8rem; }
+.ps-analytics-note strong { color:#374151; }
+.ps-analytics-empty { color:#6b7280; font-size:.78rem; padding:.5rem 0; }
 @media (max-width:768px) {
     .ps-vinted-drop-head {
         padding:.08rem;
@@ -750,6 +931,12 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-vinted-kpi-grid {
         grid-template-columns:repeat(2, minmax(0, 1fr));
     }
+    .ps-analytics-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-timeline { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .ps-analytics-checkpoints { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .ps-analytics-remaining-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-highlights { grid-template-columns:repeat(2,minmax(0,1fr)); }
     [data-testid="stHorizontalBlock"][class*="st-key-vinted_grid_"] {
         gap:8px !important;
     }
@@ -757,6 +944,17 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
         flex:0 0 calc((100% - 8px) / 2) !important;
         max-width:calc((100% - 8px) / 2) !important;
     }
+}
+@media (max-width:480px) {
+    .ps-analytics-title strong { font-size:1.12rem; }
+    .ps-analytics-kpi { min-height:82px; padding:.7rem; }
+    .ps-analytics-kpi strong { font-size:1.22rem; }
+    .ps-analytics-surface,.ps-analytics-section { padding:.8rem; }
+    .ps-analytics-timeline { grid-template-columns:1fr; }
+    .ps-analytics-checkpoints { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ps-analytics-band { grid-template-columns:52px 1fr 62px; gap:.4rem; }
+    .ps-analytics-band > span,.ps-analytics-band > b { display:none; }
+    .ps-analytics-remaining-list { grid-template-columns:1fr; }
 }
 </style>
 """,
@@ -3311,6 +3509,7 @@ def _drop_metrics(drop, sales_rows):
     sold_cards = scope["sold_cards"] or counts.get("sold", 0)
     return {
         "cards": total_cards,
+        "to_photograph": counts.get("to_photograph", 0),
         "draft_ready": counts.get("draft_ready", 0),
         "online": counts.get("online", 0),
         "sold": sold_cards,
@@ -3453,13 +3652,245 @@ def _render_drop_charts(drop, rows):
         st.line_chart(df[["Cartes vendues", "Taux écoulement"]])
 
 
-def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None, effective_purchase_price_func=None):
+def _analytics_price_bands(selected, rows_by_drop_id):
+    bands = [("< 2 €", 0, 2), ("2–5 €", 2, 5), ("5–10 €", 5, 10), ("10–20 €", 10, 20), ("20 €+", 20, float("inf"))]
+    results = []
+    for label, low, high in bands:
+        published = sold = 0
+        ca = 0.0
+        for drop in selected:
+            for ref in drop.get("cards", []) or []:
+                price = _safe_float(ref.get("price_at_add"))
+                if low <= price < high:
+                    published += max(1, _safe_int(ref.get("quantity"), 1))
+            rows = rows_by_drop_id.get(str(drop.get("id") or ""), [])
+            for row, published_price in _physical_price_band_rows(drop, rows):
+                if low <= published_price < high:
+                    sold += _safe_int(row.get("quantity"), 0)
+                    ca += _safe_float(row.get("revenue"))
+        results.append({
+            "label": label,
+            "published": published,
+            "sold": sold,
+            "sell_through": sold / published * 100.0 if published else None,
+            "ca": ca,
+        })
+    return results
+
+
+def _analytics_timing(drop, rows, *, now=None):
+    launched = _parse_dt(drop.get("drop_launched_at"))
+    ordered = sorted([row for row in rows if row.get("date")], key=lambda row: row["date"])
+    if not launched or not ordered:
+        return {"launched": launched, "milestones": {}, "checkpoints": [], "series": []}
+
+    cumulative_ca = cumulative_profit = cumulative_cards = 0.0
+    milestones = {}
+    series_by_day = {}
+    for row in ordered:
+        cumulative_ca += _safe_float(row.get("revenue"))
+        cumulative_cards += _safe_int(row.get("quantity"), 0)
+        if row.get("profit") is not None:
+            cumulative_profit += _safe_float(row.get("profit"))
+        elapsed = row["date"] - launched
+        day = max(0, elapsed.days)
+        if "first_sale" not in milestones:
+            milestones["first_sale"] = _duration_label(elapsed)
+        for amount in (50, 100, 200, 500, 1000, 2000):
+            key = f"ca_{amount}"
+            if key not in milestones and cumulative_ca >= amount:
+                milestones[key] = _duration_label(elapsed)
+        total_cards = max(1, _drop_card_total(drop))
+        for percent in (10, 25, 50, 75):
+            key = f"sold_{percent}"
+            if key not in milestones and cumulative_cards / total_cards * 100.0 >= percent:
+                milestones[key] = _duration_label(elapsed)
+        series_by_day[day] = {
+            "Jour": f"J{day}",
+            "jour": day,
+            "CA cumulé": cumulative_ca,
+            "Bénéfice cumulé": cumulative_profit,
+            "Cartes vendues": cumulative_cards,
+            "Taux d'écoulement": cumulative_cards / total_cards * 100.0,
+        }
+
+    reference_now = now or datetime.now()
+    checkpoints = []
+    for day in (0, 1, 3, 7, 30):
+        cutoff = launched + timedelta(days=day + 1)
+        if cutoff > reference_now:
+            checkpoints.append({"label": f"J{day}", "upcoming": True})
+            continue
+        checkpoint_rows = [row for row in ordered if row["date"] < cutoff]
+        checkpoints.append({
+            "label": f"J{day}",
+            "upcoming": False,
+            "revenue": sum(_safe_float(row.get("revenue")) for row in checkpoint_rows),
+            "sold": sum(_safe_int(row.get("quantity"), 0) for row in checkpoint_rows),
+        })
+    continuous_series = []
+    previous = None
+    for day in range(max(series_by_day) + 1):
+        if day in series_by_day:
+            previous = series_by_day[day]
+        elif previous is not None:
+            previous = {**previous, "Jour": f"J{day}", "jour": day}
+        if previous is not None:
+            continuous_series.append(previous)
+    return {
+        "launched": launched,
+        "milestones": milestones,
+        "checkpoints": checkpoints,
+        "series": continuous_series,
+    }
+
+
+def _analytics_remaining_items(selected, *, now=None, limit=5):
+    reference_now = now or datetime.now()
+    items = []
+    total_value = remaining_value = 0.0
+    remaining_cards = 0
+    for drop in selected:
+        for ref in drop.get("cards", []) or []:
+            quantity = max(1, _safe_int(ref.get("quantity"), 1))
+            value = _safe_float(ref.get("price_at_add")) * quantity
+            total_value += value
+            if drop_item_status(ref) == "sold":
+                continue
+            remaining_cards += quantity
+            remaining_value += value
+            if drop_item_status(ref) != "online":
+                continue
+            online_at = _parse_dt(ref.get("online_at"))
+            days_online = max(0, (reference_now - online_at).days) if online_at else None
+            price = _safe_float(ref.get("price_at_add"))
+            band = next((label for label, low, high in [("< 2 €", 0, 2), ("2–5 €", 2, 5), ("5–10 €", 5, 10), ("10–20 €", 10, 20), ("20 €+", 20, float("inf"))] if low <= price < high), "Sans prix")
+            items.append({
+                "name": _ui_text(ref.get("name"), "Carte sans nom"),
+                "number": _card_number(ref),
+                "price": price,
+                "days_online": days_online,
+                "band": band,
+                "status": drop_item_status_label(ref),
+                "online_label": (
+                    f"En ligne depuis {days_online} j · {drop_item_status_label(ref)}"
+                    if days_online is not None
+                    else drop_item_status_label(ref)
+                ),
+            })
+    items.sort(key=lambda item: item["price"], reverse=True)
+    return {
+        "remaining_cards": remaining_cards,
+        "remaining_value": remaining_value,
+        "remaining_value_pct": remaining_value / total_value * 100.0 if total_value else None,
+        "top_online": items[:limit],
+    }
+
+
+def _analytics_highlights(rows, drop):
+    physical_rows = _sales_scope_metrics(rows)["physical_rows"]
+    dated_rows = [row for row in physical_rows if row.get("date")]
+    launched = _parse_dt(drop.get("drop_launched_at"))
+    best_margin = max((row for row in physical_rows if row.get("profit") is not None), key=lambda row: row["profit"], default=None)
+    best_margin_pct = max(
+        (row for row in physical_rows if row.get("profit") is not None and _safe_float(row.get("revenue")) > 0),
+        key=lambda row: _safe_float(row.get("profit")) / _safe_float(row.get("revenue")),
+        default=None,
+    )
+    fastest = min(dated_rows, key=lambda row: row["date"], default=None)
+    return {
+        "largest_sale": max(physical_rows, key=lambda row: _safe_float(row.get("revenue")), default=None),
+        "best_margin": best_margin,
+        "best_margin_pct": best_margin_pct,
+        "fastest": fastest,
+        "launched": launched,
+    }
+
+
+def _analytics_insights(price_bands, negotiation):
+    insights = []
+    eligible = [band for band in price_bands if band["published"]]
+    if eligible:
+        strongest = max(eligible, key=lambda band: band["sell_through"] or 0)
+        weakest = min(eligible, key=lambda band: band["sell_through"] or 0)
+        insights.append(f"Les cartes {strongest['label']} affichent un sell-through de {strongest['sell_through']:.0f} %.")
+        if weakest["label"] != strongest["label"]:
+            insights.append(f"Les cartes {weakest['label']} tournent le moins vite : {weakest['sell_through']:.0f} %.")
+    if negotiation.get("equal_pct") is not None:
+        insights.append(f"{negotiation['equal_pct']:.1f} % des ventes avec prix de référence sont réalisées au prix affiché.")
+    return insights
+
+
+def _analytics_header_date(value):
+    date = _parse_dt(value)
+    if not date:
+        return "date de lancement non renseignée"
+    months = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
+    return f"lancé le {date.day} {months[date.month - 1]} {date.year}"
+
+
+def _render_analytics_charts(series):
+    if not series:
+        st.caption("Les courbes apparaîtront dès les premières ventes liées au Drop.")
+        return
+    try:
+        import altair as alt
+        import pandas as pd
+    except Exception:
+        st.line_chart({"CA cumulé": [point["CA cumulé"] for point in series], "Bénéfice cumulé": [point["Bénéfice cumulé"] for point in series]})
+        return
+
+    frame = pd.DataFrame(series)
+    tooltip = [
+        alt.Tooltip("Jour:N", title="Jour"),
+        alt.Tooltip("CA cumulé:Q", title="CA cumulé", format=".2f"),
+        alt.Tooltip("Bénéfice cumulé:Q", title="Bénéfice cumulé", format=".2f"),
+        alt.Tooltip("Cartes vendues:Q", title="Cartes vendues", format=".0f"),
+        alt.Tooltip("Taux d'écoulement:Q", title="Taux d'écoulement", format=".1f"),
+    ]
+    base = alt.Chart(frame).encode(
+        x=alt.X("Jour:N", title=None, axis=alt.Axis(labelAngle=0, labelPadding=8)),
+        tooltip=tooltip,
+    )
+    financial = alt.layer(
+        base.mark_line(color="#6d28d9", strokeWidth=2.5, point=True).encode(y=alt.Y("CA cumulé:Q", title="€")),
+        base.mark_line(color="#16a34a", strokeWidth=2.5, point=True).encode(y=alt.Y("Bénéfice cumulé:Q", title="€")),
+    ).resolve_scale(y="shared").properties(height=240, title="CA et bénéfice cumulés")
+    stock = alt.layer(
+        base.mark_line(color="#2563eb", strokeWidth=2.5, point=True).encode(y=alt.Y("Cartes vendues:Q", title="Cartes")),
+        base.mark_line(color="#f97316", strokeWidth=2.5, point=True, strokeDash=[5, 3]).encode(y=alt.Y("Taux d'écoulement:Q", title="%")),
+    ).resolve_scale(y="independent").properties(height=240, title="Cartes vendues et taux d’écoulement")
+    first, second = st.columns(2, gap="large")
+    with first:
+        st.altair_chart(financial, use_container_width=True)
+    with second:
+        st.altair_chart(stock, use_container_width=True)
+
+
+def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=None, effective_purchase_price_func=None, *, active_drop=None):
     drops = drops_data.get("drops", []) or []
     if not drops:
         st.caption("Aucun drop à analyser.")
         return
+
+    active_name = str((active_drop or {}).get("name") or "").strip()
+    active_id = str((active_drop or {}).get("id") or "").strip()
+    active_channel = normalize_vinted_channel((active_drop or {}).get("channel", ""))
     channel_options = ["Tous", *VINTED_CHANNELS]
-    channel_filter = st.selectbox("Canal", channel_options, key="vinted_analysis_channel")
+    if (
+        st.session_state.get("vinted_analytics_defaults_version") != "v2"
+        or (active_id and st.session_state.get("vinted_analytics_active_drop_id") != active_id)
+    ):
+        st.session_state["vinted_analysis_channel"] = active_channel if active_channel in channel_options else "Tous"
+        st.session_state["vinted_analysis_drop"] = active_name or "Tous les drops"
+        st.session_state["vinted_analytics_defaults_version"] = "v2"
+        st.session_state["vinted_analytics_active_drop_id"] = active_id
+    elif "vinted_analysis_channel" not in st.session_state:
+        st.session_state["vinted_analysis_channel"] = active_channel if active_channel in channel_options else "Tous"
+
+    header_col, channel_col, drop_col = st.columns([2.4, 1, 1.5], vertical_alignment="bottom")
+    with channel_col:
+        channel_filter = st.selectbox("Canal", channel_options, key="vinted_analysis_channel", label_visibility="collapsed")
     filtered = [
         drop for drop in drops
         if channel_filter == "Tous" or normalize_vinted_channel(drop.get("channel", "")) == channel_filter
@@ -3468,12 +3899,29 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         st.caption("Aucun drop pour ce canal.")
         return
     drop_names = ["Tous les drops"] + [drop.get("name", "Drop sans nom") for drop in filtered]
-    selected_name = st.selectbox("Drop", drop_names, key="vinted_analysis_drop")
+    if st.session_state.get("vinted_analysis_drop") not in drop_names:
+        st.session_state["vinted_analysis_drop"] = active_name if active_name in drop_names else "Tous les drops"
+    with drop_col:
+        selected_name = st.selectbox("Drop", drop_names, key="vinted_analysis_drop", label_visibility="collapsed")
     selected = filtered if selected_name == "Tous les drops" else [drop for drop in filtered if drop.get("name", "Drop sans nom") == selected_name]
+    is_single_drop = len(selected) == 1
+    with header_col:
+        if is_single_drop:
+            selected_drop = selected[0]
+            st.markdown(
+                f'<div class="ps-analytics-title"><strong>{_html_escape(selected_drop.get("name", "Drop sans nom"))}</strong>'
+                f'<span>{_html_escape(normalize_vinted_channel(selected_drop.get("channel", "")) or "Canal non renseigné")} · '
+                f'{_html_escape(_analytics_header_date(selected_drop.get("drop_launched_at")))}</span></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="ps-analytics-title"><strong>Tous les drops</strong><span>Vue agrégée · périmètre sélectionné</span></div>', unsafe_allow_html=True)
+
     all_rows = []
     rows_by_drop_id = {}
     aggregate = {
         "cards": 0,
+        "to_photograph": 0,
         "draft_ready": 0,
         "online": 0,
         "sold": 0,
@@ -3487,7 +3935,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         rows_by_drop_id[str(drop.get("id") or "")] = rows
         all_rows.extend(rows)
         metrics = _drop_metrics(drop, rows)
-        for key in ("cards", "draft_ready", "online", "sold", "published_value", "revenue"):
+        for key in ("cards", "to_photograph", "draft_ready", "online", "sold", "published_value", "revenue"):
             aggregate[key] += metrics.get(key, 0) or 0
         if metrics.get("profit") is not None:
             aggregate["profit"] += metrics["profit"]
@@ -3507,51 +3955,132 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     aggregate["avg_sold_price"] = scope["ca_cards"] / aggregate["sold"] if aggregate["sold"] else None
     aggregate["avg_basket"] = aggregate["revenue"] / scope["total_transactions"] if scope["total_transactions"] else None
     aggregate["avg_cards_per_transaction"] = aggregate["sold"] / scope["card_transactions"] if scope["card_transactions"] else None
-    _render_kpis(aggregate, fp_func)
-
     neg = _negotiation_stats(all_rows)
-    st.markdown("**Négociation**")
-    st.caption(
-        " · ".join([
-            f"Moyenne {neg['avg_pct']:.1f}%" if neg.get("avg_pct") is not None else "Moyenne N/A",
-            f"Médiane {neg['median_pct']:.1f}%" if neg.get("median_pct") is not None else "Médiane N/A",
-            f"Au prix {neg['equal_pct']:.0f}%" if neg.get("equal_pct") is not None else "Au prix N/A",
-            f"Sous prix {neg['under_pct']:.0f}%" if neg.get("under_pct") is not None else "Sous prix N/A",
-            f"Au-dessus {neg['above_pct']:.0f}%" if neg.get("above_pct") is not None else "Au-dessus N/A",
-            f"Total {fp_func(neg['total_diff'])}",
-        ])
+    price_bands = _analytics_price_bands(selected, rows_by_drop_id)
+    remaining = _analytics_remaining_items(selected)
+
+    margin = aggregate["profit"] / aggregate["revenue"] * 100.0 if aggregate.get("profit") is not None and aggregate.get("revenue") else None
+    primary_kpis = [
+        ("CA total", fp_func(aggregate["ca_total"]), "violet"),
+        ("Bénéfice", fp_func(aggregate["profit"]) if aggregate.get("profit") is not None else "N/A", "success"),
+        ("Taux d'écoulement", f"{aggregate['sell_through']:.1f} %" if aggregate.get("sell_through") is not None else "N/A", "neutral"),
+        ("Vendues", f"{aggregate['sold']} / {aggregate['cards']}", "neutral"),
+    ]
+    secondary_kpis = [
+        ("Valeur publiée", fp_func(aggregate["published_value"])),
+        ("Marge", f"{margin:.1f} %" if margin is not None else "N/A"),
+        ("Prix moyen carte", fp_func(aggregate["avg_sold_price"]) if aggregate.get("avg_sold_price") is not None else "N/A"),
+        ("Panier moyen", fp_func(aggregate["avg_basket"]) if aggregate.get("avg_basket") is not None else "N/A"),
+        ("Cartes / transaction", f"{aggregate['avg_cards_per_transaction']:.2f}" if aggregate.get("avg_cards_per_transaction") is not None else "N/A"),
+    ]
+    primary_html = "".join(
+        f'<div class="ps-analytics-kpi ps-analytics-kpi--{tone}"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>'
+        for label, value, tone in primary_kpis
+    )
+    secondary_html = "".join(
+        f'<div class="ps-analytics-stat"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>'
+        for label, value in secondary_kpis
+    )
+    st.markdown(f'<div class="ps-analytics-kpi-grid">{primary_html}</div><div class="ps-analytics-stat-grid">{secondary_html}</div>', unsafe_allow_html=True)
+
+    revenue_col, stock_col = st.columns([1, 1], gap="large")
+    with revenue_col:
+        st.markdown(
+            f'''<section class="ps-analytics-surface"><div class="ps-analytics-section-heading"><div><h3>Décomposition du CA</h3><p>Le CA total inclut les ventes hors stock liées au Drop.</p></div></div>
+<div class="ps-analytics-revenue-total"><span>CA total</span><strong>{_html_escape(fp_func(aggregate['ca_total']))}</strong></div>
+<div class="ps-analytics-breakdown"><span>Cartes physiques</span><strong>{_html_escape(fp_func(aggregate['ca_cards']))}</strong><span>Hors stock</span><strong>{_html_escape(fp_func(aggregate['ca_off_stock']))}</strong></div></section>''',
+            unsafe_allow_html=True,
+        )
+    with stock_col:
+        stock_label = f"{aggregate['sold']} vendues · {aggregate['sell_through']:.1f} %" if aggregate.get("sell_through") is not None else f"{aggregate['sold']} vendues"
+        st.markdown(
+            f'''<section class="ps-analytics-surface"><div class="ps-analytics-section-heading"><div><h3>Progression du stock</h3><p>{aggregate['cards']} cartes sélectionnées</p></div></div>
+<div class="ps-analytics-stock-counts"><span><strong>{aggregate['sold']}</strong> vendues</span><span><strong>{aggregate['online']}</strong> en ligne</span><span><strong>{aggregate['to_photograph']}</strong> à photographier</span></div>
+<div class="ps-analytics-progress"><i style="width:{aggregate['sell_through'] or 0:.2f}%"></i></div><div class="ps-analytics-progress-label">{_html_escape(stock_label)}</div></section>''',
+            unsafe_allow_html=True,
+        )
+
+    if is_single_drop:
+        selected_drop = selected[0]
+        timing = _analytics_timing(selected_drop, all_rows)
+        milestones = timing["milestones"]
+        milestone_rows = [
+            ("Lancement", "Point de départ"),
+            ("Première vente", milestones.get("first_sale", "Non atteint")),
+            ("50 €", milestones.get("ca_50", "Non atteint")),
+            ("100 €", milestones.get("ca_100", "Non atteint")),
+            ("10 % vendu", milestones.get("sold_10", "Non atteint")),
+            ("200 €", milestones.get("ca_200", "Non atteint")),
+            ("25 % vendu", milestones.get("sold_25", "Non atteint")),
+            ("500 €", milestones.get("ca_500", "Non atteint")),
+            ("50 % vendu", milestones.get("sold_50", "Non atteint")),
+        ]
+        timeline_html = "".join(
+            f'<div class="ps-analytics-timeline-item"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>'
+            for label, value in milestone_rows
+        )
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Vitesse du Drop</h3><p>Depuis le lancement officiel du Drop.</p></div></div><div class="ps-analytics-timeline">{timeline_html}</div></section>', unsafe_allow_html=True)
+
+        st.markdown('<div class="ps-analytics-section-heading"><div><h3>Performance dans le temps</h3><p>CA, bénéfice, cartes vendues et taux d’écoulement cumulés.</p></div></div>', unsafe_allow_html=True)
+        _render_analytics_charts(timing["series"])
+
+        checkpoint_html = "".join(
+            f'<div class="ps-analytics-checkpoint"><span>{checkpoint["label"]}</span><strong>{"À venir" if checkpoint.get("upcoming") else _html_escape(fp_func(checkpoint.get("revenue", 0)))}</strong>'
+            f'<small>{"" if checkpoint.get("upcoming") else f"{checkpoint.get("sold", 0)} vendue(s)"}</small></div>'
+            for checkpoint in timing["checkpoints"]
+        )
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Checkpoints</h3><p>Lecture cumulative à la fin de chaque journée.</p></div></div><div class="ps-analytics-checkpoints">{checkpoint_html}</div></section>', unsafe_allow_html=True)
+    else:
+        st.markdown('<section class="ps-analytics-section ps-analytics-note"><strong>Temporalité par drop</strong><span>Les milestones et courbes restent disponibles lorsque vous sélectionnez un Drop précis.</span></section>', unsafe_allow_html=True)
+
+    neg_items = [
+        ("Moyenne", f"{neg['avg_pct']:.2f} %" if neg.get("avg_pct") is not None else "N/A"),
+        ("Médiane", f"{neg['median_pct']:.1f} %" if neg.get("median_pct") is not None else "N/A"),
+        ("Au prix", f"{neg['equal_pct']:.1f} %" if neg.get("equal_pct") is not None else "N/A"),
+        ("Sous prix", f"{neg['under_pct']:.1f} %" if neg.get("under_pct") is not None else "N/A"),
+        ("Impact total", fp_func(neg["total_diff"])),
+    ]
+    neg_html = "".join(f'<div class="ps-analytics-stat"><span>{_html_escape(label)}</span><strong>{_html_escape(value)}</strong></div>' for label, value in neg_items)
+    bands_html = "".join(
+        f'<div class="ps-analytics-band"><strong>{_html_escape(band["label"])}</strong><span>{band["published"]} publiées · {band["sold"]} vendues</span><div><i class="{"good" if (band["sell_through"] or 0) >= 40 else "watch"}" style="width:{band["sell_through"] or 0:.2f}%"></i></div><b>{"N/A" if band["sell_through"] is None else f"{band["sell_through"]:.0f} %"}</b><em>{_html_escape(fp_func(band["ca"]))}</em></div>'
+        for band in price_bands
+    )
+    neg_col, bands_col = st.columns([.9, 1.3], gap="large")
+    with neg_col:
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Négociation</h3><p>Cartes avec prix de référence.</p></div></div><div class="ps-analytics-stat-grid ps-analytics-stat-grid--stacked">{neg_html}</div></section>', unsafe_allow_html=True)
+    with bands_col:
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Tranches de prix</h3><p>Cartes physiques uniquement.</p></div><span class="ps-analytics-table-note">CA cartes</span></div><div class="ps-analytics-bands">{bands_html}</div></section>', unsafe_allow_html=True)
+
+    remaining_items_html = "".join(
+        f'<div class="ps-analytics-remaining-row"><span><strong>{_html_escape(item["name"])} {_html_escape(item["number"])}</strong><small>{_html_escape(item["band"])} · {_html_escape(item["online_label"])}</small></span><b>{_html_escape(fp_func(item["price"]))}</b></div>'
+        for item in remaining["top_online"]
+    ) or '<div class="ps-analytics-empty">Aucune carte en ligne.</div>'
+    slowest = min((band for band in price_bands if band["published"]), key=lambda band: band["sell_through"] or 0, default=None)
+    st.markdown(
+        f'''<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Ce qu’il reste à vendre</h3><p>{remaining['remaining_cards']} carte(s) · {fp_func(remaining['remaining_value'])} · {remaining['remaining_value_pct']:.1f} % de valeur immobilisée</p></div>{f'<span class="ps-analytics-table-note">Tranche la plus lente : {slowest["label"]}</span>' if slowest else ''}</div>
+<div class="ps-analytics-remaining-list">{remaining_items_html}</div></section>''',
+        unsafe_allow_html=True,
     )
 
-    if len(selected) == 1:
-        st.markdown("**Temporalité**")
-        _render_drop_timing(selected[0], all_rows, fp_func)
-        _render_drop_charts(selected[0], all_rows)
+    if is_single_drop:
+        highlights = _analytics_highlights(all_rows, selected[0])
+        highlight_rows = []
+        if highlights["largest_sale"]:
+            highlight_rows.append(("Plus grosse vente", highlights["largest_sale"]["card_name"], fp_func(highlights["largest_sale"]["revenue"])))
+        if highlights["best_margin"]:
+            highlight_rows.append(("Meilleure marge €", highlights["best_margin"]["card_name"], fp_func(highlights["best_margin"]["profit"])))
+        if highlights["best_margin_pct"]:
+            row = highlights["best_margin_pct"]
+            highlight_rows.append(("Meilleure marge %", row["card_name"], f"{_safe_float(row['profit']) / _safe_float(row['revenue']) * 100:.1f} %"))
+        if highlights["fastest"] and highlights["launched"]:
+            highlight_rows.append(("Vente la plus rapide", highlights["fastest"]["card_name"], _duration_label(highlights["fastest"]["date"] - highlights["launched"])))
+        highlights_html = "".join(f'<div class="ps-analytics-highlight"><span>{_html_escape(label)}</span><strong>{_html_escape(name)}</strong><b>{_html_escape(value)}</b></div>' for label, name, value in highlight_rows) or '<div class="ps-analytics-empty">Aucune transaction disponible.</div>'
+        st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Transactions marquantes</h3><p>Lecture sur les cartes physiques du Drop.</p></div></div><div class="ps-analytics-highlights">{highlights_html}</div></section>', unsafe_allow_html=True)
 
-    if all_rows:
-        st.markdown("**Transactions marquantes**")
-        top_rows = sorted(all_rows, key=lambda row: row["revenue"], reverse=True)[:5]
-        for row in top_rows:
-            st.caption(f"{row['card_name']} · {fp_func(row['revenue'])} · {row.get('lot_name', '')}")
-
-    st.markdown("**Tranches de prix**")
-    bands = [("<2 €", 0, 2), ("2–5 €", 2, 5), ("5–10 €", 5, 10), ("10–20 €", 10, 20), (">20 €", 20, float("inf"))]
-    for label, low, high in bands:
-        published = 0
-        sold = ca = 0
-        for drop in selected:
-            for ref in drop.get("cards", []) or []:
-                price = _safe_float(ref.get("price_at_add"))
-                qty = max(1, _safe_int(ref.get("quantity"), 1))
-                if low <= price < high:
-                    published += qty
-        for drop in selected:
-            rows = rows_by_drop_id.get(str(drop.get("id") or ""), [])
-            for row, published_price in _physical_price_band_rows(drop, rows):
-                if low <= published_price < high:
-                    sold += row["quantity"]
-                    ca += row["revenue"]
-        rate = sold / published * 100.0 if published else None
-        st.caption(f"{label} : {published} publiée(s) · {sold} vendue(s) · {f'{rate:.0f}%' if rate is not None else 'N/A'} · {fp_func(ca)}")
+    insights = _analytics_insights(price_bands, neg)
+    if insights:
+        insights_html = "".join(f'<li>{_html_escape(insight)}</li>' for insight in insights)
+        st.markdown(f'<section class="ps-analytics-section ps-analytics-insights"><div class="ps-analytics-section-heading"><div><h3>Enseignements</h3><p>Constats calculés à partir des données du Drop.</p></div></div><ul>{insights_html}</ul></section>', unsafe_allow_html=True)
 
 
 def _recognition_listing_cards(listing, available_cards):
@@ -4335,6 +4864,7 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
             fp_func,
             calc_cout_lot_func,
             effective_purchase_price_func,
+            active_drop=active_drop,
         )
 
 

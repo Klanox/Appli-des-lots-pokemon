@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta
 
-from ui.pages.vinted_listings import _drop_metrics, _physical_price_band_rows, _sales_scope_metrics
+from ui.pages.vinted_listings import (
+    _analytics_price_bands,
+    _analytics_remaining_items,
+    _analytics_timing,
+    _drop_metrics,
+    _physical_price_band_rows,
+    _sales_scope_metrics,
+)
 
 
 def _sale_row(sale_id, card_uid, quantity, revenue, *, drop_item_id=None, off_stock=False):
@@ -63,6 +71,33 @@ class VintedDropAnalyticsTests(unittest.TestCase):
 
         self.assertEqual(scope["sold_cards"], 2)
         self.assertEqual(scope["card_transactions"], 1)
+
+    def test_dashboard_helpers_keep_price_bands_and_checkpoints_deterministic(self):
+        launched = datetime(2026, 8, 27, 12, 0)
+        drop = {
+            "drop_launched_at": launched.isoformat(),
+            "cards": [
+                {"drop_item_id": "item-low", "card_uid": "card-low", "price_at_add": 1.5, "quantity": 2, "status": "sold"},
+                {"drop_item_id": "item-mid", "card_uid": "card-mid", "price_at_add": 6.0, "quantity": 1, "status": "online", "name": "Carte en ligne", "online_at": launched.isoformat()},
+            ],
+        }
+        rows = [
+            {**_sale_row("sale-low", "card-low", 2, 3.0, drop_item_id="item-low"), "date": launched + timedelta(minutes=31)},
+            {**_sale_row("off-stock", None, 0, 19.0, off_stock=True), "date": launched + timedelta(hours=1)},
+        ]
+
+        bands = _analytics_price_bands([drop], {"": rows})
+        timing = _analytics_timing(drop, rows, now=launched + timedelta(days=2))
+        remaining = _analytics_remaining_items([drop], now=launched + timedelta(days=2))
+
+        self.assertEqual(bands[0]["sold"], 2)
+        self.assertEqual(bands[0]["ca"], 3.0)
+        self.assertEqual(bands[2]["sold"], 0)
+        self.assertEqual(timing["milestones"]["first_sale"], "31 min")
+        self.assertEqual(timing["checkpoints"][0]["sold"], 2)
+        self.assertTrue(timing["checkpoints"][3]["upcoming"])
+        self.assertEqual(remaining["remaining_cards"], 1)
+        self.assertEqual(remaining["top_online"][0]["name"], "Carte en ligne")
 
 
 if __name__ == "__main__":
