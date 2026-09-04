@@ -255,7 +255,7 @@ h1 {{ display: none !important; }}
 }}
 .main .block-container {{
     max-width: 1280px !important;
-    padding-top: 1.25rem !important;
+    padding-top: 0.8rem !important;
     padding-bottom: 2.5rem !important;
 }}
 .stMarkdown, .stMarkdown p, label,
@@ -269,8 +269,8 @@ h1 {{ display: none !important; }}
     background: var(--ps-surface);
     border: 1px solid var(--ps-border);
     border-radius: var(--ps-radius-lg);
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 1.5rem;
+    padding: 0.78rem 1rem;
+    margin-bottom: 0.72rem;
     box-shadow: var(--ps-shadow-sm);
 }}
 .ps-app-header--compact {{
@@ -976,7 +976,8 @@ hr {{
         radial-gradient(circle at 92% 18%, rgba(124,58,237,0.18), transparent 20rem) !important;
     border: 1px solid rgba(124,58,237,0.16) !important;
     border-radius: 18px !important;
-    padding: 1.15rem 1.35rem !important;
+    padding: 0.78rem 1rem !important;
+    margin-bottom: 0.72rem !important;
     box-shadow: var(--ps-shadow) !important;
 }}
 .ps-app-header::after {{

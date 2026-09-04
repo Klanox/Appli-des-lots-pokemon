@@ -161,6 +161,8 @@ class VintedDropAnalyticsTests(unittest.TestCase):
         two_hours = next(point for point in series if point["elapsed_hours"] == 2.0)
         self.assertEqual(two_hours["primary"]["revenue"], 10.0)
         self.assertEqual(two_hours["reference"]["revenue"], 8.0)
+        self.assertTrue(two_hours["primary_is_transaction"])
+        self.assertTrue(two_hours["reference_is_transaction"])
 
     def test_j7_checkpoint_uses_exact_seven_times_twenty_four_hours(self):
         launched = datetime(2026, 8, 27, 17, 27)

@@ -780,6 +780,23 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-kpi--success strong { color:#15803d; }
 .ps-analytics-kpi--blue strong { color:#1d4ed8; }
 .ps-analytics-kpi--orange strong { color:#c2410c; }
+[class*="st-key-drop_analytics_chart_mode"] [data-testid="stSegmentedControl"] button,
+[class*="st-key-drop_analytics_range"] [data-testid="stSegmentedControl"] button {
+    border-color:#e5e7eb !important;
+    background:#fff !important;
+    color:#4b5563 !important;
+    font-weight:700 !important;
+}
+[class*="st-key-drop_analytics_chart_mode"] [data-testid="stSegmentedControl"] button[aria-checked="true"],
+[class*="st-key-drop_analytics_chart_mode"] [data-testid="stSegmentedControl"] button[aria-pressed="true"],
+[class*="st-key-drop_analytics_range"] [data-testid="stSegmentedControl"] button[aria-checked="true"],
+[class*="st-key-drop_analytics_range"] [data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+    border-color:#8b5cf6 !important;
+    background:#f5f3ff !important;
+    color:#6d28d9 !important;
+    font-weight:850 !important;
+    box-shadow:inset 0 0 0 1px rgba(109,40,217,.08) !important;
+}
 .ps-analytics-kpi span,
 .ps-analytics-stat span {
     display:block;
@@ -3991,11 +4008,14 @@ def _comparison_time_series(primary_drop, primary_rows, reference_drop, referenc
         primary_drop, primary_rows, reference_drop, reference_rows, now=now, full_history=full_history,
     )
     elapsed_points = {0.0, horizon}
-    for drop, rows, launched in ((primary_drop, primary_rows, primary_launch), (reference_drop, reference_rows, reference_launch)):
+    event_hours = {}
+    for key, rows, launched in (("primary", primary_rows, primary_launch), ("reference", reference_rows, reference_launch)):
+        event_hours[key] = set()
         for event in _group_drop_transactions(rows):
             elapsed = (event["timestamp"] - launched).total_seconds() / 3600.0
             if 0.0 <= elapsed <= horizon:
                 elapsed_points.add(elapsed)
+                event_hours[key].add(elapsed)
     series = []
     for elapsed in sorted(elapsed_points):
         primary = _analytics_metrics_at(primary_drop, primary_rows, primary_launch + timedelta(hours=elapsed))
@@ -4005,6 +4025,8 @@ def _comparison_time_series(primary_drop, primary_rows, reference_drop, referenc
             "elapsed_label": f"H+{_duration_label(timedelta(hours=elapsed))}",
             "primary": primary,
             "reference": reference,
+            "primary_is_transaction": elapsed in event_hours["primary"],
+            "reference_is_transaction": elapsed in event_hours["reference"],
         })
     return series
 
@@ -4152,17 +4174,18 @@ def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_anal
         x=alt.X("timestamp:T", title=None, axis=_analytics_time_axis(series, alt)),
         tooltip=tooltip,
     )
+    transaction_hover = alt.selection_point(on="pointerover", fields=["timestamp"], nearest=True, empty=False)
     if mode == "CA & bénéfice":
         chart = alt.layer(
             base.mark_line(color="#6d28d9", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("revenue:Q", title="Montant (€)"), color=alt.value("#6d28d9")),
             base.mark_line(color="#16a34a", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("profit:Q", title="Montant (€)"), color=alt.value("#16a34a")),
-            base.transform_filter("datum.is_transaction").mark_point(color="#6d28d9", filled=True, size=42).encode(y=alt.Y("revenue:Q")),
+            base.transform_filter("datum.is_transaction").mark_point(color="#6d28d9", stroke="#ffffff", strokeWidth=1.2, filled=True).encode(y=alt.Y("revenue:Q"), size=alt.condition(transaction_hover, alt.value(92), alt.value(40))).add_params(transaction_hover),
         ).properties(height=285, title="CA cumulé · Bénéfice cumulé")
     else:
         chart = alt.layer(
             base.mark_line(color="#2563eb", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("sold:Q", title="Cartes")),
             base.mark_line(color="#f97316", strokeWidth=2.4, interpolate=_ANALYTICS_CHART_INTERPOLATION, strokeDash=[5, 3]).encode(y=alt.Y("sell_through:Q", title="Taux d’écoulement (%)")),
-            base.transform_filter("datum.is_transaction").mark_point(color="#2563eb", filled=True, size=42).encode(y=alt.Y("sold:Q")),
+            base.transform_filter("datum.is_transaction").mark_point(color="#2563eb", stroke="#ffffff", strokeWidth=1.2, filled=True).encode(y=alt.Y("sold:Q"), size=alt.condition(transaction_hover, alt.value(92), alt.value(40))).add_params(transaction_hover),
         ).resolve_scale(y="independent").properties(height=285, title="Cartes vendues · Taux d’écoulement")
     if launch:
         launch_rule = alt.Chart(pd.DataFrame([launch])).mark_rule(color="#7c3aed", strokeDash=[4, 3], strokeWidth=1.4).encode(x="timestamp:T")
@@ -4316,13 +4339,16 @@ def _render_analytics_comparison(drops, stock_data, fp_func, calc_cout_lot_func,
         chart_rows = []
         for point in series:
             for label, value in ((primary_name, point["primary"].get(field)), (reference_name, point["reference"].get(field))):
+                is_primary = label == primary_name
                 chart_rows.append({
                     "elapsed_hours": point["elapsed_hours"], "elapsed_label": point["elapsed_label"], "drop": label,
                     "value": value or 0.0, "primary_value": point["primary"].get(field), "reference_value": point["reference"].get(field),
                     "difference": (point["primary"].get(field) or 0.0) - (point["reference"].get(field) or 0.0),
+                    "is_transaction": point["primary_is_transaction"] if is_primary else point["reference_is_transaction"],
                 })
         frame = pd.DataFrame(chart_rows)
-        chart = alt.Chart(frame).mark_line(interpolate=_ANALYTICS_CHART_INTERPOLATION, strokeWidth=2.6).encode(
+        comparison_hover = alt.selection_point(on="pointerover", fields=["elapsed_hours", "drop"], nearest=True, empty=False)
+        base = alt.Chart(frame).encode(
             x=alt.X("elapsed_hours:Q", axis=_analytics_elapsed_axis(horizon_hours, alt)),
             y=alt.Y("value:Q", title=mode),
             color=alt.Color("drop:N", scale=alt.Scale(range=["#6d28d9", "#2563eb"])),
@@ -4333,6 +4359,10 @@ def _render_analytics_comparison(drops, stock_data, fp_func, calc_cout_lot_func,
                 alt.Tooltip("reference_value:Q", title=reference_name, format=".2f"),
                 alt.Tooltip("difference:Q", title="Écart", format="+.2f"),
             ],
+        )
+        chart = alt.layer(
+            base.mark_line(interpolate=_ANALYTICS_CHART_INTERPOLATION, strokeWidth=2.6),
+            base.transform_filter("datum.is_transaction").mark_point(stroke="#ffffff", strokeWidth=1.2, filled=True).encode(size=alt.condition(comparison_hover, alt.value(88), alt.value(38))).add_params(comparison_hover),
         ).properties(height=285, title=f"{mode} · {primary_name} vs {reference_name}")
         st.altair_chart(_analytics_chart_style(chart), width="stretch", key="drop_analytics_comparison_chart")
     except Exception:
