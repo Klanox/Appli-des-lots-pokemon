@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from contextlib import nullcontext
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -9,8 +8,12 @@ from ui.pages import vinted_listings as vinted_page
 from ui.pages.vinted_listings import (
     _analytics_price_bands,
     _analytics_remaining_items,
+    _analytics_snapshot_at,
+    _analytics_time_series,
     _analytics_timing,
+    _comparison_time_series,
     _drop_metrics,
+    _group_drop_transactions,
     _physical_price_band_rows,
     _render_analytics_charts,
     _sales_scope_metrics,
@@ -113,18 +116,70 @@ class VintedDropAnalyticsTests(unittest.TestCase):
         self.assertEqual(bands[0]["ca"], 3.0)
         self.assertEqual(bands[2]["sold"], 0)
         self.assertEqual(timing["milestones"]["first_sale"], "31 min")
+        self.assertEqual(timing["checkpoints"][0]["label"], "H+1")
         self.assertEqual(timing["checkpoints"][0]["sold"], 2)
-        self.assertTrue(timing["checkpoints"][3]["upcoming"])
+        self.assertFalse(timing["checkpoints"][4]["upcoming"])
+        self.assertTrue(timing["checkpoints"][5]["upcoming"])
         self.assertEqual(remaining["remaining_cards"], 1)
         self.assertEqual(remaining["top_online"][0]["name"], "Carte en ligne")
 
-    def test_charts_render_two_altair_specs_with_safe_data_fields(self):
+    def test_transaction_series_keeps_real_timestamps_and_groups_mixed_orders(self):
+        launched = datetime(2026, 8, 27, 17, 27)
+        drop = {"drop_launched_at": launched.isoformat(), "cards": [{"quantity": 10}]}
+        rows = [
+            {**_sale_row("card-line", "card-a", 2, 10.0, transaction_id="order-1"), "date": launched + timedelta(minutes=31)},
+            {**_sale_row("off-line", None, 0, 5.0, off_stock=True, transaction_id="order-1"), "date": launched + timedelta(minutes=31)},
+            {**_sale_row("card-line-2", "card-b", 1, 4.0, transaction_id="order-2"), "date": launched + timedelta(hours=2, minutes=5)},
+        ]
+
+        events = _group_drop_transactions(rows)
+        series = _analytics_time_series(drop, rows, now=launched + timedelta(hours=24), range_hours=24)
+        snapshot = _analytics_snapshot_at(drop, rows, launched + timedelta(hours=1))
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["kind"], "mixed")
+        self.assertEqual(events[0]["revenue"], 15.0)
+        self.assertEqual(events[0]["sold_cards"], 2)
+        self.assertEqual(series[0]["timestamp"], launched)
+        self.assertEqual(series[1]["timestamp"], launched + timedelta(minutes=31))
+        self.assertEqual(series[1]["event_label"], "Transaction mixte")
+        self.assertEqual(series[-1]["timestamp"], launched + timedelta(hours=24))
+        self.assertFalse(series[-1]["is_transaction"])
+        self.assertEqual(snapshot["revenue"], 15.0)
+        self.assertEqual(snapshot["sold"], 2)
+
+    def test_comparison_series_aligns_drops_on_elapsed_time(self):
+        primary_launch = datetime(2026, 9, 1, 18, 0)
+        reference_launch = datetime(2026, 8, 1, 9, 30)
+        primary = {"drop_launched_at": primary_launch.isoformat(), "cards": [{"quantity": 10}]}
+        reference = {"drop_launched_at": reference_launch.isoformat(), "cards": [{"quantity": 10}]}
+        primary_rows = [{**_sale_row("p", "p-card", 1, 10.0), "date": primary_launch + timedelta(hours=2)}]
+        reference_rows = [{**_sale_row("r", "r-card", 1, 8.0), "date": reference_launch + timedelta(hours=2)}]
+
+        series = _comparison_time_series(primary, primary_rows, reference, reference_rows, now=primary_launch + timedelta(hours=6))
+
+        two_hours = next(point for point in series if point["elapsed_hours"] == 2.0)
+        self.assertEqual(two_hours["primary"]["revenue"], 10.0)
+        self.assertEqual(two_hours["reference"]["revenue"], 8.0)
+
+    def test_j7_checkpoint_uses_exact_seven_times_twenty_four_hours(self):
+        launched = datetime(2026, 8, 27, 17, 27)
+        drop = {"drop_launched_at": launched.isoformat(), "cards": [{"quantity": 2}]}
+        rows = [{**_sale_row("late", "card", 1, 12.0), "date": launched + timedelta(days=7, minutes=1)}]
+
+        before = _analytics_timing(drop, rows, now=launched + timedelta(days=7))
+        after = _analytics_timing(drop, rows, now=launched + timedelta(days=7, minutes=2))
+
+        before_j7 = next(point for point in before["checkpoints"] if point["label"] == "J+7")
+        after_j7 = next(point for point in after["checkpoints"] if point["label"] == "J+7")
+        self.assertFalse(before_j7["upcoming"])
+        self.assertEqual(before_j7["revenue"], 0.0)
+        self.assertEqual(after_j7["revenue"], 0.0)
+
+    def test_charts_render_one_precise_altair_spec(self):
         class ChartStreamlit:
             def __init__(self):
                 self.charts = []
-
-            def columns(self, count, **_kwargs):
-                return [nullcontext() for _ in range(len(count) if isinstance(count, (list, tuple)) else count)]
 
             def altair_chart(self, chart, **_kwargs):
                 self.charts.append(chart)
@@ -134,21 +189,24 @@ class VintedDropAnalyticsTests(unittest.TestCase):
 
         streamlit = ChartStreamlit()
         series = [{
-            "Jour": "J0",
-            "CA cumulé": 100.0,
-            "Bénéfice cumulé": 60.0,
-            "Cartes vendues": 20,
-            "Taux d'écoulement": 25.0,
+            "timestamp": datetime(2026, 8, 27, 17, 27),
+            "revenue": 100.0,
+            "profit": 60.0,
+            "sold": 20,
+            "sell_through": 25.0,
+            "transaction_revenue": 100.0,
+            "event_label": "Transaction cartes",
+            "event_kind": "cartes",
+            "is_transaction": True,
         }]
 
         with patch.object(vinted_page, "st", streamlit):
             _render_analytics_charts(series)
 
-        self.assertEqual(len(streamlit.charts), 2)
-        for chart in streamlit.charts:
-            spec = chart.to_dict(validate=True)
-            self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "day_label")
-            self.assertNotIn("Taux d'écoulement:Q", str(spec))
+        self.assertEqual(len(streamlit.charts), 1)
+        spec = streamlit.charts[0].to_dict(validate=True)
+        self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "timestamp")
+        self.assertIn("event_label", str(spec))
 
 
 if __name__ == "__main__":
