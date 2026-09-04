@@ -86,6 +86,9 @@ class PhotoInfo:
     capture_datetime: str
     order_source: str
     size_bytes: int
+    original_filename: str = ""
+    original_index: int = -1
+    batch_index: int = -1
 
 
 def _safe_float(value, default=0.0) -> float:
@@ -410,6 +413,9 @@ def _photo_info_cache_payload(value: Any) -> dict[str, Any] | None:
         "capture_datetime": str(getattr(value, "capture_datetime", "") or ""),
         "order_source": str(getattr(value, "order_source", "") or ""),
         "size_bytes": _safe_int(getattr(value, "size_bytes", 0), 0),
+        "original_filename": str(getattr(value, "original_filename", "") or ""),
+        "original_index": _safe_int(getattr(value, "original_index", -1), -1),
+        "batch_index": _safe_int(getattr(value, "batch_index", -1), -1),
     }
 
 
@@ -464,6 +470,9 @@ def _rehydrate_cached_value(value: Any) -> Any:
             capture_datetime=str(payload["capture_datetime"] or ""),
             order_source=str(payload["order_source"] or ""),
             size_bytes=_safe_int(payload["size_bytes"], 0),
+            original_filename=str(payload.get("original_filename") or ""),
+            original_index=_safe_int(payload.get("original_index"), -1),
+            batch_index=_safe_int(payload.get("batch_index"), -1),
         )
     return payload
 
@@ -4037,10 +4046,11 @@ def analyze_sample(
     target_announcements=30,
     max_photos=90,
     force_rebuild=False,
+    ordered_photos: list[PhotoInfo] | None = None,
 ):
     started = time.perf_counter()
     discovery_started = time.perf_counter()
-    ordered = list_ordered_photos(folder)
+    ordered = list(ordered_photos) if ordered_photos is not None else list_ordered_photos(folder)
     start_index = max(1, int(start_index or 1))
     photo_window = ordered[start_index - 1 : start_index - 1 + max(1, int(max_photos or 1))]
     photo_signature = photo_window_signature(photo_window)
@@ -4517,6 +4527,9 @@ def normalize_photo_identity(photo: Any) -> dict[str, Any]:
         payload = {
             "filename": getattr(photo, "filename"),
             "capture_index": getattr(photo, "capture_index"),
+            "original_filename": getattr(photo, "original_filename", ""),
+            "original_index": getattr(photo, "original_index", -1),
+            "batch_index": getattr(photo, "batch_index", -1),
         }
     else:
         raise TypeError(
@@ -4530,12 +4543,29 @@ def normalize_photo_identity(photo: Any) -> dict[str, Any]:
         raise ValueError("Photo identity requires a filename and a positive capture_index")
     payload["filename"] = filename
     payload["capture_index"] = capture_index
+    original_filename = str(payload.get("original_filename") or "").strip()
+    if original_filename:
+        payload["original_filename"] = original_filename
+    else:
+        payload.pop("original_filename", None)
+    if _safe_int(payload.get("original_index"), -1) >= 0:
+        payload["original_index"] = _safe_int(payload.get("original_index"), -1)
+    else:
+        payload.pop("original_index", None)
+    if _safe_int(payload.get("batch_index"), -1) >= 0:
+        payload["batch_index"] = _safe_int(payload.get("batch_index"), -1)
+    else:
+        payload.pop("batch_index", None)
     return payload
 
 
 def photo_identity(photo: PhotoInfo | Mapping[str, Any] | Any) -> dict[str, Any]:
     payload = normalize_photo_identity(photo)
-    return {"filename": payload["filename"], "capture_index": payload["capture_index"]}
+    return {
+        key: payload[key]
+        for key in ("filename", "capture_index", "original_filename", "original_index", "batch_index")
+        if key in payload
+    }
 
 
 def photo_key(photo_or_payload: PhotoInfo | Mapping[str, Any] | Any) -> str:

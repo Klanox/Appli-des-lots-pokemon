@@ -51,7 +51,10 @@ from services.photo_recognition_service import (
     analysis_summary as photo_analysis_summary,
     analyze_drop_photos,
     apply_recognition_statuses,
+    browser_photo_upload_allowed,
+    browser_upload_state,
     build_step4_payload,
+    cancel_browser_upload,
     candidate_set_signature,
     confirm_grouping,
     effective_candidate as photo_effective_candidate,
@@ -62,7 +65,7 @@ from services.photo_recognition_service import (
     next_pending_subcard_index as photo_next_pending_subcard_index,
     pending_review_subcard_indexes as photo_pending_review_subcard_indexes,
     photo_window_signature,
-    persist_uploaded_photos,
+    receive_browser_upload_batch,
     refresh_drop_analysis_candidates,
     resolve_historical_drop_candidate,
     restore_drop_analysis,
@@ -74,6 +77,8 @@ from services.photo_recognition_service import (
     validation_for_match,
 )
 from ui.badges import card_stamp_label
+from ui.photo_browser_upload import component_available as browser_upload_component_available
+from ui.photo_browser_upload import render_browser_photo_upload
 from ui.vinted_drop_virtual_grid import render_vinted_drop_virtual_grid
 
 
@@ -2215,6 +2220,26 @@ def _photo_folder_key(drop_id):
     return f"vinted_photo_recognition_folder_{drop_id}"
 
 
+def _photo_source_key(drop_id):
+    return f"vinted_photo_recognition_source_{drop_id}"
+
+
+def _photo_upload_session_key(drop_id):
+    return f"vinted_photo_upload_session_{drop_id}"
+
+
+def _photo_upload_ack_key(drop_id):
+    return f"vinted_photo_upload_ack_{drop_id}"
+
+
+def _photo_upload_batch_key(drop_id):
+    return f"vinted_photo_upload_last_batch_{drop_id}"
+
+
+def _photo_upload_cancel_key(drop_id):
+    return f"vinted_photo_upload_cancel_{drop_id}"
+
+
 def _photo_queue_index_key(drop_id):
     return f"vinted_photo_recognition_queue_index_{drop_id}"
 
@@ -2485,21 +2510,98 @@ def _photo_analysis_staleness(result, folder, drop_id):
     }
 
 
-def _render_photo_source_controls(drop_id, folder, *, show_analysis_action, analysis_label="Analyser les photos"):
-    st.markdown("**Importer depuis cet appareil**")
-    st.caption("Pour un navigateur ou un téléphone.")
-    uploaded = st.file_uploader(
-        "Photos à importer",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
-        key=f"vinted_photo_upload_{drop_id}",
-        label_visibility="collapsed",
+def _render_photo_source_controls(active_drop, folder, *, show_analysis_action, analysis_label="Analyser les photos"):
+    drop_id = str(active_drop.get("id") or "")
+    source_key = _photo_source_key(drop_id)
+    if source_key not in st.session_state:
+        current_manifest = Path(folder) / "upload_manifest.json" if folder else None
+        st.session_state[source_key] = (
+            "Import navigateur / téléphone"
+            if current_manifest and current_manifest.is_file()
+            else "Dossier local"
+        )
+    source = st.segmented_control(
+        "Source des photos",
+        ["Import navigateur / téléphone", "Dossier local"],
+        key=source_key,
+        width="stretch",
     )
-    if st.button("Importer la sélection", key=f"vinted_photo_import_{drop_id}", disabled=not uploaded):
-        imported_folder = persist_uploaded_photos(drop_id, uploaded or [])
-        st.session_state[_photo_folder_key(drop_id)] = str(imported_folder)
-        st.success(f"{len(uploaded or [])} photo(s) importée(s).")
-        st.rerun()
+    clicked = False
+
+    if source == "Import navigateur / téléphone":
+        upload_session_id = str(st.session_state.get(_photo_upload_session_key(drop_id)) or "")
+        upload_state = {"count": 0, "received_hashes": [], "folder": ""}
+        if upload_session_id:
+            try:
+                upload_state = browser_upload_state(drop_id, upload_session_id)
+            except ValueError:
+                upload_session_id = ""
+                st.session_state.pop(_photo_upload_session_key(drop_id), None)
+        allowed = browser_photo_upload_allowed(active_drop)
+        if not allowed:
+            st.info(
+                "Ce Drop est déjà lancé. Son import photo est protégé ; les photos existantes restent consultables."
+            )
+        elif not browser_upload_component_available():
+            st.error("L’import navigateur n’est pas disponible dans cette version de PokéStock.")
+        component_result = render_browser_photo_upload(
+            key=f"vinted_browser_photo_upload_{drop_id}",
+            drop_id=drop_id,
+            upload_session_id=upload_session_id,
+            received_hashes=upload_state.get("received_hashes") or [],
+            ack=st.session_state.get(_photo_upload_ack_key(drop_id)) or {},
+            cancel_token=str(st.session_state.get(_photo_upload_cancel_key(drop_id)) or ""),
+            disabled=not allowed,
+            show_analyze_action=show_analysis_action,
+        ) if browser_upload_component_available() else {}
+
+        upload_batch = component_result.get("upload_batch") if isinstance(component_result, dict) else None
+        if isinstance(upload_batch, dict) and allowed:
+            event_session_id = str(upload_batch.get("upload_session_id") or "")
+            batch_id = str(upload_batch.get("batch_id") or "")
+            if batch_id and batch_id != st.session_state.get(_photo_upload_batch_key(drop_id)):
+                ack = receive_browser_upload_batch(
+                    drop_id=drop_id,
+                    upload_session_id=event_session_id,
+                    batch_id=batch_id,
+                    entries=upload_batch.get("entries") or [],
+                )
+                st.session_state[_photo_upload_session_key(drop_id)] = event_session_id
+                st.session_state[_photo_upload_batch_key(drop_id)] = batch_id
+                st.session_state[_photo_upload_ack_key(drop_id)] = ack
+                st.session_state[_photo_folder_key(drop_id)] = str(ack.get("folder") or "")
+                st.rerun()
+
+        cancel_event = component_result.get("cancel") if isinstance(component_result, dict) else None
+        if isinstance(cancel_event, dict) and allowed:
+            event_session_id = str(cancel_event.get("upload_session_id") or "")
+            cancel_token = str(cancel_event.get("token") or "")
+            if event_session_id and cancel_token != st.session_state.get(_photo_upload_cancel_key(drop_id)):
+                cancel_browser_upload(drop_id, event_session_id)
+                st.session_state[_photo_upload_session_key(drop_id)] = event_session_id
+                st.session_state[_photo_upload_cancel_key(drop_id)] = cancel_token
+                st.session_state.pop(_photo_upload_ack_key(drop_id), None)
+                if str(st.session_state.get(_photo_folder_key(drop_id)) or "") == str(upload_state.get("folder") or ""):
+                    st.session_state[_photo_folder_key(drop_id)] = ""
+                st.rerun()
+
+        analyze_event = component_result.get("analyze") if isinstance(component_result, dict) else None
+        if isinstance(analyze_event, dict) and allowed:
+            event_session_id = str(analyze_event.get("upload_session_id") or upload_session_id)
+            upload_state = browser_upload_state(drop_id, event_session_id)
+            if upload_state.get("count"):
+                st.session_state[_photo_upload_session_key(drop_id)] = event_session_id
+                st.session_state[_photo_folder_key(drop_id)] = str(upload_state.get("folder") or "")
+                folder = str(upload_state.get("folder") or "")
+                clicked = show_analysis_action
+
+        folder = str(st.session_state.get(_photo_folder_key(drop_id)) or folder or "").strip()
+        photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+        if photos:
+            first_name = getattr(photos[0], "original_filename", "") or photos[0].filename
+            last_name = getattr(photos[-1], "original_filename", "") or photos[-1].filename
+            st.caption(f"{len(photos)} photos prêtes · ordre conservé · {first_name} → {last_name}")
+        return clicked, folder, photos
 
     st.markdown("**Utiliser un dossier local**")
     st.caption("Pour PokéStock sur PC ou un dossier déjà présent sur cet appareil.")
@@ -2514,8 +2616,6 @@ def _render_photo_source_controls(drop_id, folder, *, show_analysis_action, anal
         st.success(f"{len(photos)} photos détectées")
     else:
         st.caption("Aucune photo compatible détectée dans ce dossier.")
-
-    clicked = False
     if show_analysis_action:
         clicked = st.button(
             analysis_label,
@@ -2552,7 +2652,7 @@ def _render_photo_analysis_step(drops_data, active_drop, mobile):
         )
         with st.container(border=True):
             analyze_clicked, folder, photos = _render_photo_source_controls(
-                drop_id,
+                active_drop,
                 folder,
                 show_analysis_action=True,
             )
@@ -2616,7 +2716,7 @@ def _render_photo_analysis_step(drops_data, active_drop, mobile):
 
         with st.expander("Options de l’analyse", expanded=False):
             _unused_clicked, folder, photos = _render_photo_source_controls(
-                drop_id,
+                active_drop,
                 folder,
                 show_analysis_action=False,
             )

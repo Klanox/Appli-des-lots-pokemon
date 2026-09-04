@@ -21,6 +21,15 @@ from typing import Any, Iterable
 
 from services import photo_recognition_poc_service as engine
 from services.card_identity import card_identity_fingerprint
+from services.photo_upload_service import (
+    cancel_upload_session,
+    load_upload_manifest,
+    manifest_from_folder,
+    manifest_summary,
+    receive_upload_batch,
+    upload_allowed_for_drop,
+    upload_session_dir,
+)
 from services.vinted_drops_service import drop_card_key, drop_item_status, find_drop
 
 
@@ -44,7 +53,6 @@ candidate_identity = engine.candidate_identity
 candidate_identity_key = engine.candidate_identity_key
 candidate_set_signature = engine.candidate_set_signature
 ensure_ground_truth_sample = engine.ensure_ground_truth_sample
-list_ordered_photos = engine.list_ordered_photos
 load_cached_analysis_result = engine.load_cached_analysis_result
 load_latest_cached_analysis_result = engine.load_latest_cached_analysis_result
 load_poc_ground_truth = engine.load_poc_ground_truth
@@ -59,6 +67,69 @@ proposed_candidate = engine.proposed_candidate
 sample_ground_truth_key = engine.sample_ground_truth_key
 stable_group_id_from_photos = engine.stable_group_id_from_photos
 update_ground_truth_sample = engine.update_ground_truth_sample
+
+
+def _browser_upload_root() -> Path:
+    return PRODUCTION_CACHE_DIR / "browser_uploads"
+
+
+def list_ordered_photos(folder: str | Path = POC_DIR) -> list[PhotoInfo]:
+    """Read browser imports from their manifest; keep legacy folders unchanged."""
+    folder = Path(folder)
+    manifest = manifest_from_folder(folder)
+    if manifest is None:
+        return engine.list_ordered_photos(folder)
+    photos_dir = folder / "photos"
+    ordered = []
+    for row in manifest.get("photos", []) or []:
+        path = photos_dir / str(row.get("stored_filename") or "")
+        if not path.is_file() or row.get("upload_status") != "received":
+            continue
+        capture_index = len(ordered) + 1
+        ordered.append(
+            PhotoInfo(
+                path=str(path.resolve()),
+                filename=path.name,
+                capture_index=capture_index,
+                capture_datetime=str(row.get("selected_at") or ""),
+                order_source="upload_manifest",
+                size_bytes=_safe_int(row.get("compressed_size"), 0),
+                original_filename=str(row.get("original_filename") or path.name),
+                original_index=_safe_int(row.get("original_index"), capture_index - 1),
+                batch_index=_safe_int(row.get("batch_index"), 0),
+            )
+        )
+    return ordered
+
+
+def browser_upload_state(drop_id: str, upload_session_id: str) -> dict[str, Any]:
+    session_dir = upload_session_dir(_browser_upload_root(), drop_id, upload_session_id)
+    manifest = load_upload_manifest(_browser_upload_root(), drop_id, upload_session_id)
+    return {**manifest_summary(manifest, session_dir), "folder": str(session_dir)}
+
+
+def receive_browser_upload_batch(
+    *,
+    drop_id: str,
+    upload_session_id: str,
+    batch_id: str,
+    entries: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    return receive_upload_batch(
+        _browser_upload_root(),
+        drop_id=drop_id,
+        upload_session_id=upload_session_id,
+        batch_id=batch_id,
+        entries=entries,
+    )
+
+
+def cancel_browser_upload(drop_id: str, upload_session_id: str) -> None:
+    cancel_upload_session(_browser_upload_root(), drop_id, upload_session_id)
+
+
+def browser_photo_upload_allowed(drop: dict[str, Any] | None) -> bool:
+    return upload_allowed_for_drop(drop)
 
 
 def resolve_historical_drop_candidate(
@@ -741,6 +812,7 @@ def analyze_drop_photos(
         target_announcements=len(photos),
         max_photos=len(photos),
         force_rebuild=force_rebuild,
+        ordered_photos=photos,
     )
     session = initialize_drop_photo_session(drop_id, folder, result)
     session, _metrics = reconcile_poc_validations(result, session, folder=folder, drop_id=drop_id)
