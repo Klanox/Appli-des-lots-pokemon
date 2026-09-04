@@ -8,9 +8,9 @@ import html
 import os
 from copy import deepcopy
 
-from core.brocante import BRO_CATEGORIES, append_off_stock_sale
-from services.brocante_data import load_brocantes, save_brocantes
-from core.brocante import active_session, record_transaction
+from core.brocante import BRO_CATEGORIES
+from services.brocante_data import load_brocantes
+from core.brocante import active_session
 from core.trade_economics import (
     aggregate_contributors,
     allocate_received_cards,
@@ -317,6 +317,46 @@ def _off_stock_drop_preview(canal):
         return None
 
 
+def _queue_classic_off_stock(lot_choices, stock_data):
+    amount = float(st.session_state.get("classic_offstock_amount", 0) or 0)
+    if amount <= 0:
+        st.session_state["classic_offstock_flash"] = ("error", "Saisis un prix encaissé supérieur à 0 €.")
+        return
+
+    quantity = max(int(st.session_state.get("classic_offstock_quantity", 1) or 1), 1)
+    lot_label = st.session_state.get("classic_offstock_lot")
+    source_lot_idx = next((value for label, value in lot_choices if label == lot_label), None)
+    source_lot = None
+    if source_lot_idx is not None and 0 <= int(source_lot_idx) < len(stock_data.get("lots", []) or []):
+        source_lot = stock_data["lots"][int(source_lot_idx)]
+
+    cart_was_empty = not st.session_state.get("bulk_cart")
+    preferred_channel = st.session_state.get("classic_offstock_channel") or SALE_CHANNELS[0]
+    brocante_data = load_brocantes()
+    active_bro = active_session(brocante_data)
+    bulk_cart_add_off_stock({
+        "category": st.session_state.get("classic_offstock_category") or BRO_CATEGORIES[0],
+        "description": st.session_state.get("classic_offstock_desc") or "",
+        "quantity": quantity,
+        "amount": amount,
+        "payment_method": "Non renseigné",
+        "preferred_channel": preferred_channel,
+        "source_lot_idx": source_lot_idx,
+        "source_lot_id": (source_lot or {}).get("lot_uid"),
+        "source_lot_name": (source_lot or {}).get("nom") or "Non attribuée",
+        "cost_basis_known": False,
+        "cost_basis": None,
+        "notes": "",
+        "brocante_id": active_bro.get("id") if active_bro else None,
+    })
+    st.session_state["classic_offstock_amount"] = 0.0
+    st.session_state["classic_offstock_quantity"] = 1
+    st.session_state["classic_offstock_desc"] = ""
+    if cart_was_empty:
+        st.session_state["canal_bulk_sel"] = preferred_channel
+    st.session_state["classic_offstock_flash"] = ("success", "Article hors stock ajouté au panier.")
+
+
 def _allocate_final_sale_price(cart_items, final_price):
     """Return cart items with unit prices that sum exactly to the buyer-paid total."""
     rows = list(cart_items or [])
@@ -390,6 +430,10 @@ def render_sales_page(context):
             if "bulk_cart" not in st.session_state:
                 st.session_state.bulk_cart = []
 
+            flash = st.session_state.pop("classic_offstock_flash", None)
+            if flash:
+                getattr(st, flash[0])(flash[1])
+
             with st.expander("Vente hors stock", expanded=False):
                 st.caption("Pour petites cartes, accessoires ou lots non suivis. Le stock n'est pas diminué.")
                 if st.session_state.get("classic_offstock_category") not in BRO_CATEGORIES:
@@ -403,10 +447,11 @@ def render_sales_page(context):
                     (f"{idx + 1}. {lot.get('nom', f'Lot {idx + 1}')}", idx)
                     for idx, lot in enumerate(cd.get("lots", []) or [])
                 ]
-                hs3, hs4 = st.columns([2, 1])
+                hs3, hs4, hs5 = st.columns([2, 0.7, 1])
                 hs_lot_label = hs3.selectbox("Lot source", [label for label, _ in lot_choices], key="classic_offstock_lot")
                 hs_source_lot_idx = next(value for label, value in lot_choices if label == hs_lot_label)
-                hs_amount = hs4.number_input("Prix final encaissé (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
+                hs4.number_input("Quantité", 1, 9999, 1, 1, key="classic_offstock_quantity")
+                hs_amount = hs5.number_input("Prix total (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
                 hs_desc = st.text_input(
                     "Description facultative",
                     key="classic_offstock_desc",
@@ -417,50 +462,14 @@ def render_sales_page(context):
                     st.caption(f"🔗 Drop associé automatiquement : {linked_drop.get('name', 'Drop sans nom')}")
                 else:
                     st.caption("Aucun drop actif associé")
-                if st.button("Enregistrer la vente hors stock", type="primary", width="stretch", key="classic_offstock_save"):
-                    if hs_amount <= 0:
-                        st.error("Saisis un prix encaissé supérieur à 0 €.")
-                    else:
-                        cdd = ld()
-                        brocante_data = load_brocantes()
-                        active_bro = active_session(brocante_data)
-                        sale = append_off_stock_sale(
-                            cdd,
-                            category=hs_category,
-                            description=hs_desc,
-                            quantity=1,
-                            amount=hs_amount,
-                            payment_method="Non renseigné",
-                            canal=hs_channel,
-                            source_lot_idx=hs_source_lot_idx,
-                            cost_basis=None,
-                            notes="",
-                            brocante_id=active_bro.get("id") if active_bro else None,
-                        )
-                        if active_bro:
-                            record_transaction(
-                                active_bro,
-                                {
-                                    "transaction_id": sale.get("sale_id"),
-                                    "type": "off_stock_sale",
-                                    "label": sale.get("card_name"),
-                                    "category": hs_category,
-                                    "description": hs_desc,
-                                    "quantity": 1,
-                                    "amount": float(hs_amount or 0),
-                                    "payment_method": "Non renseigné",
-                                    "inventory_impact": "none",
-                                    "source_lot_id": sale.get("source_lot_id"),
-                                    "source_lot_name": sale.get("source_lot_name"),
-                                    "cost_basis_known": bool(sale.get("cost_basis_known")),
-                                    "cost_basis": sale.get("cost_basis"),
-                                    "notes": hs_desc,
-                                },
-                            )
-                            save_brocantes(brocante_data)
-                        sd(cdd)
-                        st.success("Vente hors stock enregistrée sans modifier le stock.")
-                        st.rerun()
+                st.button(
+                    "Ajouter au panier",
+                    type="primary",
+                    width="stretch",
+                    key="classic_offstock_save",
+                    on_click=_queue_classic_off_stock,
+                    args=(lot_choices, cd),
+                )
 
             # ── Barre de recherche + filtre lot + compteur panier ──
             col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
@@ -847,13 +856,17 @@ def render_sales_page(context):
                 total_base = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 
                 for idx, item in enumerate(st.session_state.bulk_cart):
-                    _, _, _, cart_card = resolve_card_ref(cd, item)
-                    max_cart_qty = max(card_available_qty(cart_card), 1) if cart_card else int(item["quantity"])
+                    is_off_stock = bool(item.get("is_off_stock") or item.get("line_type") == "off_stock")
+                    cart_card = None
+                    if not is_off_stock:
+                        _, _, _, cart_card = resolve_card_ref(cd, item)
+                    max_cart_qty = 9999 if is_off_stock else (max(card_available_qty(cart_card), 1) if cart_card else int(item["quantity"]))
                     if int(item["quantity"]) > max_cart_qty:
                         item["quantity"] = max_cart_qty
                         save_activity_state()
                     cols = st.columns([3, 1, 1, 1, 1, 1])
-                    cols[0].write(f"{item['card_name']} ({item['card_set']}) - {item['lot_name']}")
+                    line_badge = " · Hors stock" if is_off_stock else ""
+                    cols[0].write(f"{item['card_name']} ({item['card_set']}) - {item['lot_name']}{line_badge}")
                     cols[1].number_input("Qté", 1, max_cart_qty, int(item["quantity"]), key=f"cart_qty_{idx}", on_change=bulk_cart_set_quantity, args=(idx,), label_visibility="collapsed")
                     cols[2].write(f"{fp(item['price_base'])}/u")
                     cols[3].write(f"= {fp(item['quantity'] * item['price_base'])}")

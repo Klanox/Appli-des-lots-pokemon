@@ -106,6 +106,7 @@ from core.sales_actions import (
     scu,
     scu_many,
     bulk_cart_add,
+    bulk_cart_add_off_stock,
     bulk_cart_remove,
     bulk_cart_set_quantity,
     bulk_cart_increment,

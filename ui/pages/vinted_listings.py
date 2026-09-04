@@ -3494,6 +3494,9 @@ def _sale_rows_for_drop(stock_data, drop_id, calc_cout_lot_func=None, effective_
 
 def _analytics_transaction_key(row, index):
     sale = row.get("sale") or {}
+    transaction_id = str(sale.get("sale_transaction_id") or sale.get("transaction_id") or "").strip()
+    if transaction_id:
+        return transaction_id
     sale_id = str(sale.get("sale_id") or "").strip()
     if sale_id:
         return sale_id

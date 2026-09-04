@@ -358,6 +358,7 @@ def _off_stock_history_item(sale, *, lot_name="Non attribuée", cout=None):
     return {
         "date": sale.get("date", ""),
         "sale_id": sale.get("sale_id", ""),
+        "sale_transaction_id": sale.get("sale_transaction_id", ""),
         "card_name": card_name,
         "card_set": "",
         "card_number": "",
@@ -376,6 +377,46 @@ def _off_stock_history_item(sale, *, lot_name="Non attribuée", cout=None):
         "drop_channel": sale.get("drop_channel", ""),
         "drop_link_method": sale.get("drop_link_method", ""),
     }
+
+
+def _group_history_transactions(items):
+    """Collapse newly grouped sale lines into one order without rewriting legacy sales."""
+    grouped = {}
+    passthrough = []
+    for item in items or []:
+        transaction_id = str(item.get("sale_transaction_id") or "").strip()
+        if not transaction_id or item.get("type") in {"exchange", "trade_allocation"}:
+            passthrough.append(item)
+            continue
+        grouped.setdefault(transaction_id, []).append(item)
+
+    for transaction_id, lines in grouped.items():
+        if len(lines) == 1:
+            passthrough.append(lines[0])
+            continue
+        total_cost_known = all(line.get("cout") is not None for line in lines)
+        total_cost = sum(float(line.get("cout") or 0) for line in lines) if total_cost_known else None
+        total_price = sum(float(line.get("price", 0) or 0) for line in lines)
+        total_quantity = sum(max(int(line.get("quantity", 1) or 1), 1) for line in lines)
+        first_image = next((line.get("image_url") for line in lines if line.get("image_url")), "")
+        passthrough.append({
+            "date": max((line.get("date", "") for line in lines), default=""),
+            "sale_id": lines[0].get("sale_id", ""),
+            "sale_transaction_id": transaction_id,
+            "card_name": "Commande",
+            "card_set": "",
+            "card_number": "",
+            "lot_name": f"{len(lines)} lignes · {total_quantity} articles",
+            "price": total_price,
+            "cout": total_cost,
+            "benef": (total_price - total_cost) if total_cost is not None else None,
+            "image_url": first_image,
+            "type": "transaction",
+            "quantity": total_quantity,
+            "canal": next((line.get("canal") for line in lines if line.get("canal")), ""),
+            "transaction_items": lines,
+        })
+    return passthrough
 
 
 def _sale_can_be_cancelled(item):
@@ -542,6 +583,7 @@ def render_history_page(
         hist_enriched.append(_off_stock_history_item(sale, cout=_off_stock_cost_for_history(sale)))
 
     hist_enriched.extend(_build_trade_history_items(cd_hist))
+    hist_enriched = _group_history_transactions(hist_enriched)
     hist_enriched = sorted(hist_enriched, key=lambda x: x.get("date",""), reverse=True)
     
     if not hist_enriched:
@@ -576,6 +618,10 @@ def render_history_page(
             filtered = [
                 h for h in filtered
                 if search_hist_norm in normalize_name_func(str(h.get("card_name", "")))
+                or any(
+                    search_hist_norm in normalize_name_func(str(line.get("card_name", "")))
+                    for line in h.get("transaction_items", []) or []
+                )
             ]
         if filter_month:
             filtered = [h for h in filtered if h.get("date","").startswith(filter_month)]
@@ -723,6 +769,18 @@ def render_history_page(
                     drop_line = f" · Drop : {drop_name}" if drop_name else ""
                     desc_line = f" · {desc}" if desc else ""
                     category_line = f'<div style="font-size:0.78rem;color:#7c3aed;margin-top:2px;">{category}{desc_line}{drop_line}</div>'
+                elif h.get("type") == "transaction":
+                    transaction_lines = []
+                    for line in h.get("transaction_items", []) or []:
+                        label = escape(str(line.get("card_name") or "Article"))
+                        line_qty = max(int(line.get("quantity", 1) or 1), 1)
+                        off_stock = " · Hors stock" if line.get("type") == "off_stock" else ""
+                        transaction_lines.append(f"{label} ×{line_qty}{off_stock}")
+                    category_line = (
+                        '<div style="font-size:0.78rem;color:#64748b;margin-top:4px;line-height:1.45;">'
+                        + "<br>".join(transaction_lines)
+                        + "</div>"
+                    )
                 st.markdown(f"""
                 <div style="padding:0.2rem 0;">
                   <div style="font-weight:700;font-size:0.98rem;color:#1e293b;">{h['card_name']}{qty_badge}{canal_badge}</div>

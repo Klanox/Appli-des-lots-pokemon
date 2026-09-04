@@ -130,6 +130,12 @@ def _transaction_key(row, fallback_idx=0):
     return sale.get("sale_transaction_id") or sale.get("transaction_id") or sale.get("sale_id") or f"{row.get('date')}-{row.get('card_name')}-{fallback_idx}"
 
 
+def _physical_sale_quantity(row):
+    if row.get("is_off_stock"):
+        return 0.0
+    return _safe_float(row.get("quantity"))
+
+
 def _collect_statistics_data(cd, *, calc_cout_lot_func, effective_purchase_price_func, lots_archives_path):
     all_sales = []
     purchase_rows = []
@@ -243,7 +249,7 @@ def _build_monthly_stats(all_sales, purchases):
             item["benef_known"] = False
         else:
             item["benef"] += _safe_float(row.get("benef"))
-        item["qty"] += _safe_float(row.get("quantity"))
+        item["qty"] += _physical_sale_quantity(row)
         item["transactions"].add(_transaction_key(row, idx))
     for row in purchases:
         stats[row["month"]]["purchases"] += _safe_float(row.get("cost"))
@@ -255,14 +261,15 @@ def _aggregate_sales(rows):
     ca = sum(_safe_float(row.get("price")) for row in rows)
     known_benef = [row.get("benef") for row in rows if row.get("benef") is not None]
     benef = sum(_safe_float(value) for value in known_benef) if known_benef else None
-    qty = sum(_safe_float(row.get("quantity")) for row in rows)
+    qty = sum(_physical_sale_quantity(row) for row in rows)
+    card_ca = sum(_safe_float(row.get("price")) for row in rows if not row.get("is_off_stock"))
     return {
         "ca": ca,
         "benef": benef,
         "qty": qty,
         "transactions": len(transactions),
         "basket": ca / len(transactions) if transactions else 0.0,
-        "avg_card": ca / qty if qty else 0.0,
+        "avg_card": card_ca / qty if qty else 0.0,
         "margin": (benef / ca * 100.0) if benef is not None and ca else None,
     }
 
@@ -544,9 +551,11 @@ def _render_channels_view(all_sales):
     channel_rows = {}
     for row in all_sales:
         channel = _normalize_channel(row.get("canal"))
-        item = channel_rows.setdefault(channel, {"channel": channel, "ca": 0.0, "benef": 0.0, "benef_known": True, "qty": 0.0, "transactions": set()})
+        item = channel_rows.setdefault(channel, {"channel": channel, "ca": 0.0, "card_ca": 0.0, "benef": 0.0, "benef_known": True, "qty": 0.0, "transactions": set()})
         item["ca"] += _safe_float(row.get("price"))
-        item["qty"] += _safe_float(row.get("quantity"))
+        item["qty"] += _physical_sale_quantity(row)
+        if not row.get("is_off_stock"):
+            item["card_ca"] += _safe_float(row.get("price"))
         item["transactions"].add(_transaction_key(row, len(item["transactions"])))
         if row.get("benef") is None:
             item["benef_known"] = False
@@ -556,7 +565,7 @@ def _render_channels_view(all_sales):
         item["sales"] = len(item["transactions"])
         item["margin"] = (item["benef"] / item["ca"] * 100.0) if item["ca"] and item["benef_known"] else None
         item["basket"] = item["ca"] / item["sales"] if item["sales"] else 0.0
-        item["avg_card"] = item["ca"] / item["qty"] if item["qty"] else 0.0
+        item["avg_card"] = item["card_ca"] / item["qty"] if item["qty"] else 0.0
     ordered_names = [*SALE_CHANNELS, *sorted(name for name in channel_rows if name not in SALE_CHANNELS)]
     rows = [channel_rows[name] for name in ordered_names if name in channel_rows]
     metric = st.selectbox("Meilleur canal selon", ["CA", "Bénéfice", "Marge", "Panier moyen", "Prix / carte"], key="stats_channel_metric")
@@ -705,6 +714,8 @@ def _hero_metric(label, value, delta):
 def _best_card_of_month(rows):
     candidates = []
     for row in rows:
+        if row.get("is_off_stock"):
+            continue
         name = str(row.get("card_name") or "").strip()
         if not name or name.lower() in {"vente lot", "vente"}:
             continue

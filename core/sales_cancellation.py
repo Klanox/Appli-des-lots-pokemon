@@ -89,7 +89,22 @@ def _remove_brocante_transactions(sale_ids: set[str]) -> int:
     return removed
 
 
-def _find_card_sale_group(cd: dict, sale_id: str):
+def _find_sale_transaction_id(cd: dict, sale_id: str) -> str:
+    for lot in cd.get("lots", []) or []:
+        for card in lot.get("cards", []) or []:
+            for sale in card.get("sold_entries", []) or []:
+                if _sale_id(sale.get("sale_id")) == sale_id:
+                    return _sale_id(sale.get("sale_transaction_id"))
+        for sale in lot.get("ventes", []) or []:
+            if sale.get("is_off_stock") and _sale_id(sale.get("sale_id")) == sale_id:
+                return _sale_id(sale.get("sale_transaction_id"))
+    for sale in cd.get("ventes_hors_stock", []) or []:
+        if _sale_id(sale.get("sale_id")) == sale_id:
+            return _sale_id(sale.get("sale_transaction_id"))
+    return ""
+
+
+def _find_card_sale_group(cd: dict, sale_id: str, transaction_id: str = ""):
     target = None
     for lot_idx, lot in enumerate(cd.get("lots", []) or []):
         for card_idx, card in enumerate(lot.get("cards", []) or []):
@@ -101,10 +116,10 @@ def _find_card_sale_group(cd: dict, sale_id: str):
                 break
         if target:
             break
-    if not target:
+    if not target and not transaction_id:
         return []
 
-    tx_id = _sale_id(target[2].get("sale_transaction_id"))
+    tx_id = transaction_id or _sale_id(target[2].get("sale_transaction_id"))
     matches = []
     for lot_idx, lot in enumerate(cd.get("lots", []) or []):
         for card_idx, card in enumerate(lot.get("cards", []) or []):
@@ -116,8 +131,8 @@ def _find_card_sale_group(cd: dict, sale_id: str):
     return matches
 
 
-def _remove_card_sales(cd: dict, sale_id: str):
-    matches = _find_card_sale_group(cd, sale_id)
+def _remove_card_sales(cd: dict, sale_id: str, transaction_id: str = ""):
+    matches = _find_card_sale_group(cd, sale_id, transaction_id)
     if not matches:
         return None
 
@@ -134,7 +149,6 @@ def _remove_card_sales(cd: dict, sale_id: str):
         card["sold_quantity"] = max(0, _safe_int(card.get("sold_quantity"), 0) - quantity)
 
     allocation_count = _remove_exchange_allocations(cd, removed_sale_ids)
-    _restore_drop_items_for_sales(removed_sales)
     return {
         "kind": "card",
         "sales_removed": len(removed_sales),
@@ -143,12 +157,17 @@ def _remove_card_sales(cd: dict, sale_id: str):
     }
 
 
-def _remove_off_stock_sale(cd: dict, sale_id: str):
+def _remove_off_stock_sale(cd: dict, sale_id: str, transaction_id: str = ""):
+    def matches(sale):
+        same_sale = _sale_id(sale.get("sale_id")) == sale_id
+        same_transaction = transaction_id and _sale_id(sale.get("sale_transaction_id")) == transaction_id
+        return same_sale or same_transaction
+
     removed_sales = []
     for lot in cd.get("lots", []) or []:
         kept = []
         for sale in lot.get("ventes", []) or []:
-            if sale.get("is_off_stock") and _sale_id(sale.get("sale_id")) == sale_id:
+            if sale.get("is_off_stock") and matches(sale):
                 removed_sales.append(deepcopy(sale))
                 continue
             kept.append(sale)
@@ -157,7 +176,7 @@ def _remove_off_stock_sale(cd: dict, sale_id: str):
 
     kept_root = []
     for sale in cd.get("ventes_hors_stock", []) or []:
-        if _sale_id(sale.get("sale_id")) == sale_id:
+        if matches(sale):
             removed_sales.append(deepcopy(sale))
             continue
         kept_root.append(sale)
@@ -166,13 +185,10 @@ def _remove_off_stock_sale(cd: dict, sale_id: str):
 
     if not removed_sales:
         return None
-    _restore_drop_items_for_sales(removed_sales)
-    brocante_removed = _remove_brocante_transactions({_sale_id(sale.get("sale_id")) for sale in removed_sales})
     return {
         "kind": "off_stock",
         "sales_removed": len(removed_sales),
         "allocation_removed": 0,
-        "brocante_transactions_removed": brocante_removed,
         "sales": removed_sales,
     }
 
@@ -183,12 +199,29 @@ def cancel_sale_by_id(cd: dict, sale_id: str):
     if not sale_id:
         return False, "Identifiant de vente manquant.", {}
 
-    details = _remove_card_sales(cd, sale_id)
-    if details:
-        return True, "Vente annulée.", details
-
-    details = _remove_off_stock_sale(cd, sale_id)
-    if details:
-        return True, "Vente hors stock annulée.", details
+    transaction_id = _find_sale_transaction_id(cd, sale_id)
+    card_details = _remove_card_sales(cd, sale_id, transaction_id)
+    off_stock_details = _remove_off_stock_sale(cd, sale_id, transaction_id)
+    if card_details or off_stock_details:
+        removed_sales = [
+            *((card_details or {}).get("sales", []) or []),
+            *((off_stock_details or {}).get("sales", []) or []),
+        ]
+        _restore_drop_items_for_sales(removed_sales)
+        identifiers = {_sale_id(sale.get("sale_id")) for sale in removed_sales}
+        if transaction_id:
+            identifiers.add(transaction_id)
+        brocante_removed = _remove_brocante_transactions(identifiers)
+        details = {
+            "kind": "transaction" if transaction_id else (card_details or off_stock_details).get("kind"),
+            "transaction_id": transaction_id,
+            "sales_removed": len(removed_sales),
+            "card_sales_removed": (card_details or {}).get("sales_removed", 0),
+            "off_stock_sales_removed": (off_stock_details or {}).get("sales_removed", 0),
+            "allocation_removed": (card_details or {}).get("allocation_removed", 0),
+            "brocante_transactions_removed": brocante_removed,
+            "sales": removed_sales,
+        }
+        return True, "Transaction annulée." if transaction_id else "Vente annulée.", details
 
     return False, "Vente introuvable ou déjà annulée.", {}

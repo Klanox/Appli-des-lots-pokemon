@@ -17,9 +17,9 @@ from ui.pages.vinted_listings import (
 )
 
 
-def _sale_row(sale_id, card_uid, quantity, revenue, *, drop_item_id=None, off_stock=False):
+def _sale_row(sale_id, card_uid, quantity, revenue, *, drop_item_id=None, off_stock=False, transaction_id=None):
     return {
-        "sale": {"sale_id": sale_id, "drop_item_id": drop_item_id},
+        "sale": {"sale_id": sale_id, "drop_item_id": drop_item_id, "sale_transaction_id": transaction_id},
         "card": {"card_uid": card_uid},
         "quantity": quantity,
         "revenue": revenue,
@@ -75,6 +75,21 @@ class VintedDropAnalyticsTests(unittest.TestCase):
 
         self.assertEqual(scope["sold_cards"], 2)
         self.assertEqual(scope["card_transactions"], 1)
+
+    def test_mixed_transaction_counts_as_one_order_and_one_card_transaction(self):
+        rows = [
+            _sale_row("card-line", "card-low", 1, 10.0, transaction_id="order-1"),
+            _sale_row("off-line", None, 0, 5.0, off_stock=True, transaction_id="order-1"),
+        ]
+
+        scope = _sales_scope_metrics(rows)
+
+        self.assertEqual(scope["total_transactions"], 1)
+        self.assertEqual(scope["card_transactions"], 1)
+        self.assertEqual(scope["off_stock_transactions"], 0)
+        self.assertEqual(scope["ca_total"], 15.0)
+        self.assertEqual(scope["ca_cards"], 10.0)
+        self.assertEqual(scope["ca_off_stock"], 5.0)
 
     def test_dashboard_helpers_keep_price_bands_and_checkpoints_deterministic(self):
         launched = datetime(2026, 8, 27, 12, 0)

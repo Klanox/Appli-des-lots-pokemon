@@ -188,6 +188,7 @@ def append_off_stock_sale(
     cost_basis=None,
     notes: str = "",
     brocante_id: str | None = None,
+    transaction_id: str | None = None,
 ) -> dict:
     quantity = max(int(quantity or 1), 1)
     amount = max(float(amount or 0), 0.0)
@@ -216,6 +217,8 @@ def append_off_stock_sale(
         "notes": str(notes or "").strip(),
         "is_off_stock": True,
     }
+    if transaction_id:
+        sale["sale_transaction_id"] = str(transaction_id)
     sale["sold_at"] = sale["date"]
     try:
         from services.vinted_drops_service import link_sale_to_vinted_drop_if_applicable

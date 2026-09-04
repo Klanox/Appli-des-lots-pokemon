@@ -4,7 +4,11 @@ Extracted conservatively from app.py. Dependencies are injected from app.py
 to preserve formulas and sold_entries behavior.
 """
 
+import time
+
+from core.brocante import append_off_stock_sale, record_transaction
 from core.trade_economics import sale_allocation_for_trade_card
+from services.brocante_data import load_brocantes, save_brocantes
 from services.vinted_drops_service import link_sale_to_vinted_drop_if_applicable
 
 
@@ -77,12 +81,76 @@ def scu(li,ci,q,p,canal="Main propre"):
     sd(cd)
     return True,"Vendu!"
 
+def _is_off_stock_item(item):
+    return bool(item.get("is_off_stock") or item.get("line_type") == "off_stock")
+
+
+def _source_lot_index(cd, item):
+    source_lot_id = str(item.get("source_lot_id") or "").strip()
+    if source_lot_id:
+        for index, lot in enumerate(cd.get("lots", []) or []):
+            if str(lot.get("lot_uid") or lot.get("id") or "").strip() == source_lot_id:
+                return index
+    try:
+        index = int(item.get("source_lot_idx"))
+    except (TypeError, ValueError):
+        return None
+    return index if 0 <= index < len(cd.get("lots", []) or []) else None
+
+
+def _record_off_stock_brocante_order(sales, transaction_id):
+    by_session = {}
+    for sale in sales:
+        brocante_id = str(sale.get("brocante_id") or "").strip()
+        if brocante_id:
+            by_session.setdefault(brocante_id, []).append(sale)
+    if not by_session:
+        return
+
+    brocante_data = load_brocantes()
+    changed = False
+    for session in brocante_data.get("sessions", []) or []:
+        grouped = by_session.get(str(session.get("id") or ""))
+        if not grouped:
+            continue
+        amount = sum(float(sale.get("price", 0) or 0) for sale in grouped)
+        quantity = sum(max(int(sale.get("quantity", 1) or 1), 1) for sale in grouped)
+        labels = [str(sale.get("card_name") or "Vente hors stock") for sale in grouped]
+        known_costs = [sale.get("cost_basis") for sale in grouped if sale.get("cost_basis_known")]
+        all_costs_known = len(known_costs) == len(grouped)
+        record_transaction(
+            session,
+            {
+                "transaction_id": transaction_id,
+                "type": "off_stock_sale",
+                "label": " + ".join(labels),
+                "items": labels,
+                "quantity": quantity,
+                "amount": amount,
+                "payment_method": "Non renseigné",
+                "inventory_impact": "none",
+                "cost_basis_known": all_costs_known,
+                "cost_basis": sum(float(value or 0) for value in known_costs) if all_costs_known else None,
+            },
+        )
+        changed = True
+    if changed:
+        save_brocantes(brocante_data)
+
+
 def scu_many(items, canal="Main propre"):
-    """Vend plusieurs cartes avec une seule lecture et une seule sauvegarde."""
+    """Persist one cart as one transaction, including optional off-stock rows."""
+    items = list(items or [])
+    if not items:
+        return False, "Le panier est vide."
     cd = ld()
-    transaction_id = f"sale_tx_{int(time.time()*1000)}"
+    transaction_id = new_uid("sale_tx")
     requested = {}
     for item in items:
+        if _is_off_stock_item(item):
+            if float(item.get("unit_price", item.get("price_base", 0)) or 0) < 0:
+                return False, "Le montant hors stock ne peut pas être négatif."
+            continue
         lot_idx, card_idx, lot, crd = resolve_card_ref(cd, item)
         if crd is None:
             return False, f"Carte introuvable dans le panier: {item.get('card_name', 'carte inconnue')}"
@@ -96,7 +164,27 @@ def scu_many(items, canal="Main propre"):
         crd = cd["lots"][lot_idx]["cards"][card_idx]
         if card_available_qty(crd) < qty:
             return False, f"Stock insuffisant pour {crd.get('name', 'cette carte')}"
+    off_stock_sales = []
     for item in items:
+        if _is_off_stock_item(item):
+            quantity = max(int(item.get("quantity", 1) or 1), 1)
+            unit_price = max(float(item.get("unit_price", item.get("price_base", 0)) or 0), 0.0)
+            sale = append_off_stock_sale(
+                cd,
+                category=item.get("category") or "Autre",
+                description=item.get("description") or item.get("card_name") or "",
+                quantity=quantity,
+                amount=unit_price * quantity,
+                payment_method=item.get("payment_method") or "Non renseigné",
+                canal=canal,
+                source_lot_idx=_source_lot_index(cd, item),
+                cost_basis=item.get("cost_basis") if item.get("cost_basis_known") else None,
+                notes=item.get("notes") or "",
+                brocante_id=item.get("brocante_id"),
+                transaction_id=transaction_id,
+            )
+            off_stock_sales.append(sale)
+            continue
         ok, msg = _scu_in_data(
             cd,
             item["lot_idx"],
@@ -109,7 +197,27 @@ def scu_many(items, canal="Main propre"):
         if not ok:
             return False, msg
     sd(cd)
+    _record_off_stock_brocante_order(off_stock_sales, transaction_id)
     return True, "Vendu!"
+
+
+def bulk_cart_add_off_stock(item):
+    """Add an untracked article to the cart without persisting a sale."""
+    st.session_state.setdefault("bulk_cart", [])
+    quantity = max(int(item.get("quantity", 1) or 1), 1)
+    amount = max(float(item.get("amount", 0) or 0), 0.0)
+    line = {
+        **item,
+        "line_type": "off_stock",
+        "is_off_stock": True,
+        "quantity": quantity,
+        "price_base": amount / quantity,
+        "card_name": str(item.get("description") or item.get("category") or "Article hors stock").strip(),
+        "card_set": "Hors stock",
+        "lot_name": str(item.get("source_lot_name") or "Non attribuée"),
+    }
+    st.session_state.bulk_cart.append(line)
+    save_activity_state()
 
 def bulk_cart_add(item):
     st.session_state.setdefault("bulk_cart", [])
@@ -148,6 +256,11 @@ def bulk_cart_set_quantity(index):
     cd = ld()
     cart = st.session_state.get("bulk_cart", [])
     if 0 <= index < len(cart):
+        if _is_off_stock_item(cart[index]):
+            key = f"cart_qty_{index}"
+            cart[index]["quantity"] = min(max(int(st.session_state.get(key, 1)), 1), 9999)
+            save_activity_state()
+            return
         lot_idx, card_idx, lot, card = resolve_card_ref(cd, cart[index])
         if card is None:
             cart.pop(index)
@@ -161,6 +274,10 @@ def bulk_cart_increment(index):
     cd = ld()
     cart = st.session_state.get("bulk_cart", [])
     if 0 <= index < len(cart):
+        if _is_off_stock_item(cart[index]):
+            cart[index]["quantity"] = min(int(cart[index].get("quantity", 1)) + 1, 9999)
+            save_activity_state()
+            return
         lot_idx, card_idx, lot, card = resolve_card_ref(cd, cart[index])
         if card is None:
             cart.pop(index)
