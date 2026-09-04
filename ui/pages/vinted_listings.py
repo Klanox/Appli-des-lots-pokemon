@@ -772,6 +772,10 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-kpi--success { border-top-color:#16a34a; }
 .ps-analytics-kpi--blue { border-top-color:#2563eb; }
 .ps-analytics-kpi--orange { border-top-color:#f97316; }
+.ps-analytics-kpi--violet { background:#fbf9ff; }
+.ps-analytics-kpi--success { background:#f7fcf8; }
+.ps-analytics-kpi--blue { background:#f8fbff; }
+.ps-analytics-kpi--orange { background:#fffaf5; }
 .ps-analytics-kpi--violet strong { color:#5b21b6; }
 .ps-analytics-kpi--success strong { color:#15803d; }
 .ps-analytics-kpi--blue strong { color:#1d4ed8; }
@@ -848,6 +852,9 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     font-size:.78rem;
 }
 .ps-analytics-breakdown strong { color:#374151; font-weight:800; }
+.ps-analytics-revenue-bar { display:flex; height:7px; margin-top:.62rem; overflow:hidden; border-radius:999px; background:#eef0f3; }
+.ps-analytics-revenue-bar i { display:block; height:100%; background:#6d28d9; }
+.ps-analytics-revenue-bar b { display:block; height:100%; background:#f59e0b; }
 .ps-analytics-stock-counts {
     display:flex;
     gap:.78rem;
@@ -889,9 +896,10 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
 .ps-analytics-timeline-item strong { color:#111827; font-size:.73rem; font-weight:850; line-height:1.2; margin-top:.08rem; }
 .ps-analytics-charts-heading { margin:.2rem 0 .35rem; }
 .ps-analytics-charts-heading .ps-analytics-section-heading { margin-bottom:0; }
-.ps-analytics-checkpoints { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); overflow:hidden; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
-.ps-analytics-checkpoint { min-width:0; padding:.42rem .56rem; border-right:1px solid #e5e7eb; }
-.ps-analytics-checkpoint:last-child { border-right:0; }
+.ps-analytics-checkpoints { position:relative; display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:.34rem; padding:.18rem 0; }
+.ps-analytics-checkpoints:before { position:absolute; top:.45rem; right:3%; left:3%; height:1px; background:#e5e7eb; content:""; }
+.ps-analytics-checkpoint { position:relative; min-width:0; padding:.7rem .38rem .36rem; border:0; background:#fff; }
+.ps-analytics-checkpoint:before { position:absolute; top:.15rem; left:.38rem; width:.58rem; height:.58rem; border:2px solid #c4b5fd; border-radius:50%; background:#fff; content:""; }
 .ps-analytics-checkpoint span { display:block; color:#6b7280; font-size:.66rem; font-weight:800; }
 .ps-analytics-checkpoint strong { display:block; overflow:hidden; color:#111827; font-size:.84rem; font-weight:850; margin-top:.1rem; text-overflow:ellipsis; white-space:nowrap; }
 .ps-analytics-checkpoint small { display:block; color:#6b7280; font-size:.64rem; font-weight:650; margin-top:.04rem; }
@@ -971,9 +979,7 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-timeline { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    .ps-analytics-checkpoints { grid-template-columns:repeat(3,minmax(0,1fr)); }
-    .ps-analytics-checkpoint:nth-child(3) { border-right:0; }
-    .ps-analytics-checkpoint:nth-child(n+4) { border-top:1px solid #e5e7eb; }
+    .ps-analytics-checkpoints { grid-template-columns:repeat(4,minmax(0,1fr)); }
     .ps-analytics-remaining-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-highlights { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ps-analytics-highlight:nth-child(2) { border-right:0; }
@@ -998,11 +1004,10 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     .ps-analytics-kpi strong { font-size:1.22rem; }
     .ps-analytics-surface,.ps-analytics-section { padding:.8rem; }
     .ps-analytics-timeline { grid-template-columns:1fr; }
-    .ps-analytics-checkpoints { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .ps-analytics-checkpoint { border-top:1px solid #e5e7eb; }
-    .ps-analytics-checkpoint:nth-child(odd) { border-right:1px solid #e5e7eb; }
-    .ps-analytics-checkpoint:nth-child(even) { border-right:0; }
-    .ps-analytics-checkpoint:nth-child(-n+2) { border-top:0; }
+    .ps-analytics-checkpoints { grid-template-columns:1fr; gap:0; padding:0; }
+    .ps-analytics-checkpoints:before { top:.42rem; bottom:.42rem; left:.42rem; width:1px; height:auto; }
+    .ps-analytics-checkpoint { padding:.1rem .25rem .58rem 1.15rem; }
+    .ps-analytics-checkpoint:before { top:.14rem; left:.15rem; }
     .ps-analytics-band { grid-template-columns:52px 1fr 62px; gap:.4rem; }
     .ps-analytics-band-header { grid-template-columns:52px 1fr 62px; gap:.4rem; }
     .ps-analytics-band > span,.ps-analytics-band > b { display:none; }
@@ -3773,6 +3778,7 @@ _ANALYTICS_CHECKPOINTS = (
     ("H+1", 1), ("H+6", 6), ("H+12", 12), ("H+24", 24),
     ("H+48", 48), ("J+3", 72), ("J+7", 168), ("J+30", 720),
 )
+_ANALYTICS_CHART_INTERPOLATION = "monotone"
 
 
 def _group_drop_transactions(rows):
@@ -3845,9 +3851,10 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
         "profit": 0.0,
         "sold": 0,
         "sell_through": 0.0,
-        "transaction_revenue": 0.0,
+        "transaction_revenue": None,
         "event_label": "Lancement du Drop",
         "event_kind": "initial",
+        "transaction_type": "Lancement",
         "is_transaction": False,
     }]
     cumulative_revenue = cumulative_profit = 0.0
@@ -3860,6 +3867,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
         if event.get("profit") is not None:
             cumulative_profit += _safe_float(event["profit"])
         event_label = {"mixed": "Transaction mixte", "hors stock": "Transaction hors stock", "cartes": "Transaction cartes"}[event["kind"]]
+        transaction_type = {"mixed": "Mixte", "hors stock": "Hors stock", "cartes": "Cartes"}[event["kind"]]
         series.append({
             "timestamp": event["timestamp"],
             "elapsed_hours": max(0.0, (event["timestamp"] - launched).total_seconds() / 3600.0),
@@ -3870,6 +3878,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
             "transaction_revenue": event["revenue"],
             "event_label": event_label,
             "event_kind": event["kind"],
+            "transaction_type": transaction_type,
             "is_transaction": True,
             "transaction_id": event["transaction_id"],
         })
@@ -3878,9 +3887,10 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
             **{key: value for key, value in series[-1].items() if key not in {"timestamp", "elapsed_hours", "event_label", "event_kind", "is_transaction", "transaction_revenue", "transaction_id"}},
             "timestamp": end,
             "elapsed_hours": max(0.0, (end - launched).total_seconds() / 3600.0),
-            "transaction_revenue": 0.0,
+            "transaction_revenue": None,
             "event_label": "Fin de période (sans transaction)",
             "event_kind": "terminal",
+            "transaction_type": "Fin de période",
             "is_transaction": False,
         })
     return series
@@ -4092,6 +4102,28 @@ def _analytics_chart_style(chart):
     )
 
 
+def _analytics_time_axis(series, alt):
+    timestamps = [point.get("timestamp") for point in series if point.get("timestamp")]
+    if len(timestamps) < 2:
+        return alt.Axis(format="%H:%M", tickCount=5, labelAngle=0, labelPadding=8)
+    span_hours = max(0.0, (max(timestamps) - min(timestamps)).total_seconds() / 3600.0)
+    if span_hours <= 24:
+        return alt.Axis(format="%H:%M", tickCount=7, labelAngle=0, labelPadding=8)
+    if span_hours <= 72:
+        return alt.Axis(format="%d %b\n%Hh", tickCount=7, labelAngle=0, labelPadding=8)
+    if span_hours <= 168:
+        return alt.Axis(format="%d %b\n%Hh", tickCount=7, labelAngle=0, labelPadding=8)
+    return alt.Axis(format="%d %b", tickCount=7, labelAngle=0, labelPadding=8)
+
+
+def _analytics_elapsed_axis(horizon_hours, alt):
+    if horizon_hours <= 24:
+        return alt.Axis(title="Temps depuis le lancement", tickCount=7, labelExpr="datum.value + ' h'")
+    if horizon_hours <= 168:
+        return alt.Axis(title="Temps depuis le lancement", tickCount=7, labelExpr="datum.value < 24 ? datum.value + ' h' : 'J+' + format(datum.value / 24, '.0f')")
+    return alt.Axis(title="Temps depuis le lancement", tickCount=7, labelExpr="'J+' + format(datum.value / 24, '.0f')")
+
+
 def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_analytics_chart"):
     if not series:
         st.caption("Les courbes apparaîtront dès les premières ventes liées au Drop.")
@@ -4105,31 +4137,37 @@ def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_anal
         return
 
     frame = pd.DataFrame(series)
+    launch = next((point for point in series if point.get("event_kind") == "initial"), None)
     tooltip = [
         alt.Tooltip("timestamp:T", title="Date", format="%d %b %Y · %H:%M"),
         alt.Tooltip("event_label:N", title="Événement"),
-        alt.Tooltip("transaction_revenue:Q", title="Transaction", format=".2f"),
+        alt.Tooltip("transaction_type:N", title="Type"),
+        alt.Tooltip("transaction_revenue:Q", title="Transaction", format="+.2f"),
         alt.Tooltip("revenue:Q", title="CA cumulé", format=".2f"),
         alt.Tooltip("profit:Q", title="Bénéfice cumulé", format=".2f"),
         alt.Tooltip("sold:Q", title="Cartes vendues", format=".0f"),
         alt.Tooltip("sell_through:Q", title="Taux d'écoulement", format=".1f"),
     ]
     base = alt.Chart(frame).encode(
-        x=alt.X("timestamp:T", title=None, axis=alt.Axis(format="%d %b\n%H:%M", labelAngle=0, labelPadding=8, tickCount=6)),
+        x=alt.X("timestamp:T", title=None, axis=_analytics_time_axis(series, alt)),
         tooltip=tooltip,
     )
     if mode == "CA & bénéfice":
         chart = alt.layer(
-            base.mark_line(color="#6d28d9", strokeWidth=2.6, interpolate="step-after").encode(y=alt.Y("revenue:Q", title="Montant (€)"), color=alt.value("#6d28d9")),
-            base.mark_line(color="#16a34a", strokeWidth=2.6, interpolate="step-after").encode(y=alt.Y("profit:Q", title="Montant (€)"), color=alt.value("#16a34a")),
+            base.mark_line(color="#6d28d9", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("revenue:Q", title="Montant (€)"), color=alt.value("#6d28d9")),
+            base.mark_line(color="#16a34a", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("profit:Q", title="Montant (€)"), color=alt.value("#16a34a")),
             base.transform_filter("datum.is_transaction").mark_point(color="#6d28d9", filled=True, size=42).encode(y=alt.Y("revenue:Q")),
         ).properties(height=285, title="CA cumulé · Bénéfice cumulé")
     else:
         chart = alt.layer(
-            base.mark_line(color="#2563eb", strokeWidth=2.6, interpolate="step-after").encode(y=alt.Y("sold:Q", title="Cartes")),
-            base.mark_line(color="#f97316", strokeWidth=2.4, interpolate="step-after", strokeDash=[5, 3]).encode(y=alt.Y("sell_through:Q", title="Taux d’écoulement (%)")),
+            base.mark_line(color="#2563eb", strokeWidth=2.6, interpolate=_ANALYTICS_CHART_INTERPOLATION).encode(y=alt.Y("sold:Q", title="Cartes")),
+            base.mark_line(color="#f97316", strokeWidth=2.4, interpolate=_ANALYTICS_CHART_INTERPOLATION, strokeDash=[5, 3]).encode(y=alt.Y("sell_through:Q", title="Taux d’écoulement (%)")),
             base.transform_filter("datum.is_transaction").mark_point(color="#2563eb", filled=True, size=42).encode(y=alt.Y("sold:Q")),
         ).resolve_scale(y="independent").properties(height=285, title="Cartes vendues · Taux d’écoulement")
+    if launch:
+        launch_rule = alt.Chart(pd.DataFrame([launch])).mark_rule(color="#7c3aed", strokeDash=[4, 3], strokeWidth=1.4).encode(x="timestamp:T")
+        launch_label = alt.Chart(pd.DataFrame([launch])).mark_text(align="left", baseline="top", dx=5, dy=4, color="#6d28d9", fontSize=11, fontWeight=700).encode(x="timestamp:T", text=alt.value(f"Lancement · {launch['timestamp'].strftime('%d %b %H:%M')}"))
+        chart = alt.layer(chart, launch_rule, launch_label)
     st.altair_chart(_analytics_chart_style(chart), width="stretch", key=key)
 
 
@@ -4167,6 +4205,22 @@ def _analytics_kpis_html(metrics, fp_func, *, include_cards_per_transaction=Fals
         for label, value in secondary
     )
     return f'<div class="ps-analytics-kpi-grid">{primary_html}</div><div class="ps-analytics-stat-grid">{secondary_html}</div>'
+
+
+def _analytics_revenue_breakdown_html(metrics, fp_func, *, compact=False):
+    total = _safe_float(metrics.get("ca_total"))
+    cards = _safe_float(metrics.get("ca_cards"))
+    off_stock = _safe_float(metrics.get("ca_off_stock"))
+    cards_pct = max(0.0, min(100.0, cards / total * 100.0)) if total else 0.0
+    off_stock_pct = max(0.0, min(100.0, off_stock / total * 100.0)) if total else 0.0
+    title = "CA" if compact else "Décomposition du CA"
+    subtitle = "Cartes et hors stock, sur le même périmètre." if compact else "Le total inclut les ventes hors stock liées au Drop."
+    return (
+        f'<section class="ps-analytics-surface"><div class="ps-analytics-section-heading"><div><h3>{title}</h3><p>{subtitle}</p></div></div>'
+        f'<div class="ps-analytics-revenue-total"><span>CA total</span><strong>{_html_escape(fp_func(total))}</strong></div>'
+        f'<div class="ps-analytics-revenue-bar" title="Cartes : {cards_pct:.1f} % · Hors stock : {off_stock_pct:.1f} %"><i style="width:{cards_pct:.2f}%"></i><b style="width:{off_stock_pct:.2f}%"></b></div>'
+        f'<div class="ps-analytics-breakdown"><span>Cartes physiques</span><strong>{_html_escape(fp_func(cards))}</strong><span>Hors stock</span><strong>{_html_escape(fp_func(off_stock))}</strong></div></section>'
+    )
 
 
 def _analytics_milestone_html(timing, *, compact=False):
@@ -4268,8 +4322,8 @@ def _render_analytics_comparison(drops, stock_data, fp_func, calc_cout_lot_func,
                     "difference": (point["primary"].get(field) or 0.0) - (point["reference"].get(field) or 0.0),
                 })
         frame = pd.DataFrame(chart_rows)
-        chart = alt.Chart(frame).mark_line(interpolate="step-after", strokeWidth=2.6).encode(
-            x=alt.X("elapsed_hours:Q", title="Temps depuis le lancement (heures)", axis=alt.Axis(tickCount=7)),
+        chart = alt.Chart(frame).mark_line(interpolate=_ANALYTICS_CHART_INTERPOLATION, strokeWidth=2.6).encode(
+            x=alt.X("elapsed_hours:Q", axis=_analytics_elapsed_axis(horizon_hours, alt)),
             y=alt.Y("value:Q", title=mode),
             color=alt.Color("drop:N", scale=alt.Scale(range=["#6d28d9", "#2563eb"])),
             tooltip=[
@@ -4369,7 +4423,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         with stock_col:
             stock_label = f"{aggregate['sold']} vendues · {aggregate['sell_through']:.1f} %" if aggregate.get("sell_through") is not None else f"{aggregate['sold']} vendues"
             st.markdown(f'<section class="ps-analytics-surface"><div class="ps-analytics-section-heading"><div><h3>Progression du stock</h3><p>{aggregate["cards"]} cartes sélectionnées · {aggregate["online"]} en ligne · {aggregate["to_photograph"]} à photographier</p></div></div><div class="ps-analytics-progress"><i style="width:{aggregate["sell_through"] or 0:.2f}%"></i></div><div class="ps-analytics-progress-label">{_html_escape(stock_label)}</div></section>', unsafe_allow_html=True)
-            st.markdown(f'<section class="ps-analytics-surface"><div class="ps-analytics-section-heading"><div><h3>CA</h3><p>Les articles hors stock restent distincts des cartes.</p></div></div><div class="ps-analytics-revenue-total"><span>Total</span><strong>{_html_escape(fp_func(aggregate["ca_total"]))}</strong></div><div class="ps-analytics-breakdown"><span>Cartes</span><strong>{_html_escape(fp_func(aggregate["ca_cards"]))}</strong><span>Hors stock</span><strong>{_html_escape(fp_func(aggregate["ca_off_stock"]))}</strong></div></section>', unsafe_allow_html=True)
+            st.markdown(_analytics_revenue_breakdown_html(aggregate, fp_func, compact=True), unsafe_allow_html=True)
         with chart_col:
             if is_single_drop:
                 chart_mode = st.segmented_control("Courbe", ("CA & bénéfice", "Ventes & écoulement"), key="drop_analytics_chart_mode", label_visibility="collapsed") or "CA & bénéfice"
@@ -4388,7 +4442,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
         return
 
     st.markdown(_analytics_kpis_html(aggregate, fp_func, include_cards_per_transaction=True), unsafe_allow_html=True)
-    st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Décomposition du CA</h3><p>Le total inclut les ventes hors stock liées au Drop.</p></div></div><div class="ps-analytics-revenue-total"><span>CA total</span><strong>{_html_escape(fp_func(aggregate["ca_total"]))}</strong></div><div class="ps-analytics-breakdown"><span>Cartes physiques</span><strong>{_html_escape(fp_func(aggregate["ca_cards"]))}</strong><span>Hors stock</span><strong>{_html_escape(fp_func(aggregate["ca_off_stock"]))}</strong></div></section>', unsafe_allow_html=True)
+    st.markdown(_analytics_revenue_breakdown_html(aggregate, fp_func), unsafe_allow_html=True)
     if is_single_drop:
         timing = _analytics_timing(selected[0], all_rows)
         checkpoint_html = "".join(f'<div class="ps-analytics-checkpoint"><span>{checkpoint["label"]}</span><strong>{"À venir" if checkpoint.get("upcoming") else _html_escape(fp_func(checkpoint.get("revenue", 0)))}</strong><small>{"" if checkpoint.get("upcoming") else f"{checkpoint.get("sold", 0)} vendue(s)"}</small></div>' for checkpoint in timing["checkpoints"])

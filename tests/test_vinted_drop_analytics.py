@@ -190,14 +190,14 @@ class VintedDropAnalyticsTests(unittest.TestCase):
         streamlit = ChartStreamlit()
         series = [{
             "timestamp": datetime(2026, 8, 27, 17, 27),
-            "revenue": 100.0,
-            "profit": 60.0,
-            "sold": 20,
-            "sell_through": 25.0,
-            "transaction_revenue": 100.0,
-            "event_label": "Transaction cartes",
-            "event_kind": "cartes",
-            "is_transaction": True,
+            "revenue": 0.0, "profit": 0.0, "sold": 0, "sell_through": 0.0,
+            "transaction_revenue": 0.0, "event_label": "Lancement du Drop", "event_kind": "initial",
+            "transaction_type": "Lancement", "is_transaction": False,
+        }, {
+            "timestamp": datetime(2026, 8, 27, 18, 27),
+            "revenue": 100.0, "profit": 60.0, "sold": 20, "sell_through": 25.0,
+            "transaction_revenue": 100.0, "event_label": "Transaction cartes", "event_kind": "cartes",
+            "transaction_type": "Cartes", "is_transaction": True,
         }]
 
         with patch.object(vinted_page, "st", streamlit):
@@ -205,8 +205,11 @@ class VintedDropAnalyticsTests(unittest.TestCase):
 
         self.assertEqual(len(streamlit.charts), 1)
         spec = streamlit.charts[0].to_dict(validate=True)
-        self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "timestamp")
+        self.assertEqual(spec["layer"][0]["layer"][0]["encoding"]["x"]["field"], "timestamp")
         self.assertIn("event_label", str(spec))
+        self.assertIn("transaction_type", str(spec))
+        self.assertEqual(spec["layer"][0]["layer"][0]["mark"]["interpolate"], "monotone")
+        self.assertEqual(spec["layer"][1]["mark"]["type"], "rule")
 
 
 if __name__ == "__main__":
