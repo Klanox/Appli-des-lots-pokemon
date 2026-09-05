@@ -255,8 +255,11 @@ h1 {{ display: none !important; }}
 }}
 .main .block-container {{
     max-width: 1280px !important;
-    padding-top: 0.8rem !important;
+    padding-top: 2.5rem !important;
     padding-bottom: 2.5rem !important;
+}}
+[data-testid="stMainBlockContainer"] {{
+    padding-top: 2.5rem !important;
 }}
 .stMarkdown, .stMarkdown p, label,
 [data-testid="stCaptionContainer"], [data-testid="stText"] {{
@@ -976,8 +979,8 @@ hr {{
         radial-gradient(circle at 92% 18%, rgba(124,58,237,0.18), transparent 20rem) !important;
     border: 1px solid rgba(124,58,237,0.16) !important;
     border-radius: 18px !important;
-    padding: 0.78rem 1rem !important;
-    margin-bottom: 0.72rem !important;
+    padding: 0.5rem 0.9rem !important;
+    margin-bottom: 0.9rem !important;
     box-shadow: var(--ps-shadow) !important;
 }}
 .ps-app-header::after {{
@@ -990,10 +993,26 @@ hr {{
     pointer-events: none;
 }}
 .ps-app-logo {{
+    width: 44px !important;
+    height: 44px !important;
     border-radius: 14px !important;
     background: #ffffff !important;
     border: 1px solid rgba(124,58,237,0.18) !important;
     box-shadow: 0 10px 24px rgba(76,29,149,0.14) !important;
+}}
+.ps-app-header-brand {{ gap: 0.75rem !important; }}
+.ps-app-header--compact {{
+    padding: 0.45rem 0.75rem !important;
+    margin-bottom: 0.75rem !important;
+}}
+.ps-app-header--compact .ps-app-logo {{
+    width: 36px !important;
+    height: 36px !important;
+}}
+.ps-app-title {{ font-size: 1.22rem !important; }}
+.ps-app-tagline {{
+    font-size: 0.78rem !important;
+    margin-top: 0.06rem !important;
 }}
 .ps-app-title,
 .ps-page-title,
@@ -1577,7 +1596,10 @@ section[data-testid="stSidebar"] {
     max-width: 100% !important;
     padding-left: 0.55rem !important;
     padding-right: 0.55rem !important;
-    padding-top: 0.75rem !important;
+    padding-top: 2.5rem !important;
+}
+[data-testid="stMainBlockContainer"] {
+    padding-top: 2.5rem !important;
 }
 div[data-testid="stHorizontalBlock"] {
     gap: 0.45rem !important;

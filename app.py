@@ -1745,12 +1745,6 @@ function autoSubmitSearch() {
 </script>
 """, height=0)
 
-if is_mobile_mode():
-    st.markdown(
-        '<style>.ps-app-header { display: none !important; }</style>',
-        unsafe_allow_html=True,
-    )
-
 try:
     import os
     import base64
