@@ -8,10 +8,7 @@ import html
 import os
 from copy import deepcopy
 
-try:
-    from st_keyup import st_keyup
-except ImportError:  # Keeps the sales page usable if the optional component is unavailable.
-    st_keyup = None
+from ui.inventory_live_search import inventory_live_search
 
 from core.brocante import BRO_CATEGORIES
 from services.brocante_data import load_brocantes
@@ -36,7 +33,7 @@ from ui.infinite_scroll import (
     render_virtual_scroll_sensor,
     stable_list_signature,
 )
-from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_grid
+from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_lot_grid
 
 
 def _sale_image_html(card, *, in_cart=False, width="100%"):
@@ -127,16 +124,17 @@ def _sale_image_preload_urls(card, *, limit=1):
     return urls
 
 
-def _sale_frontend_lot_groups(source_items, fp_func, lot_profitable_func):
+def _sale_frontend_lot_groups(source_items, fp_func, lot_profitable_func, *, continuous=False):
     groups_by_lot = {}
     lot_order = []
     for li, ci, card, lot, stock in source_items:
-        lot_key = lot.get("lot_uid") or li
+        lot_key = "search" if continuous else (lot.get("lot_uid") or li)
         if lot_key not in groups_by_lot:
             groups_by_lot[lot_key] = {
                 "lot_idx": li,
                 "lot_uid": lot.get("lot_uid"),
-                "lot_name": str(lot.get("nom", "")),
+                "lot_name": "" if continuous else str(lot.get("nom", "")),
+                "hide_header": continuous,
                 "cards": [],
             }
             lot_order.append(lot_key)
@@ -480,22 +478,10 @@ def render_sales_page(context):
             # ── Barre de recherche + filtre lot + compteur panier ──
             col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
             with col_search:
-                search_vente = (
-                    st_keyup(
-                        "🔍 Rechercher une carte",
-                        key="search_vente_live",
-                        placeholder="Nom, numéro ou extension...",
-                        debounce=120,
-                        label_visibility="collapsed",
-                    )
-                    if st_keyup is not None
-                    else st.text_input(
-                        "🔍 Rechercher une carte",
-                        placeholder="Nom, numéro ou extension...",
-                        key="search_vente",
-                        label_visibility="collapsed",
-                    )
-                ) or ""
+                search_vente = inventory_live_search(
+                    "🔍 Rechercher une carte", key="search_vente_live",
+                    placeholder="Nom de la carte...",
+                )
             with col_lot_filter:
                 vente_lots_with_idx = sorted(
                     list(enumerate(cd.get("lots", []))),
@@ -600,7 +586,7 @@ def render_sales_page(context):
                         })
             sale_items = [
                 (record["lot_idx"], record["card_idx"], record["card"], record["lot"], record["stock"])
-                for record in sort_inventory_records(sale_records)
+                for record in (sort_inventory_records(sale_records) if search_vente.strip() else sale_records)
             ]
 
             lot_profitable_cache = {}
@@ -738,7 +724,7 @@ def render_sales_page(context):
                             top_anchor_id=f"sale-progressive-top-{key_prefix}",
                             bottom_anchor_id=bottom_anchor_id,
                             row_selector=(
-                                f'[class*="st-key-search_results_grid_sales_{scope_prefix}_row_"]'
+                                f'[class*="st-key-search_results_grid_sales_{scope_prefix}_"]'
                                 '[data-testid="stHorizontalBlock"]'
                             ),
                             root_margin_px=1800,
@@ -763,14 +749,23 @@ def render_sales_page(context):
                     if "perf_count" in globals():
                         perf_count("cards_sales_available", total_count)
                         perf_count("cards_sales_rendered", len(visible_items))
-                    render_continuous_sale_items(scope_prefix, visible_items)
+                    if search_text:
+                        render_continuous_sale_items(scope_prefix, visible_items)
+                    else:
+                        by_lot = {}
+                        for item in visible_items:
+                            by_lot.setdefault(item[0], []).append(item)
+                        for li, lot_items in by_lot.items():
+                            st.markdown(f"### Lot {lot_items[0][3]['nom']}")
+                            render_sale_grid_rows(f"{scope_prefix}_lot_{li}", lot_items)
+                            st.markdown("---")
                     if visible_count < total_count:
                         st.markdown(
                             f'<div id="{bottom_anchor_id}" style="height:1px;"></div>',
                             unsafe_allow_html=True,
                         )
 
-                search_text = str(search_text or "")
+                search_text = str(search_text or "").strip()
                 sale_initial = 24 if is_mobile_mode() else 48
                 sale_step = 12 if is_mobile_mode() else 24
                 sale_row_height_default = 520 if is_mobile_mode() else 560
@@ -807,8 +802,8 @@ def render_sales_page(context):
                     )
                     render_progressive_group("sales_all", "all", items, sale_signature)
 
-            def render_sales_frontend_grid(search_text, selected_lot, items, cart_card_uids):
-                search_text = str(search_text or "")
+            def render_sales_frontend_lot_grid(search_text, selected_lot, items, cart_card_uids):
+                search_text = str(search_text or "").strip()
                 if search_text:
                     filtered_items = [
                         item for item in items
@@ -819,40 +814,24 @@ def render_sales_page(context):
                     filtered_items = list(items or [])
                     grid_key = "sales_all"
 
-                grid_items = []
-                for li, ci, card, lot, stock in filtered_items:
-                    image_url = card.get("image_url") or card.get("image") or ""
-                    grid_items.append({
-                        "lot_uid": lot.get("lot_uid"),
-                        "lot_idx": li,
-                        "lot_name": lot.get("nom", "Lot"),
-                        "card_uid": card.get("card_uid"),
-                        "card_idx": ci,
-                        "name": card.get("name", "Carte"),
-                        "set": card.get("set", ""),
-                        "number": card.get("number", ""),
-                        "stock": stock,
-                        "price": card.get("suggested_price", 0),
-                        "price_label": fp(card.get("suggested_price", 0)),
-                        "image_url": proxy_img(image_url) if image_url else "",
-                        "lot_profitable": sale_lot_profitable(li, lot),
-                    })
+                groups = _sale_frontend_lot_groups(filtered_items, fp, sale_lot_profitable, continuous=bool(search_text))
                 try:
-                    result = render_sale_virtual_grid(
-                        grid_items,
+                    result = render_sale_virtual_lot_grid(
+                        groups,
                         cart_card_uids,
                         key=grid_key,
                         mobile=is_mobile_mode(),
+                        scroll_top_token=st.session_state.get("sale_scroll_top_token", 0),
                     )
                 except Exception as exc:
-                    st.session_state["sale_frontend_grid_error"] = str(exc)
+                    st.session_state["sale_frontend_lot_grid_error"] = str(exc)
                     return False
 
-                action = result.get("add") if isinstance(result, dict) else getattr(result, "add", None)
+                action = getattr(result, "action", None) if result is not None else None
                 if isinstance(action, dict) and action.get("type") in ("add", "remove"):
                     action_id = str(action.get("id") or "")
-                    if action_id and st.session_state.get("sale_frontend_last_action") != action_id:
-                        st.session_state["sale_frontend_last_action"] = action_id
+                    if action_id and st.session_state.get("sale_frontend_lot_last_action") != action_id:
+                        st.session_state["sale_frontend_lot_last_action"] = action_id
                         if action.get("type") == "remove":
                             bulk_cart_remove(
                                 lot_idx=safe_int(action.get("lot_idx"), None),
@@ -870,14 +849,14 @@ def render_sales_page(context):
                             })
                         st.rerun()
                 if "perf_count" in globals():
-                    perf_count("cards_sales_available", len(grid_items))
+                    perf_count("cards_sales_available", sum(len(group.get("cards", [])) for group in groups))
                     perf_count("cards_sales_rendered", 0)
                 return True
 
-            frontend_grid_ok = False
-            if component_v2_available() and not st.session_state.get("sale_frontend_grid_disabled", False):
-                frontend_grid_ok = render_sales_frontend_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
-            if not frontend_grid_ok:
+            frontend_lot_grid_ok = False
+            if component_v2_available() and not st.session_state.get("sale_frontend_lot_grid_disabled", False):
+                frontend_lot_grid_ok = render_sales_frontend_lot_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
+            if not frontend_lot_grid_ok:
                 render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
 
             # Panier

@@ -1,10 +1,15 @@
 from datetime import datetime
 import unittest
+from unittest.mock import patch
 
 from services.inventory_ordering import card_matches_inventory_query, sort_inventory_records
 from services.vinted_channels import sale_channel_key
 from ui.pages.counters import collect_channel_counter_totals, default_vinted_counter_state
-from ui.pages.statistics import MONTHLY_PROFILE_EXPLANATIONS, _comparable_month_metrics
+from ui.pages.statistics import (
+    MONTHLY_PROFILE_EXPLANATIONS, _comparable_month_metrics, _metric_delta_html,
+    _profile_help_html, _chart_sentence, _build_monthly_stats, _comparable_profile_stats,
+)
+from ui.pages.sales import _sale_frontend_lot_groups
 
 
 def _row(date_value, price, *, quantity=1, is_off_stock=False):
@@ -19,6 +24,59 @@ def _row(date_value, price, *, quantity=1, is_off_stock=False):
 
 
 class InventoryStatisticsCountersTests(unittest.TestCase):
+    def test_historical_renderer_groups_only_without_search(self):
+        items = [(i, 0, {"card_uid": str(i), "name": "Pikachu", "added_at": date},
+                  {"lot_uid": str(i), "nom": str(i)}, 1)
+                 for i, date in [(0, "2026-09-01"), (1, "2026-03-01"), (2, "2026-06-01")]]
+        with patch('ui.pages.sales._sale_image_preload_urls', return_value=[]):
+            grouped = _sale_frontend_lot_groups(items, str, lambda *_: False)
+            self.assertEqual([g['lot_name'] for g in grouped], ['0', '1', '2'])
+            self.assertTrue(all(not g['hide_header'] for g in grouped))
+            records = sort_inventory_records([dict(lot_idx=i, card_idx=c, card=card, lot=lot, stock=q) for i,c,card,lot,q in items])
+            ordered = [(r['lot_idx'],r['card_idx'],r['card'],r['lot'],r['stock']) for r in records]
+            search = _sale_frontend_lot_groups(ordered, str, lambda *_: False, continuous=True)
+            self.assertEqual(len(search), 1)
+            self.assertTrue(search[0]['hide_header'])
+            self.assertEqual([c['card_uid'] for c in search[0]['cards']], ['1','2','0'])
+            self.assertEqual(grouped, _sale_frontend_lot_groups(items, str, lambda *_: False))
+
+    def test_tooltip_icon_has_the_specific_definition(self):
+        for label, explanation in MONTHLY_PROFILE_EXPLANATIONS.items():
+            markup = _profile_help_html(label, short=True)
+            import html
+            self.assertEqual(markup.count('title="' + html.escape(explanation, quote=True) + '"'), 2)
+            self.assertNotIn('Survolez', markup)
+
+    def test_zero_reference_is_explicit_and_margin_uses_points(self):
+        self.assertIn('+157,40 € · base 0', _metric_delta_html(157.4, 0, unit='€'))
+        self.assertIn('+22 · base 0', _metric_delta_html(22, 0))
+        self.assertIn('+0 · base 0', _metric_delta_html(0, 0))
+        self.assertIn('+7,4 pts', _metric_delta_html(71.4, 64, unit='pts'))
+        self.assertIn('+50,0%', _metric_delta_html(-5, -10))
+        self.assertIn('Marge non comparable', _metric_delta_html(71.4, None, unit='pts'))
+
+    def test_short_previous_month_is_clamped_and_boundaries_do_not_overlap(self):
+        rows = [_row('2026-02-28T23:59:59', 10), _row('2026-03-01T00:00:00', 20), _row('2026-04-01T00:00:00', 500)]
+        current, prev, _ = _comparable_month_metrics(rows, '2026-03', now=datetime(2026,3,31,12))
+        self.assertEqual((current['ca'],prev['ca']), (20,10))
+        current, prev, _ = _comparable_month_metrics(rows, '2026-03', now=datetime(2026,4,5))
+        self.assertEqual((current['ca'],prev['ca']), (20,10))
+
+    def test_date_only_rows_and_same_hour_cutoff(self):
+        rows = [_row('2026-08-05',10), _row('2026-08-05T15:00:00',50), _row('2026-09-05',20)]
+        current,prev,_ = _comparable_month_metrics(rows,'2026-09',now=datetime(2026,9,5,12))
+        self.assertEqual((current['ca'],prev['ca']),(20,10))
+
+    def test_evolution_sentence_and_profile_use_comparable_rows(self):
+        rows = [_row('2026-08-02',10), _row('2026-08-20',500), _row('2026-09-02',20)]
+        for row in rows:
+            row['month'] = row['date'].strftime('%Y-%m')
+        stats = _build_monthly_stats(rows, [])
+        text = _chart_sentence('2026-09', stats, sorted(stats), all_sales=rows, now=datetime(2026,9,5))
+        self.assertIn('+100,0 %', text)
+        profiles = _comparable_profile_stats(rows, [], stats, datetime(2026,9,5))
+        self.assertEqual(profiles['2026-08']['ca'], 10)
+
     def test_inventory_records_are_continuous_and_oldest_first(self):
         records = [
             {"lot_idx": 1, "card_idx": 0, "lot": {"created": "2026-05-01T10:00:00"}, "card": {"name": "Nouvelle", "added_at": "2026-06-01T10:00:00"}},

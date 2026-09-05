@@ -7,12 +7,12 @@ import unicodedata
 
 
 CARD_ACQUISITION_FIELDS = (
+    "added_at",
     "acquired_at",
     "acquisition_date",
     "date_acquisition",
     "date_achat",
     "purchase_date",
-    "added_at",
     "created_at",
     "created",
     "date",

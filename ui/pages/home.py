@@ -11,10 +11,7 @@ import json
 import os
 
 import streamlit as st
-try:
-    from st_keyup import st_keyup
-except ImportError:  # The native input remains a safe fallback.
-    st_keyup = None
+from ui.inventory_live_search import inventory_live_search
 
 from services.inventory_ordering import card_matches_inventory_query, sort_inventory_records
 from services.stock_history_service import (
@@ -382,27 +379,15 @@ def render_home_page(
         render_page_header_func("Recherche globale", "Trouver une carte dans tous les lots", "🔍"),
         unsafe_allow_html=True,
     )
-    search_global = (
-        st_keyup(
-            "🔍 Recherche",
-            key="global_search_live",
-            placeholder="Nom, numéro ou extension...",
-            debounce=120,
-            label_visibility="collapsed",
-        )
-        if st_keyup is not None
-        else st.text_input(
-            "🔍 Recherche",
-            placeholder="Nom, numéro ou extension...",
-            key="global_search",
-            label_visibility="collapsed",
-        )
-    ) or ""
+    search_global = inventory_live_search(
+        "🔍 Recherche", key="global_search_live",
+        placeholder="Chercher une carte dans tous les lots...", collapsed=False,
+    )
     if st.session_state.pop("home_card_deleted_toast", False):
         st.toast("Carte supprimée")
 
-    if search_global:
-        cd_search = ld_func()
+    if search_global.strip():
+        cd_search = cd_graph
         results_found = []
 
         all_lots_search = [

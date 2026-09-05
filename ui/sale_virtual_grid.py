@@ -787,7 +787,7 @@ def _get_sale_lot_grid_component():
             groups.forEach((group, groupIndex) => {
                 const cards = Array.isArray(group.cards) ? group.cards : [];
                 if (!cards.length) return;
-                rows.push({
+                if (!group.hide_header) rows.push({
                     type: "header",
                     key: "h-" + (group.lot_uid || group.lot_idx || groupIndex),
                     top,
@@ -795,7 +795,7 @@ def _get_sale_lot_grid_component():
                     group,
                     groupIndex
                 });
-                top += headerHeight;
+                if (!group.hide_header) top += headerHeight;
                 for (let start = 0; start < cards.length; start += colCount) {
                     rows.push({
                         type: "cards",
@@ -1192,7 +1192,7 @@ def _estimated_lot_grid_height(groups, *, mobile=False):
         card_count = len(group.get("cards", []) or [])
         if not card_count:
             continue
-        total += header_height
+        total += 0 if group.get("hide_header") else header_height
         total += max(1, math.ceil(card_count / cols)) * (card_height + gap)
         total += lot_gap
     return max(1, total)
@@ -1217,7 +1217,7 @@ def render_sale_virtual_lot_grid(groups, cart_uids, *, key="sales", height=None,
         },
         default={},
         width="stretch",
-        height=height or _estimated_lot_grid_height(groups, mobile=mobile),
+        height=height or "content",
         on_action_change=_noop,
     )
     return result
