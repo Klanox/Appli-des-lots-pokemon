@@ -10,7 +10,7 @@ import json
 import os
 import re
 
-from core.brocante import lot_reimbursement
+from ui.lot_progress import lot_progress_html
 from services.card_identity import card_identity_fingerprint
 from services.custom_card_image_service import is_custom_image_ref, register_custom_card_image, resolve_custom_card_image
 from ui.badges import card_is_japanese, card_variant_badges, status_badge
@@ -28,42 +28,8 @@ def render_lots_page(context):
             sequence = 0
         return (sequence, original_index)
 
-    def compact_lot_reimbursement_label(lot, lot_index):
-        gauge = lot_reimbursement(lot, lot_index)
-        if not gauge["available"]:
-            return "Coût non renseigné · jauge indisponible"
-        pct = max(float(gauge.get("pct") or 0), 0.0)
-        clamped = min(pct, 100.0)
-        slots = 14
-        filled = int(round(clamped / 100 * slots))
-        bar = "█" * filled + "░" * (slots - filled)
-        if pct >= 100:
-            return f"{bar} 100 % · Remboursé"
-        else:
-            recovered = fp(gauge.get("recovered", 0.0))
-            return f"{bar} {pct:.0f} % · {recovered} récupérés"
-
     def lot_detail_reimbursement_html(lot, lot_index):
-        gauge = lot_reimbursement(lot, lot_index)
-        if not gauge["available"]:
-            return (
-                '<div class="lot-detail-reimbursement-row lot-reimbursement-unavailable">'
-                "Coût non renseigné — jauge indisponible"
-                "</div>"
-            )
-        pct = max(float(gauge.get("pct") or 0), 0.0)
-        clamped = min(pct, 100.0)
-        recovered = fp(gauge.get("recovered", 0.0))
-        remaining = fp(gauge.get("remaining", 0.0))
-        label = "Remboursé" if pct >= 100 else f"{pct:.0f} % remboursé · {recovered} récupérés · reste {remaining}"
-        return (
-            '<div class="lot-detail-reimbursement-row">'
-            '<div class="lot-detail-reimbursement-track">'
-            f'<span style="width:{clamped:.1f}%"></span>'
-            "</div>"
-            f'<strong>{html.escape(label)}</strong>'
-            "</div>"
-        )
+        return lot_progress_html(lot, cd.get("lots", []), lot_index, fp)
 
     def editable_lot_purchase_price(lot, lot_index):
         price_field = "prix_achat_reel" if lot.get("is_mixte") else "prix_achat"
@@ -165,18 +131,19 @@ def render_lots_page(context):
         }
         .lot-detail-reimbursement-row {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-columns: minmax(0, 1fr);
             align-items: center;
-            gap: 0.75rem;
-            margin: 0.65rem 0 1rem;
-            padding: 0.75rem 0.85rem;
+            gap: 0.4rem;
+            margin: 0 0 0.65rem;
+            padding: 0.55rem 0.8rem;
+            font-size: 0.85rem;
+            overflow-wrap: anywhere;
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            box-shadow: 0 8px 20px rgba(15,23,42,0.06);
+            border-radius: 8px;
         }
         .lot-detail-reimbursement-track {
-            height: 0.72rem;
+            height: 0.4rem;
             overflow: hidden;
             border-radius: 999px;
             background: #e2e8f0;
@@ -185,7 +152,7 @@ def render_lots_page(context):
             display: block;
             height: 100%;
             border-radius: inherit;
-            background: linear-gradient(90deg, #7c3aed, #22c55e);
+            background: #7c3aed;
         }
         [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
             display: flex !important;
@@ -525,11 +492,10 @@ def render_lots_page(context):
             badge_100 = " 🎉" if just_reached_100 else ""
             badge_mixte = " 🗂️" if lt.get("is_mixte") else ""
             expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {fp(lt.get('prix_achat',0))}{badge_mixte}{badge_100}"
-            reimbursement_line = compact_lot_reimbursement_label(lt, ix)
             is_active_lot = st.session_state.get("active_lot_ix") == ix
             row_prefix = "▼" if is_active_lot else "›"
             if st.button(
-                f"{row_prefix} {expander_title}\n{reimbursement_line}",
+                f"{row_prefix} {expander_title}",
                 key=f"lot_row_{ix}",
                 width="stretch",
                 type="secondary",
@@ -540,6 +506,7 @@ def render_lots_page(context):
                     st.session_state["active_lot_ix"] = ix
                 st.rerun()
 
+            st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
             if not is_active_lot:
                 continue
 
@@ -562,7 +529,6 @@ def render_lots_page(context):
                     border_color = "#22c55e" if is_profitable else "#ee1515"
                     st.markdown(f'<b style="color:{border_color};font-size:1.2rem">{status_text}</b>',unsafe_allow_html=True)
 
-                st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
 
                 # Pour un lot mixte : recalculer le prix_achat effectif dynamiquement
                 if lt.get("is_mixte") and lt.get("valeur_totale", 0) > 0:

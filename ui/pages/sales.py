@@ -9,6 +9,7 @@ import os
 from copy import deepcopy
 
 from ui.inventory_live_search import inventory_live_search
+from core.sale_preview import preview_sale
 
 from core.brocante import BRO_CATEGORIES
 from services.brocante_data import load_brocantes
@@ -865,7 +866,6 @@ def render_sales_page(context):
                 st.info("📭 Panier vide - Cliquez sur 🛒 Ajouter pour ajouter des cartes")
             else:
                 st.markdown("### 🛒 Panier")
-                total_base = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 
                 for idx, item in enumerate(st.session_state.bulk_cart):
                     is_off_stock = bool(item.get("is_off_stock") or item.get("line_type") == "off_stock")
@@ -885,6 +885,7 @@ def render_sales_page(context):
                     cols[4].button("➕", key=f"plus_{idx}", on_click=bulk_cart_increment, args=(idx,))
                     cols[5].button("🗑️", key=f"remove_{idx}", on_click=bulk_cart_pop, args=(idx,))
                 
+                total_base = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 st.markdown("---")
                 st.markdown(f"**Prix total de base : {fp(total_base)}**")
                 
@@ -904,6 +905,21 @@ def render_sales_page(context):
                         key="negociated_price",
                     )
                     st.button("🤝 Vendre au prix final", width="stretch", on_click=bulk_sale_prepare, args=("negociated", negociated_price))
+
+                with vente_col2:
+                    for label, preview_items in (
+                        ("Au prix de base", [{**item, "unit_price": item["price_base"]} for item in st.session_state.bulk_cart]),
+                        ("Au prix final", _allocate_final_sale_price(st.session_state.bulk_cart, negociated_price)),
+                    ):
+                        estimate = preview_sale(cd, preview_items, resolve_card=resolve_card_ref,
+                                                calc_cost=calc_cout_lot, effective_purchase_price=effective_purchase_price)
+                        st.caption(label)
+                        if estimate["profit"] is None:
+                            st.markdown(f"**Bénéfice estimé partiel : {fp(estimate['known_profit'])}**")
+                            st.caption(f"{estimate['unknown_lines']} ligne(s) sans coût fiable, exclue(s) de l'estimation.")
+                        else:
+                            tone = "#15803d" if estimate["profit"] >= 0 else "#be123c"
+                            st.markdown(f'<p style="color:{tone};font-weight:600">Bénéfice estimé : {html.escape(fp(estimate["profit"]))}</p>', unsafe_allow_html=True)
 
                 # Dialog canal pour vente en lot
                 if st.session_state.get("show_canal_dialog_bulk"):

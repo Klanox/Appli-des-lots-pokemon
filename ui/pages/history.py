@@ -12,6 +12,7 @@ from datetime import datetime
 
 import streamlit as st
 from core.sales_cancellation import cancel_sale_by_id
+from core.sale_preview import off_stock_history_cost as _off_stock_cost_for_history
 from core.trade_economics import trade_sale_stat_rows
 from ui.infinite_scroll import progressive_slice, render_infinite_sentinel, stable_list_signature
 
@@ -322,28 +323,6 @@ def _build_trade_history_items(cd_hist):
             "received_cards": received_cards,
         })
     return items
-
-
-def _off_stock_cost_for_history(sale, lot=None, valeur_est_hist=None, effective_purchase_price_func=None):
-    if sale.get("cost_basis_known"):
-        try:
-            return float(sale.get("cost_basis", 0) or 0)
-        except (TypeError, ValueError):
-            return None
-    if not lot or not callable(effective_purchase_price_func):
-        return None
-    try:
-        price = float(sale.get("price", 0) or 0)
-    except (TypeError, ValueError):
-        price = 0.0
-    if price <= 0:
-        return 0.0
-    try:
-        if lot.get("is_mixte") and float(lot.get("valeur_totale", 0) or 0) > 0:
-            return (price / float(lot.get("valeur_totale", 1) or 1)) * float(lot.get("prix_achat_reel", lot.get("prix_achat", 0)) or 0)
-        return (price / (float(valeur_est_hist or 0) or 1.0)) * effective_purchase_price_func(lot)
-    except Exception:
-        return None
 
 
 def _off_stock_history_item(sale, *, lot_name="Non attribuée", cout=None):

@@ -12,6 +12,7 @@ import os
 
 import streamlit as st
 from ui.inventory_live_search import inventory_live_search
+from core.sale_preview import historical_unit_cost_or_none
 
 from services.inventory_ordering import card_matches_inventory_query, sort_inventory_records
 from services.stock_history_service import (
@@ -433,7 +434,9 @@ def render_home_page(
                             st.caption(f"📦 {res['lot_name']} ({res['lot_type']})")
                             stock_color = "#22c55e" if res["stock"] > 0 else "#94a3b8"
                             st.markdown(f'<span style="color:{stock_color};font-weight:700;font-size:0.85rem;">{"✅ Stock : "+str(res["stock"]) if res["stock"] > 0 else "❌ Épuisé"}</span>', unsafe_allow_html=True)
-                            st.caption(f"💰 {fp_func(res['card'].get('suggested_price', 0))}")
+                            purchase_cost = historical_unit_cost_or_none(res["lot"], res["card"])
+                            purchase_label = fp_func(purchase_cost) if purchase_cost is not None else "—"
+                            st.caption(f"Prix : {fp_func(res['card'].get('suggested_price', 0))} · Achat : {purchase_label}")
                             edit_key = f"{res['result_key']}_edit_price"
                             value_key = f"{res['result_key']}_price_value"
                             save_key = f"{res['result_key']}_save_price"
