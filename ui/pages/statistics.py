@@ -9,6 +9,7 @@ import json
 import os
 from datetime import datetime
 from statistics import median
+from uuid import uuid4
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -16,24 +17,14 @@ import streamlit as st
 from core.trade_economics import trade_sale_stat_rows
 from services.perf_service import perf_log, perf_timer
 from services.vinted_channels import SALE_CHANNELS, normalize_vinted_channel
+from services.monthly_profiles import (
+    PROFILE_METADATA, PROFILE_EXPLANATIONS, build_profile_stats, profile_tuple, score_profile,
+)
 
 
 MOIS_FR = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"}
 
-# These explanations mirror the thresholds in _month_profile.  Keep the label
-# and its meaning together so every monthly UI can offer the same help text.
-MONTHLY_PROFILE_EXPLANATIONS = {
-    "🏆 Mois record": "Ton chiffre d’affaires atteint un record dans ton historique comparé.",
-    "🚀 Mois explosif": "Ton chiffre d’affaires dépasse largement ton rythme habituel ce mois-ci.",
-    "🌱 Mois d'investissement": "Tu as fortement investi dans ton stock ce mois-ci.",
-    "📦 Mois de volume": "Tu as vendu beaucoup plus de cartes que d’habitude ce mois-ci.",
-    "💎 Mois rentable": "Ton bénéfice se distingue particulièrement ce mois-ci.",
-    "🔥 Mois vendeur": "Ton chiffre d’affaires progresse nettement par rapport à la période précédente.",
-    "🌿 Mois calme": "Tu as eu moins d’activité de vente que d’habitude ce mois-ci.",
-    "📉 Mois en retrait": "Ton chiffre d’affaires recule par rapport à ton rythme habituel et à la période précédente.",
-    "⚖️ Mois équilibré": "Ton activité ne présente pas de tendance dominante parmi les autres profils.",
-    "🛒 Mois acheteur": "Tu as réalisé plus de chiffre d’affaires avec moins de cartes vendues que d’habitude.",
-}
+MONTHLY_PROFILE_EXPLANATIONS = PROFILE_EXPLANATIONS
 
 
 def _safe_float(value, default=0.0):
@@ -182,10 +173,14 @@ def _comparable_profile_stats(all_sales, purchases, monthly_stats, now):
 
 def _profile_help_html(profile_label, *, short=False, explanation=None):
     explanation = explanation or MONTHLY_PROFILE_EXPLANATIONS[profile_label]
+    tooltip_id = f"profile-help-{uuid4().hex}"
     return (
-        f'<span class="ps-stats-profile-label" title="{html.escape(explanation, quote=True)}">'
+        f'<span class="ps-stats-profile-label">'
         f'{html.escape(_short_profile_label(profile_label) if short else profile_label)}</span>'
-        f'<span class="ps-stats-profile-help" tabindex="0" aria-label="{html.escape(explanation, quote=True)}" title="{html.escape(explanation, quote=True)}">?</span>'
+        '<span class="ps-stats-profile-help"><details>'
+        f'<summary aria-describedby="{tooltip_id}" aria-label="À propos de {html.escape(profile_label, quote=True)}">?</summary></details>'
+        f'<span class="ps-stats-profile-tooltip" id="{tooltip_id}" role="tooltip"><strong>{html.escape(profile_label)}</strong>'
+        f'<span>{html.escape(explanation)}</span></span></span>'
     )
 
 
@@ -353,46 +348,11 @@ def _month_profile(month, monthly_stats, months_sorted):
     current = monthly_stats.get(month)
     if not current:
         return None
-    historic = [monthly_stats[m] for m in months_sorted if m != month and monthly_stats[m].get("ca", 0) > 0]
-    if len(historic) < 2:
-        return None
-    ca_values = [item["ca"] for item in historic]
-    benef_values = [item["benef"] for item in historic]
-    qty_values = [item["qty"] for item in historic]
-    purchase_values = [item["purchases"] for item in historic]
-    avg_ca = sum(ca_values) / len(ca_values)
-    med_ca = median(ca_values)
-    avg_benef = sum(benef_values) / len(benef_values)
-    avg_qty = sum(qty_values) / len(qty_values)
-    avg_purchases = sum(purchase_values) / len(purchase_values) if purchase_values else 0.0
-    idx = months_sorted.index(month)
-    prev = monthly_stats.get(months_sorted[idx - 1]) if idx > 0 else None
-    ca = current["ca"]
-    benef = current["benef"]
-    qty = current["qty"]
-    purchases = current["purchases"]
-    margin = (benef / ca * 100.0) if ca else 0.0
-    if ca >= max(ca_values + [ca]) and ca > avg_ca * 1.25:
-        return "🏆 Mois record", MONTHLY_PROFILE_EXPLANATIONS["🏆 Mois record"]
-    if ca > max(avg_ca * 1.8, med_ca * 1.7):
-        return "🚀 Mois explosif", MONTHLY_PROFILE_EXPLANATIONS["🚀 Mois explosif"]
-    if purchases > max(avg_purchases * 1.8, ca * 0.9) and purchases > 0:
-        return "🌱 Mois d'investissement", MONTHLY_PROFILE_EXPLANATIONS["🌱 Mois d'investissement"]
-    if qty > avg_qty * 1.5 and ca >= avg_ca * 0.8:
-        return "📦 Mois de volume", MONTHLY_PROFILE_EXPLANATIONS["📦 Mois de volume"]
-    if benef >= max(benef_values + [benef]) or (benef > avg_benef * 1.35 and margin >= 35):
-        return "💎 Mois rentable", MONTHLY_PROFILE_EXPLANATIONS["💎 Mois rentable"]
-    if prev and ca > prev.get("ca", 0) * 1.35 and ca > avg_ca:
-        return "🔥 Mois vendeur", MONTHLY_PROFILE_EXPLANATIONS["🔥 Mois vendeur"]
-    if ca < avg_ca * 0.45 and qty < avg_qty * 0.6:
-        return "🌿 Mois calme", MONTHLY_PROFILE_EXPLANATIONS["🌿 Mois calme"]
-    if ca < avg_ca * 0.7 and prev and ca < prev.get("ca", 0) * 0.75:
-        return "📉 Mois en retrait", MONTHLY_PROFILE_EXPLANATIONS["📉 Mois en retrait"]
-    if margin >= 25 and qty >= avg_qty * 0.8:
-        return "⚖️ Mois équilibré", MONTHLY_PROFILE_EXPLANATIONS["⚖️ Mois équilibré"]
-    if ca > avg_ca and qty < avg_qty * 0.8:
-        return "🛒 Mois acheteur", MONTHLY_PROFILE_EXPLANATIONS["🛒 Mois acheteur"]
-    return "⚖️ Mois équilibré", MONTHLY_PROFILE_EXPLANATIONS["⚖️ Mois équilibré"]
+    if "_profile_result" in current:
+        return profile_tuple(current["_profile_result"])
+    historic = [monthly_stats[m] for m in months_sorted if m != month]
+    record = bool(historic) and current.get("ca", 0) > max(row.get("ca", 0) for row in historic)
+    return profile_tuple(score_profile(current, historic, record_allowed=record))
 
 
 def _short_profile_label(profile_label):
@@ -420,7 +380,15 @@ def _inject_stats_css():
         .ps-stats-month-eyebrow{color:#FFFFFF;font-size:.72rem;font-weight:950;letter-spacing:.14em;text-transform:uppercase}
         .ps-stats-month-title{font-size:clamp(2.25rem,5vw,4.7rem);line-height:.88;font-weight:950;letter-spacing:0;margin:.16rem 0 .35rem;color:#FFFFFF}
         .ps-stats-profile-label{font:inherit}
-        .ps-stats-profile-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:.35rem;border:1px solid currentColor;border-radius:50%;font-size:.64rem;font-weight:950;vertical-align:middle;cursor:help}
+        .ps-stats-profile-help{position:relative;display:inline-block;margin-left:.35rem;color:#64748b;font-weight:400}
+        .ps-stats-profile-help summary{display:flex;align-items:center;justify-content:center;list-style:none;border:1px solid currentColor;border-radius:50%;width:22px;height:22px;font-size:12px;cursor:pointer}
+        .ps-stats-profile-help summary::-webkit-details-marker{display:none}
+        .ps-stats-profile-help summary:focus-visible{outline:2px solid #7c3aed;outline-offset:3px}
+        .ps-stats-profile-tooltip{display:none;position:absolute;z-index:20;right:-8px;top:100%;width:260px;max-width:calc(100vw - 64px);padding:14px;background:#fff;color:#111827;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 12px #11182715;font-size:13px;line-height:1.5;white-space:normal}
+        .ps-stats-profile-tooltip strong,.ps-stats-profile-tooltip>span{display:block}
+        .ps-stats-profile-tooltip strong{margin-bottom:6px}
+        .ps-stats-profile-help details[open]+.ps-stats-profile-tooltip,.ps-stats-profile-help:has(summary:focus-visible)>.ps-stats-profile-tooltip{display:block}
+        @media(hover:hover){.ps-stats-profile-help:hover>.ps-stats-profile-tooltip{display:block}}
         .ps-stats-profile{display:inline-flex;align-items:center;gap:.38rem;background:#6D28D9;border:1px solid #FFFFFF;border-radius:999px;padding:.44rem .78rem;color:#FFFFFF;font-weight:950}
         .ps-stats-why{margin:.52rem 0 .78rem;color:#E5E7EB;font-size:.9rem;font-weight:780}
         .ps-stats-hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:.65rem;border:1px solid rgba(255,255,255,.28);border-radius:18px;background:#2E1573;overflow:hidden}
@@ -453,8 +421,10 @@ def _inject_stats_css():
         .ps-stats-month-node .current-label{font-size:11px;text-transform:none;color:#475569;font-weight:500}
         .ps-stats-month-node .profile{display:flex;align-items:center;gap:8px;margin:16px 0 12px;min-width:0}
         .ps-stats-month-node .ps-stats-profile-label{display:inline-block;padding:6px 9px;border:1px solid var(--profile-accent);border-left-width:3px;border-radius:6px;font-size:14px;font-weight:700;color:#111827;line-height:1.4;overflow-wrap:anywhere}
-        .ps-stats-month-node .ps-stats-profile-help{flex-shrink:0;margin:0;color:#64748b;width:18px;height:18px;font-size:11px}
-        .ps-stats-month-node .interpretation{font-size:14px;color:#475569;line-height:1.5;margin:0 0 20px;overflow-wrap:anywhere}
+        .ps-stats-month-node .ps-stats-profile-help{flex-shrink:0;margin:0;color:#64748b}
+        .ps-stats-month-node .profile{position:relative}
+        .ps-stats-month-node .ps-stats-profile-help{position:static}
+        .ps-stats-month-node .ps-stats-profile-tooltip{left:0;right:auto;max-width:100%;box-sizing:border-box}
         .ps-stats-month-node .money{display:grid;gap:6px;margin-top:auto;padding-top:14px;border-top:1px solid #F1F5F9;font-size:13px;color:#64748b;line-height:1.4}
         .ps-stats-month-node .money strong{color:#334155;font-weight:600;font-variant-numeric:tabular-nums}
         .ps-stats-goals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem}
@@ -534,10 +504,7 @@ def _render_global_view(all_sales, monthly_stats, months_sorted, current_month):
     } if prev_metrics else None)
     current_profile = _month_profile(current_month, monthly_stats, months_sorted)
     if current_profile is None:
-        if metrics["ca"] <= 0 and metrics["qty"] <= 0:
-            current_profile = ("🌿 Mois calme", "Aucune vente enregistrée ce mois-ci pour l'instant.")
-        else:
-            current_profile = ("⚖️ Mois équilibré", "Activité en cours, historique encore trop court pour une qualification fine.")
+        current_profile = _fallback_current_profile(metrics)
     st.markdown(
         '<div class="ps-stats-month-summary">'
         f'<div class="month">{html.escape(_month_label(current_month))}</div>'
@@ -770,9 +737,7 @@ def _month_metrics(all_sales, monthly_stats, month):
 
 
 def _fallback_current_profile(metrics):
-    if metrics.get("ca", 0) <= 0 and metrics.get("qty", 0) <= 0:
-        return "🌿 Mois calme", "Aucune vente enregistrée ce mois-ci pour l'instant."
-    return "⚖️ Mois équilibré", "Activité en cours, historique encore trop court pour une qualification fine."
+    return "Profil non établi", "L’historique comparable ne permet pas encore de dégager une tendance distinctive."
 
 
 def _metric_delta_html(current, previous, *, unit=""):
@@ -860,22 +825,8 @@ def _card_month_html(card, current_month, proxy_img_func):
 
 
 def _profile_accent(label):
-    text = str(label or "").lower()
-    if "record" in text or "explosif" in text or "🏆" in text or "🚀" in text:
-        return "#f59e0b"
-    if "rentable" in text or "vendue" in text or "vendeur" in text or "💎" in text or "🔥" in text:
-        return "#16a34a"
-    if "acheteur" in text or "🛒" in text:
-        return "#0ea5e9"
-    if "volume" in text or "📦" in text:
-        return "#06b6d4"
-    if "investissement" in text or "🌱" in text:
-        return "#7c3aed"
-    if "calme" in text or "🌿" in text:
-        return "#22c55e"
-    if "retrait" in text or "📉" in text:
-        return "#f43f5e"
-    return "#6d28d9"
+    return next((meta["color"] for meta in PROFILE_METADATA.values()
+                 if label == f'{meta["emoji"]} {meta["name"]}'), "#64748b")
 
 
 def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month, proxy_img_func, *, now=None, profile_stats=None):
@@ -898,7 +849,7 @@ def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month
         '<div class="ps-stats-month-eyebrow">Bilan mensuel</div>'
         f'<div class="ps-stats-month-title">{html.escape(_month_label(current_month).upper())}</div>'
         f'<div class="ps-stats-profile">{_profile_help_html(profile[0], explanation=profile[1])}</div>'
-        f'<div class="ps-stats-why">{html.escape(profile[1])} · {comparison_suffix}</div>'
+        f'<div class="ps-stats-why">{comparison_suffix}</div>'
         f'<div class="ps-stats-hero-metrics">{"".join(hero_metrics)}</div>'
         '</div>'
         f'{_card_month_html(best_card, current_month, proxy_img_func)}'
@@ -951,7 +902,7 @@ def _render_stats_v3_chart(monthly_stats, months_sorted, current_month, *, all_s
     qty_values = [_safe_float(monthly_stats.get(m, _blank_month_stats()).get("qty")) for m in months]
     profiles = [_month_profile(m, monthly_stats, months_sorted) for m in months]
     if profile_stats is not None:
-        profiles = [_month_profile(m, profile_stats if m == current_month else monthly_stats, months_sorted) for m in months]
+        profiles = [_month_profile(m, profile_stats, months_sorted) for m in months]
     custom = [[ca_values[idx], benef_values[idx], (benef_values[idx] / ca_values[idx] * 100.0) if ca_values[idx] else 0.0, qty_values[idx], profiles[idx][0] if profiles[idx] else "N/A"] for idx in range(len(months))]
     note = _chart_sentence(current_month, monthly_stats, months, all_sales=all_sales, now=now)
     note_html = f'<div class="ps-stats-chart-note">{html.escape(note)}</div>' if note else ""
@@ -967,7 +918,7 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month, *, pr
     months = sorted(set(months_sorted + [current_month]))[-12:]
     nodes = []
     for month in months:
-        profile = _month_profile(month, profile_stats if month == current_month and profile_stats is not None else monthly_stats, months_sorted)
+        profile = _month_profile(month, profile_stats if profile_stats is not None else monthly_stats, months_sorted)
         if not profile:
             profile = _fallback_current_profile(_month_metrics([], monthly_stats, month))
         stat = monthly_stats.get(month, _blank_month_stats())
@@ -979,7 +930,6 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month, *, pr
             f'<div class="ps-stats-month-node{current_class}" style="--profile-accent:{accent};">'
             f'<div class="month"><span>{html.escape(month_label)}</span>{current_label}</div>'
             f'<div class="profile">{_profile_help_html(profile[0], explanation=profile[1])}</div>'
-            f'<p class="interpretation">{html.escape(profile[1])}</p>'
             f'<div class="money"><div><strong>{_fmt_eur(stat["ca"])}</strong> CA</div>'
             f'<div><strong>{_fmt_eur(stat["benef"])}</strong> bénéfice</div></div>'
             '</div>'
@@ -1119,7 +1069,12 @@ def render_statistics_page(
         st.info("Aucune vente enregistrée pour le moment.")
         return
 
-    profile_stats = _comparable_profile_stats(all_sales, purchases, monthly_stats, now)
+    profile_lots = list(cd.get("lots", []))
+    if os.path.exists(lots_archives_path):
+        with open(lots_archives_path, encoding="utf-8") as source:
+            profile_lots.extend(json.load(source))
+    profile_stats = build_profile_stats(monthly_stats, all_sales, purchases, profile_lots, now,
+                                       aggregate=_aggregate_sales, is_system=_is_system_lot)
     _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month, proxy_img_func, now=now, profile_stats=profile_stats)
     _render_stats_v3_chart(monthly_stats, months_sorted, current_month, all_sales=all_sales, now=now, profile_stats=profile_stats)
     _render_stats_v3_timeline(monthly_stats, months_sorted, current_month, profile_stats=profile_stats)

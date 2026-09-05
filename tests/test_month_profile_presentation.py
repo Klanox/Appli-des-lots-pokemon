@@ -13,16 +13,18 @@ from ui.pages.statistics import (
 
 class MonthProfilePresentationTests(unittest.TestCase):
     def test_copy_is_natural_and_specific_for_every_existing_profile(self):
-        self.assertEqual(len(MONTHLY_PROFILE_EXPLANATIONS), 10)
+        self.assertEqual(len(MONTHLY_PROFILE_EXPLANATIONS), 12)
         for label, phrase in MONTHLY_PROFILE_EXPLANATIONS.items():
             self.assertFalse(any(char.isdigit() for char in phrase))
             self.assertNotIn('%', phrase)
             self.assertLess(len(phrase), 130)
             markup = _profile_help_html(label)
-            self.assertEqual(markup.count('title="' + html.escape(phrase, quote=True) + '"'), 2)
-        self.assertEqual(len(set(MONTHLY_PROFILE_EXPLANATIONS.values())), 10)
+            self.assertIn(html.escape(phrase), markup)
+            self.assertIn('<summary', markup)
+            self.assertNotIn('title="', markup)
+        self.assertEqual(len(set(MONTHLY_PROFILE_EXPLANATIONS.values())), 12)
         self.assertIn('chiffre d’affaires', MONTHLY_PROFILE_EXPLANATIONS['🏆 Mois record'])
-        self.assertIn('moins de cartes', MONTHLY_PROFILE_EXPLANATIONS['🛒 Mois acheteur'])
+        self.assertIn('acquis', MONTHLY_PROFILE_EXPLANATIONS['🛒 Mois acheteur'])
 
     def test_cards_keep_values_and_render_full_badge_interpretation_and_current_month(self):
         profiles = list(MONTHLY_PROFILE_EXPLANATIONS.items())
@@ -33,11 +35,11 @@ class MonthProfilePresentationTests(unittest.TestCase):
             _render_stats_v3_timeline(stats, months, months[-1])
         markup = render.call_args.args[0]
         self.assertEqual(stats, original)
-        self.assertEqual(markup.count('class="ps-stats-month-node'), 10)
+        self.assertEqual(markup.count('class="ps-stats-month-node'), 12)
         self.assertEqual(markup.count('is-current'), 1)
-        self.assertEqual(markup.count('class="interpretation"'), 10)
-        self.assertEqual(markup.count('255,00'), 10)
-        self.assertEqual(markup.count('129,90'), 10)
+        self.assertEqual(markup.count('class="interpretation"'), 0)
+        self.assertEqual(markup.count('255,00'), 12)
+        self.assertEqual(markup.count('129,90'), 12)
         for label, phrase in profiles:
             self.assertIn(html.escape(label), markup)
             self.assertIn(html.escape(phrase), markup)

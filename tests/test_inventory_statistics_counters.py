@@ -44,7 +44,9 @@ class InventoryStatisticsCountersTests(unittest.TestCase):
         for label, explanation in MONTHLY_PROFILE_EXPLANATIONS.items():
             markup = _profile_help_html(label, short=True)
             import html
-            self.assertEqual(markup.count('title="' + html.escape(explanation, quote=True) + '"'), 2)
+            self.assertIn(html.escape(explanation), markup)
+            self.assertIn('ps-stats-profile-tooltip', markup)
+            self.assertNotIn('title="', markup)
             self.assertNotIn('Survolez', markup)
 
     def test_zero_reference_is_explicit_and_margin_uses_points(self):
@@ -109,7 +111,7 @@ class InventoryStatisticsCountersTests(unittest.TestCase):
         self.assertEqual(previous["ca"], 30)
 
     def test_month_profile_explanations_cover_existing_labels(self):
-        expected = {"🏆 Mois record", "🚀 Mois explosif", "🌱 Mois d'investissement", "📦 Mois de volume", "💎 Mois rentable", "🔥 Mois vendeur", "🌿 Mois calme", "📉 Mois en retrait", "⚖️ Mois équilibré", "🛒 Mois acheteur"}
+        expected = {"🏆 Mois record", "🌱 Mois d’investissement", "📦 Mois de volume", "💰 Mois rentable", "🌿 Mois calme", "🛒 Mois acheteur", "💎 Mois premium", "📈 Mois de marge", "⚡ Mois dynamique", "🔄 Mois de rotation", "🎯 Mois efficace", "🤝 Mois négocié"}
         self.assertEqual(expected, set(MONTHLY_PROFILE_EXPLANATIONS))
         self.assertTrue(all(MONTHLY_PROFILE_EXPLANATIONS[label] for label in expected))
 
