@@ -12,7 +12,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from services.vinted_channels import VINTED_CHANNELS, normalize_vinted_channel, vinted_channel_key
+from services.vinted_channels import VINTED_CHANNELS, sale_channel_key, vinted_channel_key
 
 
 VINTED_COUNTER_ICONS = {
@@ -140,6 +140,55 @@ def _vinted_counter_defs():
     ]
 
 
+def default_vinted_counter_state(channel_def, year):
+    return {
+        "year": str(year),
+        "start_date": f"{year}-01-01",
+        "label": channel_def["label"],
+        "reset_mode": "manual",
+    }
+
+
+def collect_channel_counter_totals(lots, *, vinted_states, main_year):
+    """Aggregate every persisted sale line with one shared channel normalization."""
+    totals = {
+        "main_brocante": {"nb": 0, "ca": 0.0},
+        **{key: {"nb": 0, "ca": 0.0} for key in vinted_states},
+    }
+
+    def sale_after_start(sale_date, start_date, start_datetime):
+        sale_date = str(sale_date or "")
+        if "T" in str(start_datetime):
+            return sale_date >= str(start_datetime)
+        return sale_date[:10] >= str(start_date)
+
+    def add_sale(sale):
+        channel_key = sale_channel_key(sale.get("canal", ""))
+        if not channel_key:
+            return
+        sale_date = sale.get("date", "")
+        price = float(sale.get("price", 0) or 0)
+        quantity = int(sale.get("quantity", 1) or 1)
+        if channel_key in ("main", "brocante"):
+            if str(sale_date)[:4] == str(main_year):
+                totals["main_brocante"]["ca"] += price
+                totals["main_brocante"]["nb"] += quantity
+            return
+        state = vinted_states.get(channel_key)
+        if state and sale_after_start(sale_date, state["start_date"], state["start_datetime"]):
+            totals[channel_key]["ca"] += price
+            totals[channel_key]["nb"] += quantity
+
+    for lot in lots or []:
+        for sale in lot.get("ventes", []) or []:
+            if not sale.get("is_lot_sale") and not sale.get("is_exchange_benefit"):
+                add_sale(sale)
+        for card in lot.get("cards", []) or []:
+            for sale in card.get("sold_entries", []) or []:
+                add_sale(sale)
+    return totals
+
+
 def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
     _inject_counters_css()
     _render_counter_hero()
@@ -166,12 +215,9 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
     counters["main_brocante"].setdefault("year", year_str)
     vinted_defs = _vinted_counter_defs()
     for channel_def in vinted_defs:
-        counters.setdefault(channel_def["key"], {
-            "year": year_str,
-            "start_date": today_str,
-            "label": channel_def["label"],
-            "reset_mode": "manual",
-        })
+        # A newly introduced channel must include its already-recorded sales
+        # for the selected year, not start at the current rerun.
+        counters.setdefault(channel_def["key"], default_vinted_counter_state(channel_def, year_str))
         counters[channel_def["key"]].setdefault("label", channel_def["label"])
     counters["main_brocante"].setdefault("start_date", today_str)
     for channel_def in vinted_defs:
@@ -197,15 +243,6 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             "start_date": channel_start_date,
             "start_datetime": counters[channel_key].get("start_datetime", channel_start_date),
         }
-
-    def sale_after_start(sale_date, start_date, start_datetime):
-        sale_date = str(sale_date or "")
-        if "T" in str(start_datetime):
-            return sale_date >= str(start_datetime)
-        return sale_date[:10] >= str(start_date)
-
-    def sale_in_year(sale_date, year):
-        return str(sale_date or "")[:4] == str(year)
 
     with st.expander("⚙️ Données de départ", expanded=False):
         st.markdown(
@@ -236,54 +273,15 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
 
     vinted_init_display = {channel_key: float(value) for channel_key, value in vinted_init_values.items()}
 
-    # Compteurs calculés
-    cnt_main_brocante = {"nb": 0, "ca": 0.}
-    cnt_vinted = {channel_def["key"]: {"nb": 0, "ca": 0.} for channel_def in vinted_defs}
-
-    def counter_key_for_sale(canal):
-        normalized = normalize_vinted_channel(canal)
-        if normalized in VINTED_CHANNELS:
-            return vinted_channel_key(normalized)
-        return canal_key_func(canal)
-
-    for lot in all_lots + archives_cnt:
-        for v in lot.get("ventes", []):
-            if v.get("is_lot_sale") or v.get("is_exchange_benefit"):
-                continue
-            canal = counter_key_for_sale(v.get("canal", ""))
-            if not canal:
-                continue
-            raw_date = v.get("date", "")
-            price = float(v.get("price", 0))
-            qty = int(v.get("quantity", 1) or 1)
-            if canal in ("main", "brocante"):
-                if sale_in_year(raw_date, main_brocante_year):
-                    cnt_main_brocante["ca"] += price
-                    cnt_main_brocante["nb"] += qty
-            elif canal in cnt_vinted:
-                channel_state = vinted_counter_state[canal]
-                if sale_after_start(raw_date, channel_state["start_date"], channel_state["start_datetime"]):
-                    cnt_vinted[canal]["ca"] += price
-                    cnt_vinted[canal]["nb"] += qty
-        for card in lot.get("cards", []):
-            for se in card.get("sold_entries", []):
-                canal = counter_key_for_sale(se.get("canal", ""))
-                if not canal:
-                    continue  # ignorer les ventes sans canal (avant la mise à jour)
-                raw_date = se.get("date", "")
-                price = float(se.get("price", 0))
-                qty = int(se.get("quantity", 1))
-
-                if canal in ("main", "brocante"):
-                    if sale_in_year(raw_date, main_brocante_year):
-                        cnt_main_brocante["ca"] += price
-                        cnt_main_brocante["nb"] += qty
-
-                elif canal in cnt_vinted:
-                    channel_state = vinted_counter_state[canal]
-                    if sale_after_start(raw_date, channel_state["start_date"], channel_state["start_datetime"]):
-                        cnt_vinted[canal]["ca"] += price
-                        cnt_vinted[canal]["nb"] += qty
+    # Compteurs calculés depuis les mêmes lignes de vente, y compris les
+    # écritures historiques avec un libellé de canal légèrement différent.
+    counter_totals = collect_channel_counter_totals(
+        all_lots + archives_cnt,
+        vinted_states=vinted_counter_state,
+        main_year=main_brocante_year,
+    )
+    cnt_main_brocante = counter_totals["main_brocante"]
+    cnt_vinted = {channel_def["key"]: counter_totals[channel_def["key"]] for channel_def in vinted_defs}
 
     # ── Cartes compteurs ──
     counter_columns = st.columns(1 + len(vinted_defs))

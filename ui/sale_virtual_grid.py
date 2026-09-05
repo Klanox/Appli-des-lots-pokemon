@@ -340,9 +340,10 @@ def _get_sale_grid_component():
             add.textContent = cart.has(key) ? "Dans panier" : "Ajouter";
             add.onclick = (event) => {
                 event.preventDefault();
+                const actionType = cart.has(key) ? "remove" : "add";
                 setTriggerValue("add", {
-                    id: "add-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
-                    type: "add",
+                    id: actionType + "-" + key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+                    type: actionType,
                     card_uid: item.card_uid,
                     lot_uid: item.lot_uid,
                     lot_idx: item.lot_idx,

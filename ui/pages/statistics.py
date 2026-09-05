@@ -20,6 +20,21 @@ from services.vinted_channels import SALE_CHANNELS, normalize_vinted_channel
 
 MOIS_FR = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"}
 
+# These explanations mirror the thresholds in _month_profile.  Keep the label
+# and its meaning together so every monthly UI can offer the same help text.
+MONTHLY_PROFILE_EXPLANATIONS = {
+    "🏆 Mois record": "CA au plus haut de l'historique.",
+    "🚀 Mois explosif": "CA nettement au-dessus de la tendance historique.",
+    "🌱 Mois d'investissement": "Achats nettement supérieurs à la moyenne.",
+    "📦 Mois de volume": "Beaucoup plus de cartes vendues que d'habitude.",
+    "💎 Mois rentable": "Bénéfice et marge solides.",
+    "🔥 Mois vendeur": "Forte progression par rapport au mois précédent.",
+    "🌿 Mois calme": "Activité inférieure à la moyenne.",
+    "📉 Mois en retrait": "Recul par rapport à la tendance récente.",
+    "⚖️ Mois équilibré": "CA, marge et volume restent cohérents.",
+    "🛒 Mois acheteur": "Moins de volume mais panier moyen plus élevé.",
+}
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -112,6 +127,42 @@ def _delta_text(new, old):
         return None
     sign = "+" if pct >= 0 else ""
     return f"{sign}{pct:.1f}% vs période préc.".replace(".", ",")
+
+
+def _rows_between(all_sales, start, end):
+    return [row for row in all_sales if start <= row.get("date") <= end]
+
+
+def _comparable_month_metrics(all_sales, month_key, *, now=None):
+    """Return a month and its previous period on the same elapsed duration.
+
+    A running month compares H+elapsed with the same elapsed span in the prior
+    month. Closed months continue to compare complete calendar months.
+    """
+    now = now or datetime.now()
+    month_start = _month_start(month_key)
+    if month_start is None:
+        return _blank_month_stats(), None, False
+    previous_start = _add_months(month_start, -1)
+    is_running_month = (month_start.year, month_start.month) == (now.year, now.month)
+    if is_running_month:
+        current_end = max(month_start, now)
+        previous_end = previous_start + (current_end - month_start)
+    else:
+        current_end = _add_months(month_start, 1)
+        previous_end = month_start
+    current_rows = _rows_between(all_sales, month_start, current_end)
+    previous_rows = _rows_between(all_sales, previous_start, previous_end)
+    return _aggregate_sales(current_rows), _aggregate_sales(previous_rows), is_running_month
+
+
+def _profile_help_html(profile_label):
+    explanation = MONTHLY_PROFILE_EXPLANATIONS.get(profile_label, "Activité proche de la tendance historique.")
+    return (
+        f'<span class="ps-stats-profile-label" title="{html.escape(explanation, quote=True)}">'
+        f'{html.escape(profile_label)}</span>'
+        '<span class="ps-stats-profile-help" title="Survolez le libellé pour sa définition.">?</span>'
+    )
 
 
 def _is_system_lot(lot):
@@ -298,26 +349,26 @@ def _month_profile(month, monthly_stats, months_sorted):
     purchases = current["purchases"]
     margin = (benef / ca * 100.0) if ca else 0.0
     if ca >= max(ca_values + [ca]) and ca > avg_ca * 1.25:
-        return "🏆 Mois record", "CA au plus haut de l'historique"
+        return "🏆 Mois record", MONTHLY_PROFILE_EXPLANATIONS["🏆 Mois record"]
     if ca > max(avg_ca * 1.8, med_ca * 1.7):
-        return "🚀 Mois explosif", "CA nettement au-dessus de la tendance"
+        return "🚀 Mois explosif", MONTHLY_PROFILE_EXPLANATIONS["🚀 Mois explosif"]
     if purchases > max(avg_purchases * 1.8, ca * 0.9) and purchases > 0:
-        return "🌱 Mois d'investissement", "Achats nettement supérieurs à la moyenne"
+        return "🌱 Mois d'investissement", MONTHLY_PROFILE_EXPLANATIONS["🌱 Mois d'investissement"]
     if qty > avg_qty * 1.5 and ca >= avg_ca * 0.8:
-        return "📦 Mois de volume", "Beaucoup plus de cartes vendues que d'habitude"
+        return "📦 Mois de volume", MONTHLY_PROFILE_EXPLANATIONS["📦 Mois de volume"]
     if benef >= max(benef_values + [benef]) or (benef > avg_benef * 1.35 and margin >= 35):
-        return "💎 Mois rentable", "Bénéfice et marge solides"
+        return "💎 Mois rentable", MONTHLY_PROFILE_EXPLANATIONS["💎 Mois rentable"]
     if prev and ca > prev.get("ca", 0) * 1.35 and ca > avg_ca:
-        return "🔥 Mois vendeur", "Forte progression par rapport au mois précédent"
+        return "🔥 Mois vendeur", MONTHLY_PROFILE_EXPLANATIONS["🔥 Mois vendeur"]
     if ca < avg_ca * 0.45 and qty < avg_qty * 0.6:
-        return "🌿 Mois calme", "Activité inférieure à la moyenne"
+        return "🌿 Mois calme", MONTHLY_PROFILE_EXPLANATIONS["🌿 Mois calme"]
     if ca < avg_ca * 0.7 and prev and ca < prev.get("ca", 0) * 0.75:
-        return "📉 Mois en retrait", "Recul par rapport à la tendance récente"
+        return "📉 Mois en retrait", MONTHLY_PROFILE_EXPLANATIONS["📉 Mois en retrait"]
     if margin >= 25 and qty >= avg_qty * 0.8:
-        return "⚖️ Mois équilibré", "CA, marge et volume restent cohérents"
+        return "⚖️ Mois équilibré", MONTHLY_PROFILE_EXPLANATIONS["⚖️ Mois équilibré"]
     if ca > avg_ca and qty < avg_qty * 0.8:
-        return "🛒 Mois acheteur", "Moins de volume mais panier moyen plus élevé"
-    return "⚖️ Mois équilibré", "Activité proche de la tendance historique"
+        return "🛒 Mois acheteur", MONTHLY_PROFILE_EXPLANATIONS["🛒 Mois acheteur"]
+    return "⚖️ Mois équilibré", MONTHLY_PROFILE_EXPLANATIONS["⚖️ Mois équilibré"]
 
 
 def _short_profile_label(profile_label):
@@ -344,6 +395,8 @@ def _inject_stats_css():
         .ps-stats-hero-v3>div{position:relative;z-index:1}
         .ps-stats-month-eyebrow{color:#FFFFFF;font-size:.72rem;font-weight:950;letter-spacing:.14em;text-transform:uppercase}
         .ps-stats-month-title{font-size:clamp(2.25rem,5vw,4.7rem);line-height:.88;font-weight:950;letter-spacing:0;margin:.16rem 0 .35rem;color:#FFFFFF}
+        .ps-stats-profile-label{font:inherit}
+        .ps-stats-profile-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:.35rem;border:1px solid currentColor;border-radius:50%;font-size:.64rem;font-weight:950;vertical-align:middle;cursor:help}
         .ps-stats-profile{display:inline-flex;align-items:center;gap:.38rem;background:#6D28D9;border:1px solid #FFFFFF;border-radius:999px;padding:.44rem .78rem;color:#FFFFFF;font-weight:950}
         .ps-stats-why{margin:.52rem 0 .78rem;color:#E5E7EB;font-size:.9rem;font-weight:780}
         .ps-stats-hero-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:.65rem;border:1px solid rgba(255,255,255,.28);border-radius:18px;background:#2E1573;overflow:hidden}
@@ -787,14 +840,13 @@ def _profile_accent(label):
     return "#6d28d9"
 
 
-def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month, proxy_img_func):
-    current_start = _month_start(current_month) or datetime.now().replace(day=1)
-    prev_month = _add_months(current_start, -1).strftime("%Y-%m")
+def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month, proxy_img_func, *, now=None):
+    now = now or datetime.now()
     current_rows = [row for row in all_sales if row.get("month") == current_month]
-    metrics = _month_metrics(all_sales, monthly_stats, current_month)
-    prev = _month_metrics(all_sales, monthly_stats, prev_month) if prev_month in monthly_stats else None
+    metrics, prev, is_mtd = _comparable_month_metrics(all_sales, current_month, now=now)
     profile = _month_profile(current_month, monthly_stats, months_sorted) or _fallback_current_profile(metrics)
     best_card = _best_card_of_month(current_rows)
+    comparison_suffix = " vs même période le mois dernier" if is_mtd else " vs mois précédent"
     hero_metrics = [
         _hero_metric("CA", _fmt_eur(metrics["ca"]), _metric_delta_html(metrics["ca"], prev["ca"]) if prev else None),
         _hero_metric("Bénéfice", _fmt_eur(metrics["benef"]), _metric_delta_html(metrics["benef"], prev["benef"]) if prev and metrics["benef"] is not None and prev["benef"] is not None else None),
@@ -807,8 +859,8 @@ def _render_stats_v3_hero(all_sales, monthly_stats, months_sorted, current_month
         '<div>'
         '<div class="ps-stats-month-eyebrow">Bilan mensuel</div>'
         f'<div class="ps-stats-month-title">{html.escape(_month_label(current_month).upper())}</div>'
-        f'<div class="ps-stats-profile">{html.escape(profile[0])}</div>'
-        f'<div class="ps-stats-why">{html.escape(profile[1])}</div>'
+        f'<div class="ps-stats-profile">{_profile_help_html(profile[0])}</div>'
+        f'<div class="ps-stats-why">{html.escape(profile[1])} · {comparison_suffix}</div>'
         f'<div class="ps-stats-hero-metrics">{"".join(hero_metrics)}</div>'
         '</div>'
         f'{_card_month_html(best_card, current_month, proxy_img_func)}'
@@ -874,7 +926,7 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month):
         nodes.append(
             f'<div class="ps-stats-month-node" style="--profile-accent:{accent};">'
             f'<div class="month">{html.escape(month_short)}</div>'
-            f'<div class="profile">{html.escape(_short_profile_label(profile[0]))}</div>'
+            f'<div class="profile">{_profile_help_html(profile[0])}</div>'
             f'<div class="money">{_fmt_eur(stat["ca"])}<br>{_fmt_eur(stat["benef"])}</div>'
             '</div>'
         )

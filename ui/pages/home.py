@@ -11,6 +11,12 @@ import json
 import os
 
 import streamlit as st
+try:
+    from st_keyup import st_keyup
+except ImportError:  # The native input remains a safe fallback.
+    st_keyup = None
+
+from services.inventory_ordering import card_matches_inventory_query, sort_inventory_records
 from services.stock_history_service import (
     add_stock_annotation,
     delete_stock_annotation,
@@ -376,11 +382,26 @@ def render_home_page(
         render_page_header_func("Recherche globale", "Trouver une carte dans tous les lots", "🔍"),
         unsafe_allow_html=True,
     )
-    search_global = st.text_input("🔍 Recherche", placeholder="Chercher une carte dans tous les lots...", key="global_search")
+    search_global = (
+        st_keyup(
+            "🔍 Recherche",
+            key="global_search_live",
+            placeholder="Nom, numéro ou extension...",
+            debounce=120,
+            label_visibility="collapsed",
+        )
+        if st_keyup is not None
+        else st.text_input(
+            "🔍 Recherche",
+            placeholder="Nom, numéro ou extension...",
+            key="global_search",
+            label_visibility="collapsed",
+        )
+    ) or ""
     if st.session_state.pop("home_card_deleted_toast", False):
         st.toast("Carte supprimée")
 
-    if search_global and len(search_global) >= 2:
+    if search_global:
         cd_search = ld_func()
         results_found = []
 
@@ -390,17 +411,17 @@ def render_home_page(
             if not _home_is_collection_lot(lot)
         ]
 
-        query_norm = normalize_name_func(search_global)
         for lot_idx, lot_s, lot_type in all_lots_search:
             for ci, card in enumerate(lot_s.get("cards", [])):
                 stock = _home_card_available_qty(card, card_available_qty_func)
                 if stock <= 0:
                     continue
-                if query_norm in normalize_name_func(card.get("name", "")):
+                if card_matches_inventory_query(card, search_global):
                     lot_uid = lot_s.get("lot_uid") or lot_s.get("uid") or lot_s.get("id") or ""
                     card_uid = card.get("card_uid") or card.get("uid") or card.get("id") or ""
                     results_found.append({
                         "card": card,
+                        "lot": lot_s,
                         "lot_idx": lot_idx,
                         "card_idx": ci,
                         "lot_uid": lot_uid,
@@ -410,6 +431,8 @@ def render_home_page(
                         "lot_type": lot_type,
                         "stock": stock,
                     })
+
+        results_found = sort_inventory_records(results_found)
 
         if results_found:
             _inject_home_search_grid_styles()
@@ -515,4 +538,4 @@ def render_home_page(
         else:
             st.info(f"Aucune carte trouvée pour « {search_global} »")
     elif not search_global:
-        st.caption("Saisis au moins 2 caractères pour lancer la recherche globale.")
+        st.caption("Saisis un caractère pour lancer la recherche globale.")
