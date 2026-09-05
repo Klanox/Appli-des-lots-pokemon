@@ -23,16 +23,16 @@ MOIS_FR = {1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Jui
 # These explanations mirror the thresholds in _month_profile.  Keep the label
 # and its meaning together so every monthly UI can offer the same help text.
 MONTHLY_PROFILE_EXPLANATIONS = {
-    "🏆 Mois record": "CA au plus haut de l’historique comparé et supérieur de plus de 25 % à sa moyenne.",
-    "🚀 Mois explosif": "CA supérieur à 1,8 fois la moyenne et à 1,7 fois la médiane de l’historique comparé.",
-    "🌱 Mois d'investissement": "Achats supérieurs à 1,8 fois leur moyenne et à 90 % du CA.",
-    "📦 Mois de volume": "Quantité de cartes vendues supérieure à 1,5 fois la moyenne, avec au moins 80 % du CA moyen.",
-    "💎 Mois rentable": "Bénéfice au plus haut de l’historique, ou supérieur de plus de 35 % à sa moyenne avec une marge d’au moins 35 %.",
-    "🔥 Mois vendeur": "CA supérieur de plus de 35 % à la période précédente et au-dessus de la moyenne historique.",
-    "🌿 Mois calme": "CA inférieur à 45 % de sa moyenne et quantité vendue inférieure à 60 % de sa moyenne.",
-    "📉 Mois en retrait": "CA inférieur à 70 % de sa moyenne et à 75 % de la période précédente.",
-    "⚖️ Mois équilibré": "Marge d’au moins 25 % avec au moins 80 % du volume moyen, ou aucun autre profil prioritaire.",
-    "🛒 Mois acheteur": "CA supérieur à sa moyenne avec moins de 80 % de la quantité moyenne de cartes vendues.",
+    "🏆 Mois record": "Ton chiffre d’affaires atteint un record dans ton historique comparé.",
+    "🚀 Mois explosif": "Ton chiffre d’affaires dépasse largement ton rythme habituel ce mois-ci.",
+    "🌱 Mois d'investissement": "Tu as fortement investi dans ton stock ce mois-ci.",
+    "📦 Mois de volume": "Tu as vendu beaucoup plus de cartes que d’habitude ce mois-ci.",
+    "💎 Mois rentable": "Ton bénéfice se distingue particulièrement ce mois-ci.",
+    "🔥 Mois vendeur": "Ton chiffre d’affaires progresse nettement par rapport à la période précédente.",
+    "🌿 Mois calme": "Tu as eu moins d’activité de vente que d’habitude ce mois-ci.",
+    "📉 Mois en retrait": "Ton chiffre d’affaires recule par rapport à ton rythme habituel et à la période précédente.",
+    "⚖️ Mois équilibré": "Ton activité ne présente pas de tendance dominante parmi les autres profils.",
+    "🛒 Mois acheteur": "Tu as réalisé plus de chiffre d’affaires avec moins de cartes vendues que d’habitude.",
 }
 
 
@@ -445,13 +445,18 @@ def _inject_stats_css():
         .ps-stats-section-title span{display:inline-flex;align-items:center;gap:.45rem}
         .ps-stats-section-title span:before{content:"";width:4px;height:18px;border-radius:999px;background:#6D28D9}
         .ps-stats-chart-note{color:#475569;font-size:.82rem;font-weight:800;margin:-.1rem 0 .2rem}
-        .ps-stats-timeline{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.48rem}
-        .ps-stats-month-node{--profile-accent:#6D28D9;position:relative;background:#FFFFFF;border:1px solid #D1D5DB;border-top:5px solid var(--profile-accent);border-radius:16px;padding:.72rem .68rem .66rem;min-height:100px;box-shadow:0 8px 18px rgba(17,24,39,.06);overflow:hidden;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
-        .ps-stats-month-node:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(17,24,39,.10);border-color:#9CA3AF;border-top-color:var(--profile-accent)}
-        .ps-stats-month-node:before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:var(--profile-accent)}
-        .ps-stats-month-node .month{font-size:.75rem;color:#64748b;font-weight:950;text-transform:uppercase}
-        .ps-stats-month-node .profile{font-size:.9rem;color:#111827;font-weight:950;margin:.3rem 0 .24rem;line-height:1.05}
-        .ps-stats-month-node .money{font-size:.76rem;color:#475569;font-weight:850;line-height:1.25}
+        .ps-stats-timeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:12px 0 24px}
+        .ps-stats-month-node{--profile-accent:#6D28D9;display:flex;flex-direction:column;min-width:0;background:#FFFFFF;border:1px solid #E5E7EB;border-top:3px solid var(--profile-accent);border-radius:8px;padding:20px;transition:border-color .16s ease}
+        .ps-stats-month-node:hover{border-color:var(--profile-accent)}
+        .ps-stats-month-node.is-current{border-color:var(--profile-accent);border-top-width:4px}
+        .ps-stats-month-node .month{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;font-size:12px;color:#64748b;font-weight:700;letter-spacing:0;text-transform:uppercase}
+        .ps-stats-month-node .current-label{font-size:11px;text-transform:none;color:#475569;font-weight:500}
+        .ps-stats-month-node .profile{display:flex;align-items:center;gap:8px;margin:16px 0 12px;min-width:0}
+        .ps-stats-month-node .ps-stats-profile-label{display:inline-block;padding:6px 9px;border:1px solid var(--profile-accent);border-left-width:3px;border-radius:6px;font-size:14px;font-weight:700;color:#111827;line-height:1.4;overflow-wrap:anywhere}
+        .ps-stats-month-node .ps-stats-profile-help{flex-shrink:0;margin:0;color:#64748b;width:18px;height:18px;font-size:11px}
+        .ps-stats-month-node .interpretation{font-size:14px;color:#475569;line-height:1.5;margin:0 0 20px;overflow-wrap:anywhere}
+        .ps-stats-month-node .money{display:grid;gap:6px;margin-top:auto;padding-top:14px;border-top:1px solid #F1F5F9;font-size:13px;color:#64748b;line-height:1.4}
+        .ps-stats-month-node .money strong{color:#334155;font-weight:600;font-variant-numeric:tabular-nums}
         .ps-stats-goals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem}
         .ps-stats-goal-card{--goal-accent:#6D28D9;background:#FFFFFF;border:1px solid #D1D5DB;border-top:5px solid var(--goal-accent);border-radius:17px;padding:.78rem .76rem;box-shadow:0 10px 22px rgba(17,24,39,.06);transition:transform .16s ease,box-shadow .16s ease}
         .ps-stats-goal-card:hover{transform:translateY(-2px);box-shadow:0 14px 26px rgba(17,24,39,.10)}
@@ -473,8 +478,9 @@ def _inject_stats_css():
         .ps-stats-record .detail{font-size:.74rem;color:#64748b;font-weight:790;margin-top:.22rem;line-height:1.18}
         .ps-stats-history-line{margin:.5rem 0 0;color:#475569;font-weight:850;font-size:.84rem}
         div[class*="st-key-stats_goal_edit_toggle"] button,div[class*="st-key-stats_save_goals"] button{border-radius:999px!important;font-weight:900!important;padding:.36rem .72rem!important;min-height:2rem!important}
-        @media (max-width:980px){.ps-stats-hero-v3{grid-template-columns:1fr}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric:nth-child(2){border-right:0}.ps-stats-timeline{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-goals{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media (max-width:768px){.ps-stats-hero-v3{padding:.85rem;border-radius:18px}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric{padding:.66rem}.ps-stats-hero-metric:nth-child(odd){border-right:1px solid rgba(255,255,255,.12)}.ps-stats-hero-metric:nth-child(even){border-right:0}.ps-stats-card-month .body{grid-template-columns:96px minmax(0,1fr)}.ps-stats-card-month .img{width:96px}.ps-stats-timeline{grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem}.ps-stats-goals{grid-template-columns:1fr}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-history-line{width:100%;line-height:1.35}}
+        @media (max-width:980px){.ps-stats-hero-v3{grid-template-columns:1fr}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric:nth-child(2){border-right:0}.ps-stats-timeline{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-goals{grid-template-columns:repeat(3,minmax(0,1fr))}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media (max-width:768px){.ps-stats-hero-v3{padding:.85rem;border-radius:18px}.ps-stats-hero-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-hero-metric{padding:.66rem}.ps-stats-hero-metric:nth-child(odd){border-right:1px solid rgba(255,255,255,.12)}.ps-stats-hero-metric:nth-child(even){border-right:0}.ps-stats-card-month .body{grid-template-columns:96px minmax(0,1fr)}.ps-stats-card-month .img{width:96px}.ps-stats-timeline{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.ps-stats-goals{grid-template-columns:1fr}.ps-stats-record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ps-stats-history-line{width:100%;line-height:1.35}}
+        @media (max-width:540px){.ps-stats-timeline{grid-template-columns:minmax(0,1fr)}.ps-stats-month-node{padding:18px}}
         </style>
         """,
         unsafe_allow_html=True,
@@ -965,13 +971,17 @@ def _render_stats_v3_timeline(monthly_stats, months_sorted, current_month, *, pr
         if not profile:
             profile = _fallback_current_profile(_month_metrics([], monthly_stats, month))
         stat = monthly_stats.get(month, _blank_month_stats())
-        month_short = _month_label(month).split()[0][:4].rstrip(".")
+        month_label = _month_label(month)
         accent = _profile_accent(profile[0])
+        current_class = " is-current" if month == current_month else ""
+        current_label = '<span class="current-label">En cours</span>' if month == current_month else ""
         nodes.append(
-            f'<div class="ps-stats-month-node" style="--profile-accent:{accent};">'
-            f'<div class="month">{html.escape(month_short)}</div>'
-            f'<div class="profile">{_profile_help_html(profile[0], short=True, explanation=profile[1])}</div>'
-            f'<div class="money">{_fmt_eur(stat["ca"])}<br>{_fmt_eur(stat["benef"])}</div>'
+            f'<div class="ps-stats-month-node{current_class}" style="--profile-accent:{accent};">'
+            f'<div class="month"><span>{html.escape(month_label)}</span>{current_label}</div>'
+            f'<div class="profile">{_profile_help_html(profile[0], explanation=profile[1])}</div>'
+            f'<p class="interpretation">{html.escape(profile[1])}</p>'
+            f'<div class="money"><div><strong>{_fmt_eur(stat["ca"])}</strong> CA</div>'
+            f'<div><strong>{_fmt_eur(stat["benef"])}</strong> bénéfice</div></div>'
             '</div>'
         )
     if nodes:
