@@ -37,17 +37,17 @@ def _number(value):
         return None
 
 
-def score_profile(current, history, *, record_allowed=False):
+def score_profile(current, history):
     """Log-ratio to the personal median; equal scores break by stable profile ID.
 
-    Missing measurements never become zero. Two reference periods are needed
-    (one is sufficient to establish a revenue record).
+    Missing measurements never become zero. Two reference periods are needed.
     Calm requires three jointly weak activity measures, not a fallback. Floors
     regularize zero medians (one unit/euro, one margin point, 5% for ratios).
+    The annual revenue record deliberately does not compete in this scoring.
     """
     scores = {}
     for key, meta in PROFILE_METADATA.items():
-        if key == "calm" or (key == "record" and not record_allowed):
+        if key in ("calm", "record"):
             continue
         metric = meta["metric"]
         value = _number(current.get(metric))
@@ -72,6 +72,40 @@ def score_profile(current, history, *, record_allowed=False):
         scores["calm"] = -log2(max(sum(quiet) / 3, .05))
     winner = max(scores, key=lambda key: (scores[key], key)) if scores else None
     return {"id": winner, "scores": scores, "metric": PROFILE_METADATA[winner]["metric"] if winner else None}
+
+
+def annual_record_months(full_stats, current_month=None):
+    """Return one positive-CA record month per calendar year.
+
+    Equal revenue keeps the chronologically first month. The running month is
+    eligible only after it strictly exceeds the best completed month that year.
+    """
+    by_year = {}
+    for month, stats in full_stats.items():
+        if not isinstance(month, str) or len(month) != 7:
+            continue
+        by_year.setdefault(month[:4], []).append(month)
+
+    records = set()
+    for months in by_year.values():
+        ordered = sorted(months)
+        ca_by_month = {month: (_number(full_stats[month].get("ca")) or 0.0) for month in ordered}
+        completed = [month for month in ordered if month != current_month]
+        candidates = ordered
+        if current_month in ordered:
+            if not completed:
+                continue
+            completed_best = max(ca_by_month[month] for month in completed)
+            current_ca = ca_by_month[current_month]
+            if current_ca <= completed_best:
+                candidates = completed
+
+        best_ca = max(ca_by_month[month] for month in candidates)
+        if best_ca <= 0:
+            continue
+        # sorted order makes the first month holding an exact tie the winner.
+        records.add(next(month for month in candidates if ca_by_month[month] == best_ca))
+    return records
 
 
 def profile_tuple(result):
@@ -161,6 +195,7 @@ def build_profile_stats(monthly_stats, sales, purchases, lots, now, *, aggregate
     months = sorted(set(monthly_stats) | {current_month})
     full = {month: features(month, False) for month in months if month <= current_month}
     observed = {month: features(month, True) for month in full}
+    record_months = annual_record_months(full, current_month)
     result = {}
     first_observation = min((row["date"] for row in [*sales, *purchases]), default=now)
     for month in full:
@@ -168,16 +203,8 @@ def build_profile_stats(monthly_stats, sales, purchases, lots, now, *, aggregate
         reference = observed if running else full
         history = [row for key, row in reference.items() if key != month and key != current_month
                    and _window(key, now, running)[1] >= first_observation]
-        previous_ca = [row["ca"] for key, row in full.items() if key != month and key != current_month]
-        record = bool(previous_ca) and full[month]["ca"] > max(previous_ca) and full[month]["ca"] > 0
-        selected = score_profile(reference[month], history, record_allowed=record)
-        # Record always compares full realised CA, even when other axes are MTD.
-        if running and record:
-            full_history = [row for key, row in full.items() if key != current_month]
-            record_score = score_profile(full[month], full_history, record_allowed=True)["scores"].get("record")
-            if record_score is not None:
-                selected["scores"]["record"] = record_score
-                selected["id"] = max(selected["scores"], key=lambda key: (selected["scores"][key], key))
-                selected["metric"] = PROFILE_METADATA[selected["id"]]["metric"]
+        selected = score_profile(reference[month], history)
+        if month in record_months:
+            selected = {"id": "record", "scores": selected["scores"], "metric": "ca"}
         result[month] = {**reference[month], "_profile_result": selected}
     return result

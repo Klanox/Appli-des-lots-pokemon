@@ -18,7 +18,7 @@ from core.trade_economics import trade_sale_stat_rows
 from services.perf_service import perf_log, perf_timer
 from services.vinted_channels import SALE_CHANNELS, normalize_vinted_channel
 from services.monthly_profiles import (
-    PROFILE_METADATA, PROFILE_EXPLANATIONS, build_profile_stats, profile_tuple, score_profile,
+    PROFILE_METADATA, PROFILE_EXPLANATIONS, annual_record_months, build_profile_stats, profile_tuple, score_profile,
 )
 
 
@@ -350,9 +350,11 @@ def _month_profile(month, monthly_stats, months_sorted):
         return None
     if "_profile_result" in current:
         return profile_tuple(current["_profile_result"])
+    current_month = max(months_sorted) if months_sorted else None
+    if month in annual_record_months(monthly_stats, current_month):
+        return profile_tuple({"id": "record"})
     historic = [monthly_stats[m] for m in months_sorted if m != month]
-    record = bool(historic) and current.get("ca", 0) > max(row.get("ca", 0) for row in historic)
-    return profile_tuple(score_profile(current, historic, record_allowed=record))
+    return profile_tuple(score_profile(current, historic))
 
 
 def _short_profile_label(profile_label):

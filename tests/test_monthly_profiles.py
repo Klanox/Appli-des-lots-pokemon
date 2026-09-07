@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import datetime
 import unittest
 
-from services.monthly_profiles import PROFILE_METADATA, build_profile_stats, score_profile
+from services.monthly_profiles import PROFILE_METADATA, annual_record_months, build_profile_stats, score_profile
 from ui.pages.statistics import _aggregate_sales, _build_monthly_stats, _is_system_lot
 
 
@@ -27,7 +27,6 @@ class ProfileScoringTests(unittest.TestCase):
             "buyer": dict(acquired=1000, purchases=120),
             "investment": dict(acquired=5, purchases=7000),
             "volume": dict(qty=1000),
-            "record": dict(ca=10000),
             "calm": dict(ca=10, qty=1, transactions=1),
             "premium": dict(avg_card=100),
             "profitable": dict(benef=2000),
@@ -37,10 +36,10 @@ class ProfileScoringTests(unittest.TestCase):
             "efficient": dict(efficiency=4),
             "negotiated": dict(discount_share=.9),
         }
-        self.assertEqual(set(changes), set(PROFILE_METADATA))
+        self.assertEqual(set(changes), set(PROFILE_METADATA) - {"record"})
         for expected, change in changes.items():
             with self.subTest(expected=expected):
-                result = score_profile({**baseline(), **change}, [baseline(), baseline()], record_allowed=expected == "record")
+                result = score_profile({**baseline(), **change}, [baseline(), baseline()])
                 self.assertEqual(result["id"], expected)
 
     def test_strongest_axis_not_first_condition(self):
@@ -82,10 +81,39 @@ class ProfileDataTests(unittest.TestCase):
                 for m in (7, 8) for day, amount in ((1, 10), (20, 1000))]
         rows.append(sale(datetime(2026, 9, 2), "current", price=500))
         result = self.build(rows)["2026-09"]
-        self.assertNotIn("record", result["_profile_result"]["scores"])
+        self.assertNotEqual(result["_profile_result"]["id"], "record")
         rows[-1] = sale(datetime(2026, 9, 2), "current", price=1500)
         result = self.build(rows)["2026-09"]
-        self.assertIn("record", result["_profile_result"]["scores"])
+        self.assertEqual(result["_profile_result"]["id"], "record")
+        self.assertNotIn("record", result["_profile_result"]["scores"])
+
+    def test_annual_record_is_priority_over_other_profile_scores(self):
+        rows = [
+            sale(datetime(2026, 4, 3), "apr", price=300, quantity=1),
+            sale(datetime(2026, 5, 3), "may", price=1000, quantity=1),
+            sale(datetime(2026, 6, 3), "jun", price=900, quantity=1000),
+        ]
+        result = self.build(rows, now=datetime(2026, 7, 5, 12))
+        self.assertEqual(result["2026-05"]["_profile_result"]["id"], "record")
+        self.assertNotEqual(result["2026-06"]["_profile_result"]["id"], "record")
+
+    def test_current_month_record_and_non_record_follow_realised_ca(self):
+        rows = [sale(datetime(2026, 5, 3), "may", price=1000)]
+        rows.append(sale(datetime(2026, 9, 2), "sep", price=1500))
+        result = self.build(rows)["2026-09"]
+        self.assertEqual(result["_profile_result"]["id"], "record")
+
+        rows[-1] = sale(datetime(2026, 9, 2), "sep", price=500)
+        result = self.build(rows)["2026-09"]
+        self.assertNotEqual(result["_profile_result"]["id"], "record")
+
+    def test_annual_record_tie_keeps_first_month(self):
+        stats = {
+            "2026-04": {"ca": 1000},
+            "2026-05": {"ca": 1000},
+            "2026-06": {"ca": 500},
+        }
+        self.assertEqual(annual_record_months(stats, "2026-06"), {"2026-04"})
 
     def test_mtd_and_early_tracking_gap(self):
         rows = [sale(datetime(2026, m, day, 10), f"{m}-{day}") for m in (7, 8, 9) for day in (3, 6)]
