@@ -481,29 +481,50 @@ def render_sales_page(context):
                         args=(lot_choices, cd),
                     )
 
-            # ── Barre de recherche + filtre lot + compteur panier ──
-            col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
-            with col_search:
+            # ── Recherche live, filtre secondaire et accès panier ──
+            vente_lots_with_idx = sorted(
+                list(enumerate(cd.get("lots", []))),
+                key=lambda item: (1 if (is_trade_lot(item[1]) or is_storage_lot(item[1])) else 0, item[0]),
+            )
+            lot_options = [("Tous les lots", None)] + [
+                (f"{i+1}. {lot.get('nom', f'Lot {i+1}')}", i)
+                for i, lot in vente_lots_with_idx
+            ]
+            lot_labels = [name for name, _ in lot_options]
+            brocante_mobile = bool(brocante and is_mobile_mode())
+            if brocante_mobile:
                 search_vente = inventory_live_search(
                     "🔍 Rechercher une carte", key="search_vente_live",
-                    placeholder="Nom de la carte...",
+                    placeholder="Nom, numéro, extension...",
                 )
-            with col_lot_filter:
-                vente_lots_with_idx = sorted(
-                    list(enumerate(cd.get("lots", []))),
-                    key=lambda item: (1 if (is_trade_lot(item[1]) or is_storage_lot(item[1])) else 0, item[0])
-                )
-                lot_options = [("Tous les lots", None)] + [(f"{i+1}. {lot.get('nom', f'Lot {i+1}')}", i) for i, lot in vente_lots_with_idx]
-                lot_labels = [name for name, _ in lot_options]
-                selected_lot_label = st.selectbox("Lot affiché", lot_labels, key="bulk_lot_filter_v2", label_visibility="collapsed")
-                selected_lot_idx = next(idx for name, idx in lot_options if name == selected_lot_label)
-            with col_cart:
+                with st.expander("Filtrer le lot", expanded=False):
+                    selected_lot_label = st.selectbox("Lot affiché", lot_labels, key="bulk_lot_filter_v2")
                 nb_panier = sum(item["quantity"] for item in st.session_state.bulk_cart)
                 total_panier = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
-                if nb_panier > 0:
-                    st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", width="stretch", type="primary", on_click=scroll_to_cart_prepare)
-                else:
-                    st.markdown('<div style="background:#e2e8f0;color:#64748b;padding:0.5rem 1rem;border-radius:12px;font-weight:700;text-align:center;">🛒 Vide</div>', unsafe_allow_html=True)
+                st.button(
+                    f"🛒 Panier · {nb_panier} · {fp(total_panier)}" if nb_panier else "🛒 Panier vide",
+                    key="btn_panier",
+                    width="stretch",
+                    type="primary" if nb_panier else "secondary",
+                    on_click=scroll_to_cart_prepare if nb_panier else None,
+                )
+            else:
+                col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
+                with col_search:
+                    search_vente = inventory_live_search(
+                        "🔍 Rechercher une carte", key="search_vente_live",
+                        placeholder="Nom de la carte...",
+                    )
+                with col_lot_filter:
+                    selected_lot_label = st.selectbox("Lot affiché", lot_labels, key="bulk_lot_filter_v2", label_visibility="collapsed")
+                with col_cart:
+                    nb_panier = sum(item["quantity"] for item in st.session_state.bulk_cart)
+                    total_panier = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
+                    if nb_panier > 0:
+                        st.button(f"🛒 {nb_panier} · {fp(total_panier)}", key="btn_panier", width="stretch", type="primary", on_click=scroll_to_cart_prepare)
+                    else:
+                        st.markdown('<div style="background:#e2e8f0;color:#64748b;padding:0.5rem 1rem;border-radius:12px;font-weight:700;text-align:center;">🛒 Vide</div>', unsafe_allow_html=True)
+            selected_lot_idx = next(idx for name, idx in lot_options if name == selected_lot_label)
             st.markdown(f'<a class="codex-floating-cart" href="#cart-anchor" aria-label="Aller au panier">🛒<span>{nb_panier}</span></a>', unsafe_allow_html=True)
             run_html(f"""
             <script>
@@ -882,14 +903,21 @@ def render_sales_page(context):
                     if int(item["quantity"]) > max_cart_qty:
                         item["quantity"] = max_cart_qty
                         save_activity_state()
-                    cols = st.columns([3, 1, 1, 1, 1, 1])
                     line_badge = " · Hors stock" if is_off_stock else ""
-                    cols[0].write(f"{item['card_name']} ({item['card_set']}) - {item['lot_name']}{line_badge}")
-                    cols[1].number_input("Qté", 1, max_cart_qty, int(item["quantity"]), key=f"cart_qty_{idx}", on_change=bulk_cart_set_quantity, args=(idx,), label_visibility="collapsed")
-                    cols[2].write(f"{fp(item['price_base'])}/u")
-                    cols[3].write(f"= {fp(item['quantity'] * item['price_base'])}")
-                    cols[4].button("➕", key=f"plus_{idx}", on_click=bulk_cart_increment, args=(idx,))
-                    cols[5].button("🗑️", key=f"remove_{idx}", on_click=bulk_cart_pop, args=(idx,))
+                    if cart_brocante and is_mobile_mode():
+                        cols = st.columns([3, 1, 1])
+                        cols[0].write(f"{item['card_name']}{line_badge}")
+                        cols[0].caption(f"{fp(item['price_base'])}/u · {fp(item['quantity'] * item['price_base'])}")
+                        cols[1].number_input("Qté", 1, max_cart_qty, int(item["quantity"]), key=f"cart_qty_{idx}", on_change=bulk_cart_set_quantity, args=(idx,), label_visibility="collapsed")
+                        cols[2].button("Retirer", key=f"remove_{idx}", on_click=bulk_cart_pop, args=(idx,), width="stretch")
+                    else:
+                        cols = st.columns([3, 1, 1, 1, 1, 1])
+                        cols[0].write(f"{item['card_name']} ({item['card_set']}) - {item['lot_name']}{line_badge}")
+                        cols[1].number_input("Qté", 1, max_cart_qty, int(item["quantity"]), key=f"cart_qty_{idx}", on_change=bulk_cart_set_quantity, args=(idx,), label_visibility="collapsed")
+                        cols[2].write(f"{fp(item['price_base'])}/u")
+                        cols[3].write(f"= {fp(item['quantity'] * item['price_base'])}")
+                        cols[4].button("➕", key=f"plus_{idx}", on_click=bulk_cart_increment, args=(idx,))
+                        cols[5].button("🗑️", key=f"remove_{idx}", on_click=bulk_cart_pop, args=(idx,))
                 
                 total_base = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 st.markdown("---")
@@ -1024,7 +1052,8 @@ def render_sales_page(context):
         st.session_state.setdefault("swap_cash_give", 0.0)
         st.session_state.setdefault("swap_cash_receive", 0.0)
 
-        col_give, col_receive = st.columns(2)
+        trade_mobile = bool(brocante and is_mobile_mode())
+        col_give, col_receive = (st.container(), st.container()) if trade_mobile else st.columns(2)
 
         # ── Colonne DONNER ──
         with col_give:
@@ -1033,12 +1062,15 @@ def render_sales_page(context):
             search_sw = search_input("Chercher une carte à donner", placeholder="Nom, numéro, extension...", key="search_swap")
 
             all_stock_sw = []
-            for li, lot in enumerate(cd_sw.get("lots", [])):
-                for ci, card in enumerate(lot.get("cards", [])):
-                    stock = card_available_qty(card)
-                    if stock > 0:
-                        if not search_sw or (card_matches_inventory_query(card, search_sw) if brocante else normalize_name(search_sw) in normalize_name(card.get("name", ""))):
-                            all_stock_sw.append((li, ci, card, lot, stock))
+            if not (brocante and not search_sw):
+                for li, lot in enumerate(cd_sw.get("lots", [])):
+                    for ci, card in enumerate(lot.get("cards", [])):
+                        stock = card_available_qty(card)
+                        if stock > 0:
+                            if not search_sw or (card_matches_inventory_query(card, search_sw) if brocante else normalize_name(search_sw) in normalize_name(card.get("name", ""))):
+                                all_stock_sw.append((li, ci, card, lot, stock))
+            elif brocante:
+                st.caption("Recherche une carte pour afficher le stock disponible.")
 
             give_keys = {g.get("card_uid") for g in st.session_state.swap_cart_give if g.get("card_uid")}
 

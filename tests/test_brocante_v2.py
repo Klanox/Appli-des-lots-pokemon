@@ -11,6 +11,7 @@ from services.brocante_workflow import (commit_staged, deletion_audit, event_sal
 from core import sales_actions
 from core.sales_cancellation import cancel_sale_by_id
 from logic import calc_cout_lot
+from ui.pages.brocante import go
 
 
 def fixtures(cash=50):
@@ -32,6 +33,20 @@ def lines(n=1):
 
 
 class BrocanteTests(unittest.TestCase):
+    def test_legacy_missing_initial_cash_stays_unknown(self):
+        event = make_session("Ancienne brocante", "2026-01-01", initial_cash=None)
+        record_transaction(event, {"id": "sale-1", "payment_method": "Espèces", "amount": 12})
+        self.assertIsNone(brocante_stats(event)["theoretical_cash"])
+
+    def test_view_switch_preserves_existing_cart_state(self):
+        class FakeStreamlit:
+            session_state = {"bulk_cart": [{"card_uid": "card-1", "quantity": 1}]}
+
+        fake = FakeStreamlit()
+        go(fake, "Rachat")
+        self.assertEqual(fake.session_state["brocante_view"], "Rachat")
+        self.assertEqual(fake.session_state["bulk_cart"], [{"card_uid": "card-1", "quantity": 1}])
+
     def test_fund_required_including_force_and_zero_valid(self):
         for amount, expected in [(None, False), (-1, False), (float("nan"), False), (0, True), (50, True)]:
             _, data = fixtures(amount)

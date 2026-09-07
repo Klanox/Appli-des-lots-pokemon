@@ -16,17 +16,20 @@ from ui.inventory_live_search import inventory_live_search
 VIEWS = ["Aujourd’hui", "Vente", "Rachat", "Hors stock", "Échange", "Frais / clôture", "Historique"]
 CSS = """
 <style>
-.bro-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 20px}
-.bro-header h2{font-size:24px!important;margin:0 0 4px!important;padding:0!important;color:#111827}.bro-meta{color:#6b7280;font-size:13px}
-.bro-badge{font-size:12px;font-weight:600;border:1px solid #e5e7eb;padding:4px 8px;border-radius:6px;color:#15803d;background:white}
-.bro-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 20px}
-.bro-kpi{border:1px solid #e5e7eb;border-top:2px solid var(--accent);background:white;border-radius:8px;padding:16px;min-width:0}
-.bro-kpi strong{font-size:25px;display:block;color:var(--accent);margin:6px 0}.bro-kpi small{color:#6b7280}
-.bro-ledger{background:white;border-block:1px solid #e5e7eb;margin:12px 0 20px}
-.bro-ledger div{display:flex;justify-content:space-between;gap:12px;padding:9px 12px;border-bottom:1px solid #f1f3f5;font-size:14px}
+.bro-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 12px}
+.bro-header h2{font-size:22px!important;margin:0 0 2px!important;padding:0!important;color:#111827}.bro-meta{color:#6b7280;font-size:13px}
+.bro-badge{font-size:12px;font-weight:700;border:1px solid #bbf7d0;padding:4px 8px;border-radius:6px;color:#15803d;background:#f0fdf4;white-space:nowrap}
+.bro-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 12px}
+.bro-kpi{border:1px solid #e5e7eb;border-top:3px solid var(--accent);background:white;border-radius:8px;padding:12px;min-width:0}
+.bro-kpi strong{font-size:23px;display:block;color:var(--accent);margin:4px 0}.bro-kpi small{color:#6b7280}
+.bro-ledger{background:white;border:1px solid #e5e7eb;border-radius:8px;margin:8px 0 12px}
+.bro-ledger div{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-bottom:1px solid #f1f3f5;font-size:13px}
 .bro-ledger span{min-width:0;overflow-wrap:anywhere}.bro-ledger strong{white-space:nowrap}
+[class*="st-key-bro_actions"] [data-testid="stButton"] button{min-height:42px}[class*="st-key-bro_actions_primary"] [data-testid="stButton"] button{min-height:46px;font-size:15px}
+.bro-closing-flow{display:grid;gap:2px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px;margin:8px 0 12px}.bro-closing-flow div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:13px;border-bottom:1px solid #f1f3f5}.bro-closing-flow .in{color:#15803d}.bro-closing-flow .out{color:#c2410c}.bro-closing-flow .total{border:0;color:#6d28d9;font-size:15px;font-weight:800}
+[data-testid="stSegmentedControl"]{margin:2px 0 8px}[data-testid="stSegmentedControl"] [role="radiogroup"]{gap:4px}
 @media(max-width:900px){.bro-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){.bro-header{align-items:flex-start}.bro-header h2{font-size:21px}.bro-kpi{padding:12px}.bro-kpi strong{font-size:21px}.bro-ledger div{padding:8px 0}.bro-badge{white-space:nowrap}}
+@media(max-width:560px){[data-testid="stSegmentedControl"]{overflow-x:auto;padding-bottom:3px}[data-testid="stSegmentedControl"] [role="radiogroup"]{flex-wrap:nowrap!important;min-width:max-content}[data-testid="stSegmentedControl"] button{min-height:42px!important;white-space:nowrap}.bro-header{align-items:flex-start;margin:2px 0 8px}.bro-header h2{font-size:20px!important}.bro-meta{font-size:12px}.bro-kpi{padding:10px}.bro-kpi strong{font-size:21px}.bro-ledger div{padding:8px 9px}.bro-actions{gap:7px}.bro-closing-flow{padding:5px 9px}}
 </style>
 """
 
@@ -58,12 +61,12 @@ def header(st, event):
             f'</div></div><span class="bro-badge">{status}</span></div>')
 
 
-def dashboard(st, event, data=None, *, actions=False):
+def dashboard(st, event, data=None, *, actions=False, compact=False, mobile=False):
     s = brocante_stats(event)
     metrics = [("Chiffre d’affaires", money(s["ca"]), "#6d28d9", f'{s["sales_count"]} commandes'),
                ("Bénéfice calculable", money(s["calculable_profit"]), "#15803d", "Après frais"),
-               ("Cartes vendues", str(s["cards_sold"]), "#2563eb", "Cartes physiques"),
-               ("Caisse théorique", money(s["theoretical_cash"]), "#111827", "Espèces disponibles")]
+               ("Caisse théorique", money(s["theoretical_cash"]), "#111827", "Espèces disponibles"),
+               ("Cartes vendues", str(s["cards_sold"]), "#2563eb", "Cartes physiques")]
     st.html('<div class="bro-kpis">' + ''.join(
         f'<div class="bro-kpi" style="--accent:{color}"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>'
         for label, value, color, detail in metrics) + '</div>')
@@ -71,12 +74,38 @@ def dashboard(st, event, data=None, *, actions=False):
         st.caption(f'{s["unknown_cost_sales"]} commande(s) sans coût complet : bénéfice partiel.')
     st.caption(f'{s["purchases_count"]} rachats · {money(s["purchased_amount"])} dépensés · {s["exchanges_count"]} échanges · {money(s["fees"])} de frais')
     if actions:
-        shortcuts = [("Nouvelle vente", "Vente"), ("Nouveau rachat", "Rachat"), ("Hors stock", "Hors stock"),
-                     ("Nouvel échange", "Échange"), ("Ajouter un frais", "Frais / clôture"), ("Clôturer", "Frais / clôture")]
-        for offset in (0, 3):
-            for col, (label, view) in zip(st.columns(3), shortcuts[offset:offset+3]):
+        if mobile:
+            with st.container(key="bro_actions_primary"):
+                st.button("Nouvelle vente", key="bro_quick_Nouvelle vente", type="primary", on_click=go,
+                          args=(st, "Vente"), width="stretch")
+            with st.container(key="bro_actions"):
+                for col, (label, view) in zip(
+                    st.columns(2),
+                    (("Nouveau rachat", "Rachat"), ("Hors stock", "Hors stock")),
+                ):
+                    col.button(label, key=f'bro_quick_{label}', on_click=go, args=(st, view), width="stretch")
+                for col, (label, view) in zip(
+                    st.columns(2),
+                    (("Nouvel échange", "Échange"), ("Ajouter un frais", "Frais / clôture")),
+                ):
+                    col.button(label, key=f'bro_quick_{label}', on_click=go, args=(st, view), width="stretch")
+            st.divider()
+            st.button("Clôturer la journée", key="bro_quick_Clôturer", on_click=go,
+                      args=(st, "Frais / clôture"), width="stretch")
+        else:
+            actions_top = (("Nouvelle vente", "Vente", "primary"), ("Nouveau rachat", "Rachat", "secondary"),
+                           ("Hors stock", "Hors stock", "secondary"))
+            for col, (label, view, button_type) in zip(st.columns(3), actions_top):
+                col.button(label, key=f'bro_quick_{label}', type=button_type, on_click=go, args=(st, view), width="stretch")
+            actions_bottom = (("Nouvel échange", "Échange"), ("Ajouter un frais", "Frais / clôture"))
+            for col, (label, view) in zip(st.columns(2), actions_bottom):
                 col.button(label, key=f'bro_quick_{label}', on_click=go, args=(st, view), width="stretch")
-    left, right = st.columns(2)
+            st.divider()
+            st.button("Clôturer la journée", key="bro_quick_Clôturer", on_click=go,
+                      args=(st, "Frais / clôture"))
+    if compact:
+        return s
+    left, right = (st.container(), st.container()) if mobile else st.columns(2)
     with left:
         st.markdown("### Encaissements")
         ledger(st, [("Fonds initial", money(s["initial_cash"])), ("Ventes espèces", money(s["payments"]["cash"])),
@@ -179,14 +208,16 @@ def catalog_image(st, card):
 def purchase(st, event, context):
     st.subheader("Rachat de cartes")
     st.caption("Un seul lot de rachats pour cette brocante. Le coût correspond au montant réellement payé.")
+    mobile = bool(context.get("is_mobile_mode", lambda: False)())
     key = f'bro_purchase_cart_{event["id"]}'
     cart = st.session_state.setdefault(key, [])
     query = inventory_live_search("Rechercher une carte", key=f'bro_purchase_query_{event["id"]}', placeholder="Nom, numéro… FR / JAP")
     results = search_received_cards(query, st.session_state.get("cards_index", {}), context["normalize_name"], limit=12) if query.strip() else []
     if query and not results:
         st.info("Aucune carte trouvée dans le catalogue chargé.")
-    for offset in range(0, len(results), 3):
-        for col, (card, set_name, set_id) in zip(st.columns(3), results[offset:offset+3]):
+    result_columns = 2 if mobile else 4
+    for offset in range(0, len(results), result_columns):
+        for col, (card, set_name, set_id) in zip(st.columns(result_columns), results[offset:offset + result_columns]):
             with col:
                 with st.container(border=True):
                     catalog_image(st, card)
@@ -201,9 +232,13 @@ def purchase(st, event, context):
     if selected:
         with st.form(f'{key}_add', clear_on_submit=True):
             st.markdown(f'**{selected["name"]} · {selected.get("number", "")}**')
-            a, b = st.columns(2)
-            qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
-            value = b.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
+            if mobile:
+                qty = st.number_input("Quantité", min_value=1, max_value=9999, value=1)
+                value = st.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
+            else:
+                a, b = st.columns(2)
+                qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
+                value = b.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
             if st.form_submit_button("Ajouter au panier de rachat"):
                 cart.append({"card": deepcopy(selected), "quantity": qty, "value": value})
                 st.session_state.pop(f'{key}_selected', None)
@@ -213,15 +248,20 @@ def purchase(st, event, context):
         return
     st.markdown("### Panier de rachat")
     for i, row in enumerate(cart):
-        a, b = st.columns([5, 1])
-        a.write(f'{row["card"]["name"]} · {row["card"].get("number", "")} × {row["quantity"]} · valeur {money(row["value"])} / carte')
-        if b.button("Retirer", key=f'bro_buy_remove_{i}'):
+        a, b = st.columns([4, 1])
+        a.write(f'{row["card"]["name"]} · {row["card"].get("number", "")} × {row["quantity"]}')
+        a.caption(f'Valeur estimée : {money(row["value"])} / carte')
+        if b.button("Retirer", key=f'bro_buy_remove_{i}', width="stretch"):
             cart.pop(i)
             st.rerun()
     with st.form(f'{key}_confirm'):
-        a, b = st.columns(2)
-        amount = a.number_input("Montant total réellement payé (€)", min_value=0.0, value=None, step=0.5)
-        payment = b.selectbox("Paiement", PAYMENT_METHODS)
+        if mobile:
+            amount = st.number_input("Montant total réellement payé (€)", min_value=0.0, value=None, step=0.5)
+            payment = st.selectbox("Paiement", PAYMENT_METHODS)
+        else:
+            a, b = st.columns(2)
+            amount = a.number_input("Montant total réellement payé (€)", min_value=0.0, value=None, step=0.5)
+            payment = b.selectbox("Paiement", PAYMENT_METHODS)
         confirm = st.checkbox("Je confirme l'achat et son entrée dans le stock")
         if st.form_submit_button("Valider le rachat", type="primary"):
             if amount is None or not confirm:
@@ -244,12 +284,20 @@ def purchase(st, event, context):
 def offstock(st, event, context):
     st.subheader("Vente hors stock")
     stock = context["ld"]()
+    mobile = bool(context.get("is_mobile_mode", lambda: False)())
     with st.form(f'bro_offstock_{event["id"]}', clear_on_submit=True):
-        a, b = st.columns(2)
-        category, description = a.selectbox("Catégorie", BRO_CATEGORIES), b.text_input("Description")
-        qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
-        amount = b.number_input("Prix total encaissé (€)", min_value=0.0, value=None, step=0.5)
-        payment = a.selectbox("Paiement", PAYMENT_METHODS)
+        if mobile:
+            category = st.selectbox("Catégorie", BRO_CATEGORIES)
+            description = st.text_input("Description")
+            qty = st.number_input("Quantité", min_value=1, max_value=9999, value=1)
+            amount = st.number_input("Prix total encaissé (€)", min_value=0.0, value=None, step=0.5)
+            payment = st.selectbox("Paiement", PAYMENT_METHODS)
+        else:
+            a, b = st.columns(2)
+            category, description = a.selectbox("Catégorie", BRO_CATEGORIES), b.text_input("Description")
+            qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
+            amount = b.number_input("Prix total encaissé (€)", min_value=0.0, value=None, step=0.5)
+            payment = a.selectbox("Paiement", PAYMENT_METHODS)
         with st.expander("Options"):
             lot_idx = st.selectbox("Lot source", [None] + list(range(len(stock.get("lots", [])))),
                                    format_func=lambda i: "Non attribué" if i is None else stock["lots"][i]["nom"])
@@ -286,13 +334,19 @@ def closing(st, data, event):
                 saved(st, data, "Frais enregistré.")
     if event.get("expenses"):
         ledger(st, [(f'{e["label"]} · {e.get("payment_method", "Espèces")}', money(e["amount"])) for e in event["expenses"]])
-    dashboard(st, event)
-    s = brocante_stats(event)
-    st.markdown("### Réconciliation de caisse")
-    ledger(st, [("Fonds initial", money(s["initial_cash"])), ("+ Ventes espèces", money(s["payments"]["cash"])),
-                ("+ Compléments reçus", money(s["exchange_cash_received"])), ("− Rachats espèces", money(s["cash_purchases"])),
-                ("− Frais espèces", money(s["cash_fees"])), ("− Compléments donnés", money(s["exchange_cash_given"])),
-                ("= Espèces théoriques", money(s["theoretical_cash"]))])
+    s = dashboard(st, event, compact=True)
+    st.markdown("### Caisse")
+    st.html(
+        '<div class="bro-closing-flow">'
+        f'<div><span>Fonds initial</span><strong>{escape(money(s["initial_cash"]))}</strong></div>'
+        f'<div class="in"><span>+ Ventes espèces</span><strong>{escape(money(s["payments"]["cash"]))}</strong></div>'
+        f'<div class="in"><span>+ Compléments reçus</span><strong>{escape(money(s["exchange_cash_received"]))}</strong></div>'
+        f'<div class="out"><span>− Rachats espèces</span><strong>{escape(money(s["cash_purchases"]))}</strong></div>'
+        f'<div class="out"><span>− Frais espèces</span><strong>{escape(money(s["cash_fees"]))}</strong></div>'
+        f'<div class="out"><span>− Compléments donnés</span><strong>{escape(money(s["exchange_cash_given"]))}</strong></div>'
+        f'<div class="total"><span>= Caisse théorique</span><strong>{escape(money(s["theoretical_cash"]))}</strong></div>'
+        '</div>'
+    )
     if s["initial_cash"] is None:
         st.warning("Fonds initial absent dans cet historique : l'écart de caisse ne peut pas être calculé.")
     counted = st.number_input("Espèces réellement comptées (€)", min_value=0.0, value=None, step=0.5, key=f'bro_counted_{event["id"]}')
@@ -346,27 +400,39 @@ def history(st, data, context):
     closed = [e for e in data.get("sessions", []) if e["status"] == "closed" and (archives or not e.get("archived"))]
     if not closed:
         st.info("Aucune brocante clôturée à afficher.")
-    for event in sorted(closed, key=lambda e: e.get("date", ""), reverse=True):
+        return
+    closed = sorted(closed, key=lambda e: e.get("date", ""), reverse=True)
+    options = []
+    for event in closed:
         s = brocante_stats(event)
-        with st.expander(f'{event.get("date", "")} · {event["name"]} · {money(s["ca"])}'):
-            header(st, event)
-            dashboard(st, event)
-            ledger(st, [("Caisse comptée", money(event.get("closure", {}).get("counted_cash"))),
-                        ("Écart de caisse", money(event.get("closure", {}).get("cash_variance")))])
-            st.caption(event.get("closure", {}).get("variance_note", ""))
-            with st.expander("Opérations de la journée"):
-                for label, collection in (("Ventes", "transactions"), ("Rachats", "purchases"), ("Frais", "expenses")):
-                    st.markdown(f'**{label}**')
-                    ledger(st, [(f'{r.get("created_at", "")} · {r.get("label", label)}', money(r.get("amount", 0))) for r in event.get(collection, [])])
-                for trade in event.get("exchanges", []):
-                    st.caption(f'Échange · {trade.get("created_at", "")} · reçu {money(trade.get("cash_received", 0))} · donné {money(trade.get("cash_given", 0))}')
-            confirm = st.checkbox("Confirmer la réouverture", key=f'bro_reopen_confirm_{event["id"]}')
-            if st.button("Réouvrir", disabled=not confirm, key=f'bro_reopen_{event["id"]}'):
-                ok, message = reopen_session(data, event["id"])
-                if ok:
-                    saved(st, data, message)
-                st.error(message)
-            management(st, data, event, context)
+        variance = event.get("closure", {}).get("cash_variance")
+        options.append((
+            f'{event.get("date", "")} · {event["name"]} · {money(s["ca"])} · {money(s["calculable_profit"])}',
+            event,
+            f'{s["sales_count"]} ventes · {s["purchases_count"]} rachats · {money(variance)} écart',
+        ))
+    labels = [label for label, _, _ in options]
+    selected_label = st.selectbox("Brocante à consulter", labels, key="bro_history_event")
+    _, event, summary = next(item for item in options if item[0] == selected_label)
+    st.caption(summary)
+    header(st, event)
+    dashboard(st, event, compact=True)
+    ledger(st, [("Caisse comptée", money(event.get("closure", {}).get("counted_cash"))),
+                ("Écart de caisse", money(event.get("closure", {}).get("cash_variance")))])
+    st.caption(event.get("closure", {}).get("variance_note", ""))
+    with st.expander("Opérations de la journée"):
+        for label, collection in (("Ventes", "transactions"), ("Rachats", "purchases"), ("Frais", "expenses")):
+            st.markdown(f'**{label}**')
+            ledger(st, [(f'{r.get("created_at", "")} · {r.get("label", label)}', money(r.get("amount", 0))) for r in event.get(collection, [])])
+        for trade in event.get("exchanges", []):
+            st.caption(f'Échange · {trade.get("created_at", "")} · reçu {money(trade.get("cash_received", 0))} · donné {money(trade.get("cash_given", 0))}')
+    confirm = st.checkbox("Confirmer la réouverture", key=f'bro_reopen_confirm_{event["id"]}')
+    if st.button("Réouvrir", disabled=not confirm, key=f'bro_reopen_{event["id"]}'):
+        ok, message = reopen_session(data, event["id"])
+        if ok:
+            saved(st, data, message)
+        st.error(message)
+    management(st, data, event, context)
 
 
 def render_brocante_page(context):
@@ -390,7 +456,7 @@ def render_brocante_page(context):
     elif view == "Aujourd’hui":
         if active:
             header(st, active)
-            dashboard(st, active, data, actions=True)
+            dashboard(st, active, data, actions=True, mobile=bool(context.get("is_mobile_mode", lambda: False)()))
             management(st, data, active, context)
         elif planned:
             preparing(st, data, planned)
