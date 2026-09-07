@@ -16,7 +16,7 @@ def configure_sales_actions(context):
     globals().update(context)
 
 
-def _scu_in_data(cd, li, ci, q, p, canal="Main propre", transaction_id=None):
+def _scu_in_data(cd, li, ci, q, p, canal="Main propre", transaction_id=None, *, brocante_id=None, payment_method=None):
     """Vend une carte dans un data.json deja charge, sans sauvegarder tout de suite."""
     crd=cd["lots"][li]["cards"][ci]
     if card_available_qty(crd) < q:
@@ -40,6 +40,8 @@ def _scu_in_data(cd, li, ci, q, p, canal="Main propre", transaction_id=None):
         "suggested_price_at_sale": float(crd.get("suggested_price", p)),
         "canal": canal,
     }
+    if brocante_id:
+        sale_entry.update(brocante_id=brocante_id, payment_method=payment_method)
     link_sale_to_vinted_drop_if_applicable(sale_entry, canal)
     crd.setdefault("sold_entries",[]).append(sale_entry)
 
@@ -138,13 +140,29 @@ def _record_off_stock_brocante_order(sales, transaction_id):
         save_brocantes(brocante_data)
 
 
-def scu_many(items, canal="Main propre"):
+def scu_many(items, canal="Main propre", *, brocante_id=None, payment_method=None, transaction_id=None):
     """Persist one cart as one transaction, including optional off-stock rows."""
     items = list(items or [])
     if not items:
         return False, "Le panier est vide."
     cd = ld()
-    transaction_id = new_uid("sale_tx")
+    transaction_id = transaction_id or new_uid("sale_tx")
+    if brocante_id:
+        from core.brocante import session_by_id
+        from services.brocante_workflow import event_sales, project_event
+        event_data = load_brocantes()
+        event = session_by_id(event_data, brocante_id)
+        if not event or event.get("status") != "active":
+            return False, "Cette brocante n'est plus en cours."
+        canal = "Brocante"
+        if any(s.get("sale_transaction_id") == transaction_id for s in event_sales(cd, brocante_id)):
+            project_event(event, cd)
+            save_brocantes(event_data)
+            return True, "Vente déjà enregistrée."
+        from core.sale_preview import preview_sale
+        from logic import calc_cout_lot, effective_purchase_price
+        estimate = preview_sale(cd, items, resolve_card=resolve_card_ref, calc_cost=calc_cout_lot,
+                                effective_purchase_price=effective_purchase_price)
     requested = {}
     for item in items:
         if _is_off_stock_item(item):
@@ -175,12 +193,12 @@ def scu_many(items, canal="Main propre"):
                 description=item.get("description") or item.get("card_name") or "",
                 quantity=quantity,
                 amount=unit_price * quantity,
-                payment_method=item.get("payment_method") or "Non renseigné",
+                payment_method=payment_method or item.get("payment_method") or "Non renseigné",
                 canal=canal,
                 source_lot_idx=_source_lot_index(cd, item),
                 cost_basis=item.get("cost_basis") if item.get("cost_basis_known") else None,
                 notes=item.get("notes") or "",
-                brocante_id=item.get("brocante_id"),
+                brocante_id=brocante_id or item.get("brocante_id"),
                 transaction_id=transaction_id,
             )
             off_stock_sales.append(sale)
@@ -193,11 +211,31 @@ def scu_many(items, canal="Main propre"):
             item["unit_price"],
             canal,
             transaction_id=transaction_id,
+            brocante_id=brocante_id,
+            payment_method=payment_method,
         )
         if not ok:
             return False, msg
-    sd(cd)
-    _record_off_stock_brocante_order(off_stock_sales, transaction_id)
+    if brocante_id:
+        order = {"transaction_id": transaction_id, "type": "stock_sale", "label": "Commande", "projected_from_sales": True,
+                 "quantity": sum(int(i.get("quantity", 1)) for i in items),
+                 "physical_quantity": sum(int(i.get("quantity", 1)) for i in items if not _is_off_stock_item(i)),
+                 "amount": estimate["total"], "payment_method": payment_method,
+                 "inventory_impact": "stock_decrement" if any(not _is_off_stock_item(i) for i in items) else "none",
+                 "off_stock_amount": sum(float(s["price"]) for s in off_stock_sales),
+                 "cost_basis_known": estimate["profit"] is not None,
+                 "cost_basis": estimate["total"] - estimate["known_profit"],
+                 "known_profit": estimate["known_profit"],
+                 "created_at": datetime.now().isoformat()}
+        for sale in event_sales(cd, brocante_id):
+            if sale.get("sale_transaction_id") == transaction_id:
+                sale["brocante_order"] = order
+        sd(cd)
+        record_transaction(event, order)
+        save_brocantes(event_data)
+    else:
+        sd(cd)
+        _record_off_stock_brocante_order(off_stock_sales, transaction_id)
     return True, "Vendu!"
 
 

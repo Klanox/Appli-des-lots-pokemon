@@ -74,7 +74,7 @@ def normalize_brocantes_data(data) -> dict:
     return data
 
 
-def make_session(name: str, event_date=None, location: str = "", notes: str = "", goals=None, template=None) -> dict:
+def make_session(name: str, event_date=None, location: str = "", notes: str = "", goals=None, template=None, *, initial_cash=None) -> dict:
     event_date = event_date or date.today()
     template = template or default_brocantes_data()["checklist_template"]
     checklist = []
@@ -106,6 +106,8 @@ def make_session(name: str, event_date=None, location: str = "", notes: str = ""
         "transactions": [],
         "exchanges": [],
         "closure": {},
+        "initial_cash": initial_cash,
+        "purchases": [],
     }
 
 
@@ -145,6 +147,13 @@ def start_session(data: dict, session_id: str, *, force=False) -> tuple[bool, st
     session = session_by_id(data, session_id)
     if not session:
         return False, "Brocante introuvable."
+    from math import isfinite
+    try:
+        cash = float(session.get("initial_cash"))
+    except (TypeError, ValueError):
+        return False, "Renseigne le fonds de caisse initial avant de démarrer."
+    if not isfinite(cash) or cash < 0:
+        return False, "Le fonds de caisse doit être positif ou nul."
     missing = checklist_summary(session)["required_missing"]
     if missing and not force:
         return False, f"{len(missing)} tâche(s) obligatoire(s) restent à confirmer."
@@ -300,7 +309,7 @@ def record_exchange(session: dict, exchange: dict) -> str:
     return exchange["exchange_id"]
 
 
-def add_expense(session: dict, label: str, amount: float, category: str, note: str = ""):
+def add_expense(session: dict, label: str, amount: float, category: str, note: str = "", *, payment_method="Espèces"):
     session.setdefault("expenses", []).append(
         {
             "expense_id": new_id("expense"),
@@ -308,6 +317,7 @@ def add_expense(session: dict, label: str, amount: float, category: str, note: s
             "amount": max(float(amount or 0), 0.0),
             "category": str(category or "Autre").strip(),
             "note": str(note or "").strip(),
+            "payment_method": payment_method,
             "created_at": now_iso(),
         }
     )
@@ -318,7 +328,7 @@ def brocante_stats(session: dict) -> dict:
     exchanges = session.get("exchanges", []) or []
     expenses = session.get("expenses", []) or []
     ca = sum(float(tx.get("amount", 0) or 0) for tx in transactions)
-    cards_sold = sum(int(tx.get("quantity", 1) or 1) for tx in transactions)
+    cards_sold = sum(int(tx.get("physical_quantity", tx.get("quantity", 1)) or 0) for tx in transactions if tx.get("inventory_impact") != "none")
     payments = {"cash": 0.0, "paypal": 0.0, "other": 0.0, "unknown": 0.0}
     off_stock_sales = 0
     unknown_cost_sales = 0
@@ -329,12 +339,19 @@ def brocante_stats(session: dict) -> dict:
             off_stock_sales += 1
         if tx.get("cost_basis_known"):
             calculable_profit += float(tx.get("amount", 0) or 0) - float(tx.get("cost_basis", 0) or 0)
-        elif tx.get("inventory_impact") == "none":
+        else:
             unknown_cost_sales += 1
+            calculable_profit += float(tx.get("known_profit", 0) or 0)
     exchange_cash_received = sum(float(ex.get("cash_received", 0) or 0) for ex in exchanges)
     exchange_cash_given = sum(float(ex.get("cash_given", 0) or 0) for ex in exchanges)
     fees = sum(float(exp.get("amount", 0) or 0) for exp in expenses)
-    net_cash = ca + exchange_cash_received - exchange_cash_given - fees
+    purchases = session.get("purchases", []) or []
+    purchased_amount = sum(float(p.get("amount", 0)) for p in purchases)
+    cash_purchases = sum(float(p.get("amount", 0)) for p in purchases if payment_key(p.get("payment_method")) == "cash")
+    cash_fees = sum(float(exp.get("amount", 0) or 0) for exp in expenses if payment_key(exp.get("payment_method", "Espèces")) == "cash")
+    initial_cash = session.get("initial_cash")
+    theoretical_cash = (float(initial_cash) + payments["cash"] + exchange_cash_received - exchange_cash_given - cash_fees - cash_purchases) if initial_cash is not None else None
+    net_cash = ca + exchange_cash_received - exchange_cash_given - fees - purchased_amount
     avg_cart = ca / len(transactions) if transactions else 0.0
     best_sale = max(transactions, key=lambda tx: float(tx.get("amount", 0) or 0), default=None)
     return {
@@ -352,14 +369,21 @@ def brocante_stats(session: dict) -> dict:
         "payments": payments,
         "avg_cart": avg_cart,
         "best_sale": best_sale,
+        "initial_cash": initial_cash,
+        "theoretical_cash": theoretical_cash,
+        "cash_fees": cash_fees,
+        "cash_purchases": cash_purchases,
+        "purchases_count": len(purchases),
+        "purchased_amount": purchased_amount,
+        "ca_off_stock": sum(float(tx.get("off_stock_amount", tx.get("amount", 0) if tx.get("inventory_impact") == "none" else 0) or 0) for tx in transactions),
     }
 
 
 def close_session(session: dict, counted_cash: float | None = None, variance_note: str = "") -> dict:
     stats = brocante_stats(session)
-    theoretical_cash = stats["payments"]["cash"] + stats["exchange_cash_received"] - stats["exchange_cash_given"] - stats["fees"]
+    theoretical_cash = stats["theoretical_cash"]
     counted = None if counted_cash is None else float(counted_cash)
-    variance = None if counted is None else counted - theoretical_cash
+    variance = None if counted is None or theoretical_cash is None else counted - theoretical_cash
     session["status"] = "closed"
     session["closed_at"] = now_iso()
     session["closure"] = {

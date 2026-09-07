@@ -193,7 +193,7 @@ def _remove_off_stock_sale(cd: dict, sale_id: str, transaction_id: str = ""):
     }
 
 
-def cancel_sale_by_id(cd: dict, sale_id: str):
+def cancel_sale_by_id(cd: dict, sale_id: str, *, sync_related=True):
     """Mutate cd to cancel a reliable sale id. Returns (ok, message, details)."""
     sale_id = _sale_id(sale_id)
     if not sale_id:
@@ -207,11 +207,12 @@ def cancel_sale_by_id(cd: dict, sale_id: str):
             *((card_details or {}).get("sales", []) or []),
             *((off_stock_details or {}).get("sales", []) or []),
         ]
-        _restore_drop_items_for_sales(removed_sales)
+        if sync_related:
+            _restore_drop_items_for_sales(removed_sales)
         identifiers = {_sale_id(sale.get("sale_id")) for sale in removed_sales}
         if transaction_id:
             identifiers.add(transaction_id)
-        brocante_removed = _remove_brocante_transactions(identifiers)
+        brocante_removed = _remove_brocante_transactions(identifiers) if sync_related else 0
         details = {
             "kind": "transaction" if transaction_id else (card_details or off_stock_details).get("kind"),
             "transaction_id": transaction_id,

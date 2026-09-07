@@ -91,7 +91,7 @@ def calc_cout_lot(lot, valeur_estimee=None, lot_idx=None):
                 cote_unit = price / max(qty, 1)
             cote_total = cote_unit * qty
             # Lot Divers : coût = purchase_price individuel de la carte
-            if lot.get("is_divers") and card.get("purchase_price"):
+            if (lot.get("is_divers") or lot.get("cost_basis_method") == "per_card") and card.get("purchase_price") not in (None, ""):
                 cout = float(card["purchase_price"]) * qty
             # Carte reçue par échange avec repartition connue
             elif card.get("received_by_exchange") and (card.get("trade_acquisition_unit_cost") is not None or card.get("trade_acquisition_total_cost") is not None or card.get("exchange_repartition")):

@@ -1,606 +1,415 @@
-"""Mobile-first Brocante page."""
-
-from __future__ import annotations
-
-from datetime import date, datetime
+"""Event workspace using the main Sale and Trade renderers and engines."""
+from copy import deepcopy
+from datetime import date
+from html import escape
 
 from core.brocante import (
-    BRO_CATEGORIES,
-    PAYMENT_METHODS,
-    active_session,
-    add_expense,
-    brocante_stats,
-    checklist_summary,
-    close_session,
-    lot_uid,
-    make_session,
-    new_id,
-    payment_key,
-    preparing_session,
-    record_exchange,
-    record_transaction,
-    reopen_session,
-    session_by_id,
-    start_session,
+    BRO_CATEGORIES, PAYMENT_METHODS, active_session, add_expense, brocante_stats,
+    checklist_summary, close_session, make_session, new_id, preparing_session,
+    reopen_session, start_session,
 )
+from core.trade_economics import search_received_cards
 from services.brocante_data import load_brocantes, save_brocantes
-from core.trade_economics import (
-    aggregate_contributors,
-    allocate_received_cards,
-    build_trade_id,
-    card_historical_unit_cost,
-    compute_trade_summary,
-    contributors_from_card,
-)
-from ui.mobile_scan import render_assisted_scan
+from services.brocante_workflow import commit_staged, deletion_audit, project_event, stage_delete, stage_purchase
+from ui.inventory_live_search import inventory_live_search
+
+VIEWS = ["Aujourd’hui", "Vente", "Rachat", "Hors stock", "Échange", "Frais / clôture", "Historique"]
+CSS = """
+<style>
+.bro-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 20px}
+.bro-header h2{font-size:24px!important;margin:0 0 4px!important;padding:0!important;color:#111827}.bro-meta{color:#6b7280;font-size:13px}
+.bro-badge{font-size:12px;font-weight:600;border:1px solid #e5e7eb;padding:4px 8px;border-radius:6px;color:#15803d;background:white}
+.bro-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 20px}
+.bro-kpi{border:1px solid #e5e7eb;border-top:2px solid var(--accent);background:white;border-radius:8px;padding:16px;min-width:0}
+.bro-kpi strong{font-size:25px;display:block;color:var(--accent);margin:6px 0}.bro-kpi small{color:#6b7280}
+.bro-ledger{background:white;border-block:1px solid #e5e7eb;margin:12px 0 20px}
+.bro-ledger div{display:flex;justify-content:space-between;gap:12px;padding:9px 12px;border-bottom:1px solid #f1f3f5;font-size:14px}
+.bro-ledger span{min-width:0;overflow-wrap:anywhere}.bro-ledger strong{white-space:nowrap}
+@media(max-width:900px){.bro-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.bro-header{align-items:flex-start}.bro-header h2{font-size:21px}.bro-kpi{padding:12px}.bro-kpi strong{font-size:21px}.bro-ledger div{padding:8px 0}.bro-badge{white-space:nowrap}}
+</style>
+"""
 
 
-def _money(value, fp_func):
-    try:
-        return fp_func(float(value or 0))
-    except Exception:
-        return f"{float(value or 0):.2f}€"
+def money(value):
+    return "Non renseigné" if value is None else f"{float(value):,.2f} €".replace(",", " ").replace(".", ",")
 
 
-def _lot_label(lot, index):
-    return f"{index + 1}. {lot.get('nom', f'Lot {index + 1}')}"
+def ledger(st, rows):
+    st.html('<div class="bro-ledger">' + ''.join(
+        f'<div><span>{escape(str(label))}</span><strong>{escape(str(value))}</strong></div>'
+        for label, value in rows) + '</div>')
 
 
-def _lot_options(data):
-    return [("Non attribuée", None)] + [(_lot_label(lot, idx), idx) for idx, lot in enumerate(data.get("lots", []) or [])]
+def go(st, view):
+    st.session_state["brocante_view"] = view
 
 
-def _append_off_stock_sale(cd, session, *, category, description, quantity, amount, payment_method, source_lot_idx, cost_basis, notes):
-    tx_id = new_id("bro_offstock")
-    sale = {
-        "sale_id": tx_id,
-        "date": datetime.now().isoformat(),
-        "price": float(amount or 0),
-        "quantity": int(quantity or 1),
-        "card_name": f"Hors stock · {category}",
-        "category": category,
-        "description": description,
-        "canal": "Brocante",
-        "brocante_id": session.get("id"),
-        "payment_method": payment_method,
-        "sale_origin": "brocante",
-        "inventory_impact": "none",
-        "source_lot_id": None,
-        "cost_basis_known": float(cost_basis or 0) > 0,
-        "cost_basis": float(cost_basis or 0),
-        "notes": notes,
-        "is_off_stock": True,
-    }
-    if source_lot_idx is not None and 0 <= source_lot_idx < len(cd.get("lots", [])):
-        source_lot = cd["lots"][source_lot_idx]
-        sale["source_lot_id"] = lot_uid(source_lot, source_lot_idx)
-        sale["source_lot_name"] = source_lot.get("nom")
-        source_lot.setdefault("ventes", []).append(sale)
-    else:
-        cd.setdefault("ventes_hors_stock", []).append(sale)
-    record_transaction(
-        session,
-        {
-            "transaction_id": tx_id,
-            "type": "off_stock_sale",
-            "label": sale["card_name"],
-            "category": category,
-            "description": description,
-            "quantity": int(quantity or 1),
-            "amount": float(amount or 0),
-            "payment_method": payment_method,
-            "inventory_impact": "none",
-            "source_lot_id": sale.get("source_lot_id"),
-            "source_lot_name": sale.get("source_lot_name"),
-            "cost_basis_known": sale["cost_basis_known"],
-            "cost_basis": sale["cost_basis"],
-            "notes": notes,
-        },
-    )
-    return tx_id
+def saved(st, data, message):
+    save_brocantes(data)
+    st.session_state["brocante_flash"] = message
+    st.rerun()
 
 
-def _render_goals(st, session, stats, fp_func):
-    goals = session.setdefault("goals", {})
-    st.markdown("### Objectifs")
-    goal_defs = [
-        ("ca", "Objectif CA", stats["ca"], "€"),
-        ("net_cash", "Objectif trésorerie", stats["net_cash"], "€"),
-        ("profit", "Objectif bénéfice calculable", stats["calculable_profit"], "€"),
-        ("cards", "Objectif cartes vendues", stats["cards_sold"], ""),
-        ("sales", "Objectif ventes", stats["sales_count"], ""),
-        ("exchanges", "Objectif échanges", stats["exchanges_count"], ""),
-    ]
-    for key, label, current, suffix in goal_defs:
-        target = float(goals.get(key, 0) or 0)
-        if target > 0:
-            pct = min(current / target * 100, 100) if target else 0
-            st.progress(pct / 100)
-            st.caption(f"{label} : {_money(current, fp_func) if suffix == '€' else int(current)} / {_money(target, fp_func) if suffix == '€' else int(target)}")
-    custom = session.setdefault("custom_goals", [])
-    if custom:
-        for idx, goal in enumerate(custom):
-            if goal.get("kind") == "checkbox":
-                goal["done"] = st.checkbox(goal.get("label", "Objectif"), value=bool(goal.get("done")), key=f"bro_custom_goal_{session['id']}_{idx}")
-            else:
-                value = st.number_input(goal.get("label", "Objectif"), 0.0, 999999.0, float(goal.get("value", 0) or 0), 1.0, key=f"bro_custom_num_{session['id']}_{idx}")
-                goal["value"] = value
+def header(st, event):
+    status = {"active": "En cours", "preparing": "Préparation", "draft": "Préparation", "closed": "Clôturée"}.get(event.get("status"), "")
+    st.html(f'<div class="bro-header"><div><h2>{escape(event["name"])}</h2><div class="bro-meta">'
+            f'{escape(event.get("date", ""))} · {escape(event.get("location") or "Lieu non renseigné")}'
+            f'</div></div><span class="bro-badge">{status}</span></div>')
 
 
-def _render_dashboard(st, session, fp_func):
-    stats = brocante_stats(session)
-    c1, c2 = st.columns(2)
-    c1.metric("CA", _money(stats["ca"], fp_func))
-    c2.metric("Trésorerie", _money(stats["net_cash"], fp_func))
-    c3, c4 = st.columns(2)
-    c3.metric("Ventes", stats["sales_count"])
-    c4.metric("Échanges", stats["exchanges_count"])
-    _render_goals(st, session, stats, fp_func)
+def dashboard(st, event, data=None, *, actions=False):
+    s = brocante_stats(event)
+    metrics = [("Chiffre d’affaires", money(s["ca"]), "#6d28d9", f'{s["sales_count"]} commandes'),
+               ("Bénéfice calculable", money(s["calculable_profit"]), "#15803d", "Après frais"),
+               ("Cartes vendues", str(s["cards_sold"]), "#2563eb", "Cartes physiques"),
+               ("Caisse théorique", money(s["theoretical_cash"]), "#111827", "Espèces disponibles")]
+    st.html('<div class="bro-kpis">' + ''.join(
+        f'<div class="bro-kpi" style="--accent:{color}"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>'
+        for label, value, color, detail in metrics) + '</div>')
+    if s["unknown_cost_sales"]:
+        st.caption(f'{s["unknown_cost_sales"]} commande(s) sans coût complet : bénéfice partiel.')
+    st.caption(f'{s["purchases_count"]} rachats · {money(s["purchased_amount"])} dépensés · {s["exchanges_count"]} échanges · {money(s["fees"])} de frais')
+    if actions:
+        shortcuts = [("Nouvelle vente", "Vente"), ("Nouveau rachat", "Rachat"), ("Hors stock", "Hors stock"),
+                     ("Nouvel échange", "Échange"), ("Ajouter un frais", "Frais / clôture"), ("Clôturer", "Frais / clôture")]
+        for offset in (0, 3):
+            for col, (label, view) in zip(st.columns(3), shortcuts[offset:offset+3]):
+                col.button(label, key=f'bro_quick_{label}', on_click=go, args=(st, view), width="stretch")
+    left, right = st.columns(2)
+    with left:
+        st.markdown("### Encaissements")
+        ledger(st, [("Fonds initial", money(s["initial_cash"])), ("Ventes espèces", money(s["payments"]["cash"])),
+                    ("PayPal / autres", money(sum(s["payments"][k] for k in ("paypal", "other", "unknown")))),
+                    ("CA stock", money(s["ca"]-s["ca_off_stock"])), ("CA hors stock", money(s["ca_off_stock"])),
+                    ("Trésorerie générée", money(s["net_cash"]))])
+    with right:
+        st.markdown("### Objectifs")
+        definitions = [("ca", "CA", s["ca"]), ("net_cash", "Trésorerie générée", s["net_cash"]),
+                       ("profit", "Bénéfice", s["calculable_profit"]), ("cards", "Cartes vendues", s["cards_sold"]),
+                       ("sales", "Ventes", s["sales_count"]), ("exchanges", "Échanges", s["exchanges_count"])]
+        visible = False
+        for key, label, current in definitions:
+            target = float(event.get("goals", {}).get(key, 0) or 0)
+            if target > 0:
+                visible = True
+                st.progress(min(max(current/target, 0), 1), text=f'{label} · {current:g} / {target:g}')
+        for i, goal in enumerate(event.get("custom_goals", [])):
+            visible = True
+            field = "done" if goal.get("kind") == "checkbox" else "value"
+            initial = goal.get(field, False if field == "done" else 0.0)
+            widget = st.checkbox if field == "done" else st.number_input
+            value = widget(goal.get("label", "Objectif"), value=initial, key=f'bro_goal_{event["id"]}_{i}', disabled=not actions)
+            if actions and value != initial:
+                goal[field] = value
+                saved(st, data, "Objectif mis à jour.")
+        if not visible:
+            st.caption("Aucun objectif chiffré pour cette journée.")
 
 
-def _render_create(st, data, fp_func):
-    with st.expander("Créer une brocante", expanded=True):
-        name = st.text_input("Nom", key="bro_new_name", placeholder="Brocante du dimanche")
-        event_date = st.date_input("Date", value=date.today(), key="bro_new_date")
-        location = st.text_input("Lieu", key="bro_new_location")
-        notes = st.text_area("Notes", key="bro_new_notes")
-        st.caption("Objectifs facultatifs")
-        g1, g2 = st.columns(2)
-        goals = {
-            "ca": g1.number_input("CA (€)", 0.0, 999999.0, 0.0, 5.0, key="bro_goal_ca"),
-            "net_cash": g2.number_input("Trésorerie (€)", 0.0, 999999.0, 0.0, 5.0, key="bro_goal_cash"),
-            "profit": g1.number_input("Bénéfice calculable (€)", 0.0, 999999.0, 0.0, 5.0, key="bro_goal_profit"),
-            "cards": g2.number_input("Cartes vendues", 0, 9999, 0, 1, key="bro_goal_cards"),
-            "sales": g1.number_input("Nombre de ventes", 0, 9999, 0, 1, key="bro_goal_sales"),
-            "exchanges": g2.number_input("Nombre d'échanges", 0, 9999, 0, 1, key="bro_goal_exchanges"),
-        }
-        if st.button("Créer la brocante", type="primary", width="stretch", key="bro_create"):
-            session = make_session(name, event_date, location, notes, goals, data.get("checklist_template"))
-            data.setdefault("sessions", []).append(session)
-            save_brocantes(data)
-            st.success("Brocante créée.")
-            st.rerun()
+def create(st, data):
+    st.subheader("Préparer une brocante")
+    with st.form("bro_create_form"):
+        a, b = st.columns(2)
+        name = a.text_input("Nom", placeholder="Brocante du dimanche")
+        day = b.date_input("Date", value=date.today())
+        location = a.text_input("Lieu")
+        cash = b.number_input("Fonds de caisse initial (€)", min_value=0.0, value=None, step=5.0, placeholder="Obligatoire avant démarrage")
+        with st.expander("Notes et objectifs"):
+            notes = st.text_area("Notes", height=80)
+            c, d = st.columns(2)
+            goals = {}
+            for i, (key, label) in enumerate((("ca", "CA (€)"), ("net_cash", "Trésorerie (€)"), ("profit", "Bénéfice (€)"),
+                                               ("cards", "Cartes vendues"), ("sales", "Ventes"), ("exchanges", "Échanges"))):
+                goals[key] = (c if i % 2 == 0 else d).number_input(f'Objectif {label}', min_value=0.0, step=1.0)
+        if st.form_submit_button("Créer la brocante", type="primary"):
+            data.setdefault("sessions", []).append(make_session(name, day, location, notes, goals, data.get("checklist_template"), initial_cash=cash))
+            saved(st, data, "Brocante créée. Prépare la journée avant de démarrer.")
 
 
-def _render_checklist(st, data, session):
-    st.markdown("### Checklist")
-    summary = checklist_summary(session)
-    st.caption(f"{summary['done']} / {summary['total']} terminée(s)")
-    for task in sorted(session.get("checklist", []), key=lambda x: int(x.get("order", 0) or 0)):
-        label = f"{task.get('category', 'Divers')} · {task.get('title', '')}"
-        if task.get("required"):
-            label += " · obligatoire"
-        task["done"] = st.checkbox(label, value=bool(task.get("done")), key=f"bro_task_{session['id']}_{task['id']}")
-    new_task = st.text_input("Ajouter une tâche", key=f"bro_new_task_{session['id']}")
-    if st.button("Ajouter la tâche", key=f"bro_add_task_{session['id']}", width="stretch") and new_task.strip():
-        session.setdefault("checklist", []).append(
-            {"id": new_id("task"), "title": new_task.strip(), "category": "Divers", "done": False, "required": False, "order": len(session.get("checklist", [])) + 1}
-        )
-        save_brocantes(data)
-        st.rerun()
-
-
-def _render_preparing(st, data, session, fp_func):
-    st.markdown(f"## {session.get('name')}")
-    st.caption(f"{session.get('date')} · {session.get('location') or 'Lieu non renseigné'}")
-    _render_checklist(st, data, session)
-    _render_dashboard(st, session, fp_func)
-    missing = checklist_summary(session)["required_missing"]
-    if missing:
-        st.warning(f"{len(missing)} tâche(s) obligatoire(s) restent à confirmer.")
-        force = st.checkbox("Démarrer quand même", key=f"bro_force_start_{session['id']}")
-    else:
-        force = True
-    if st.button("Démarrer la brocante", type="primary", width="stretch", key=f"bro_start_{session['id']}"):
-        ok, msg = start_session(data, session["id"], force=force)
-        if ok:
-            save_brocantes(data)
-            st.success(msg)
-            st.rerun()
-        else:
-            st.error(msg)
-
-
-def _render_stock_sale(st, data, session, context, fp_func):
-    normalize_name = context["normalize_name"]
-    cd = context["ld"]()
-    st.markdown("### Vente stockée")
-    st.caption("Canal automatiquement défini sur Brocante.")
-    cart_key = f"bro_cart_{session['id']}"
-    st.session_state.setdefault(cart_key, [])
-    search = st.text_input("Rechercher une carte", key=f"bro_stock_search_{session['id']}", placeholder="Nom de carte")
-    if search:
-        rows = []
-        for li, lot in enumerate(cd.get("lots", []) or []):
-            for ci, card in enumerate(lot.get("cards", []) or []):
-                if context["card_available_qty"](card) > 0 and normalize_name(search) in normalize_name(card.get("name", "")):
-                    rows.append((li, ci, lot, card))
-        for li, ci, lot, card in rows[:8]:
-            cols = st.columns([3, 1, 1])
-            cols[0].markdown(f"**{card.get('name')}**")
-            cols[0].caption(f"{lot.get('nom')} · #{card.get('number', '')} · stock {context['card_available_qty'](card)}")
-            qty = cols[1].number_input("Qté", 1, max(context["card_available_qty"](card), 1), 1, key=f"bro_stock_qty_{li}_{ci}")
-            if cols[2].button("Ajouter", key=f"bro_stock_add_{li}_{ci}"):
-                st.session_state[cart_key].append(
-                    {
-                        "lot_idx": li,
-                        "card_idx": ci,
-                        "lot_uid": lot.get("lot_uid"),
-                        "card_uid": card.get("card_uid"),
-                        "lot_name": lot.get("nom"),
-                        "card_name": card.get("name"),
-                        "card_set": card.get("set", ""),
-                        "quantity": qty,
-                        "price_base": float(card.get("suggested_price", 0) or 0),
-                    }
-                )
-                st.rerun()
-    with st.expander("Scanner une carte", expanded=False):
-        def on_scan(candidate):
-            card = candidate["card"]
-            for li, lot in enumerate(cd.get("lots", []) or []):
-                for ci, stock_card in enumerate(lot.get("cards", []) or []):
-                    if stock_card.get("card_uid") == card.get("card_uid") or (
-                        normalize_name(stock_card.get("name", "")) == normalize_name(card.get("name", ""))
-                        and str(stock_card.get("number", "")).lstrip("0") == str(candidate.get("number", "")).lstrip("0")
-                    ):
-                        st.session_state[cart_key].append(
-                            {
-                                "lot_idx": li,
-                                "card_idx": ci,
-                                "lot_uid": lot.get("lot_uid"),
-                                "card_uid": stock_card.get("card_uid"),
-                                "lot_name": lot.get("nom"),
-                                "card_name": stock_card.get("name"),
-                                "card_set": stock_card.get("set", ""),
-                                "quantity": 1,
-                                "price_base": float(stock_card.get("suggested_price", 0) or 0),
-                            }
-                        )
-                        return
-            st.warning("Carte trouvée dans le cache, mais pas disponible dans le stock.")
-        render_assisted_scan(
-            key_prefix=f"bro_stock_scan_{session['id']}",
-            cards_index=st.session_state.get("cards_index", {}) or {},
-            normalize_name_func=normalize_name,
-            proxy_img_func=context.get("proxy_img"),
-            on_confirm=on_scan,
-            button_label="Ajouter",
-        )
-    cart = st.session_state.get(cart_key, [])
-    if cart:
-        st.markdown("#### Panier")
-        total = 0.0
-        for idx, item in enumerate(list(cart)):
-            total += item["quantity"] * item["price_base"]
-            cols = st.columns([3, 1])
-            cols[0].caption(f"{item['card_name']} · x{item['quantity']} · {_money(item['quantity'] * item['price_base'], fp_func)}")
-            if cols[1].button("Retirer", key=f"bro_cart_rm_{idx}"):
-                cart.pop(idx)
-                st.rerun()
-        negotiated = st.number_input("Prix global encaissé", 0.0, 999999.0, float(total), 0.5, key=f"bro_stock_total_{session['id']}")
-        payment = st.selectbox("Paiement", PAYMENT_METHODS, key=f"bro_stock_payment_{session['id']}")
-        paid = st.number_input("Montant donné en espèces", 0.0, 999999.0, 0.0, 0.5, key=f"bro_stock_cash_given_{session['id']}")
-        if payment_key(payment) == "cash" and paid > 0:
-            st.caption(f"Monnaie à rendre : {_money(max(paid - negotiated, 0), fp_func)}")
-        tx_key = f"bro_stock_tx_{session['id']}_{round(negotiated, 2)}_{len(cart)}"
-        if st.button("Valider la vente stockée", type="primary", width="stretch", key=f"bro_stock_validate_{session['id']}"):
-            if st.session_state.get("bro_last_stock_tx") == tx_key:
-                st.warning("Vente déjà validée.")
-                return
-            if total > 0 and abs(negotiated - total) > 0.01:
-                items = [{**item, "unit_price": negotiated * ((item["quantity"] * item["price_base"]) / total) / item["quantity"]} for item in cart]
-            else:
-                items = [{**item, "unit_price": item["price_base"]} for item in cart]
-            ok, msg = context["scu_many"](items, canal="Brocante")
+def preparing(st, data, event):
+    header(st, event)
+    summary = checklist_summary(event)
+    st.progress(summary["done"]/max(summary["total"], 1), text=f'Préparation · {summary["done"]} / {summary["total"]}')
+    with st.form(f'bro_checklist_{event["id"]}'):
+        cols, values = st.columns(2), {}
+        categories = list(dict.fromkeys(t.get("category", "Divers") for t in event.get("checklist", [])))
+        for i, category in enumerate(categories):
+            with cols[i % 2]:
+                st.markdown(f"**{category}**")
+                for task in event["checklist"]:
+                    if task.get("category", "Divers") == category:
+                        label = task["title"] + (" · Obligatoire" if task.get("required") else "")
+                        values[task["id"]] = st.checkbox(label, value=bool(task.get("done")), key=f'bro_task_{event["id"]}_{task["id"]}')
+        if st.form_submit_button("Enregistrer la préparation"):
+            for task in event["checklist"]:
+                task["done"] = values[task["id"]]
+            saved(st, data, "Préparation enregistrée.")
+    with st.expander("Ajouter une tâche"):
+        with st.form(f'bro_add_task_{event["id"]}', clear_on_submit=True):
+            title, required = st.text_input("Tâche"), st.checkbox("Obligatoire")
+            if st.form_submit_button("Ajouter") and title.strip():
+                event["checklist"].append(dict(id=new_id("task"), title=title.strip(), category="Divers", required=required,
+                                                done=False, order=len(event["checklist"])+1))
+                saved(st, data, "Tâche ajoutée.")
+    with st.form(f'bro_start_form_{event["id"]}'):
+        initial_cash = event.get("initial_cash")
+        cash = st.number_input("Fonds de caisse initial (€)", min_value=0.0,
+                               value=float(initial_cash) if initial_cash is not None else None, step=5.0)
+        st.caption(f'Objectif CA : {money(event.get("goals", {}).get("ca", 0))} · Trésorerie : {money(event.get("goals", {}).get("net_cash", 0))}')
+        if summary["required_missing"]:
+            st.warning(f'{len(summary["required_missing"])} tâche(s) obligatoire(s) non confirmée(s).')
+        force = st.checkbox("Démarrer quand même", disabled=not summary["required_missing"])
+        if st.form_submit_button("Démarrer la brocante", type="primary"):
+            event["initial_cash"] = cash
+            ok, message = start_session(data, event["id"], force=force)
             if ok:
-                st.session_state["bro_last_stock_tx"] = tx_key
-                record_transaction(session, {"type": "stock_sale", "label": "Vente stockée", "quantity": sum(i["quantity"] for i in items), "amount": negotiated, "payment_method": payment, "inventory_impact": "stock_decrement"})
-                save_brocantes(data)
-                st.session_state[cart_key] = []
-                st.success("Vente stockée enregistrée.")
-                st.rerun()
-            else:
-                st.error(msg)
+                saved(st, data, message)
+            st.error(message)
 
 
-def _render_off_stock_sale(st, data, session, context, fp_func):
-    st.markdown("### Vente hors stock")
-    cd = context["ld"]()
-    category = st.selectbox("Catégorie", BRO_CATEGORIES, key=f"bro_off_cat_{session['id']}")
-    description = st.text_input("Description facultative", key=f"bro_off_desc_{session['id']}")
-    quantity = st.number_input("Quantité", 1, 9999, 1, 1, key=f"bro_off_qty_{session['id']}")
-    amount = st.number_input("Prix total encaissé", 0.0, 999999.0, 0.0, 0.5, key=f"bro_off_amount_{session['id']}")
-    payment = st.selectbox("Paiement", PAYMENT_METHODS, key=f"bro_off_payment_{session['id']}")
-    options = _lot_options(cd)
-    selected = st.selectbox("Lot source facultatif", [label for label, _ in options], key=f"bro_off_lot_{session['id']}")
-    source_lot_idx = next(idx for label, idx in options if label == selected)
-    cost = st.number_input("Coût d'achat attribué facultatif", 0.0, 999999.0, 0.0, 0.5, key=f"bro_off_cost_{session['id']}")
-    notes = st.text_area("Notes facultatives", key=f"bro_off_notes_{session['id']}")
-    if cost <= 0:
-        st.caption("Coût inconnu : le bénéfice sera indiqué comme partiel/inconnu.")
-    tx_key = f"off|{session['id']}|{category}|{quantity}|{amount}|{selected}|{description}"
-    if st.button("Enregistrer la vente hors stock", type="primary", width="stretch", key=f"bro_off_save_{session['id']}"):
-        if amount <= 0:
-            st.error("Renseigne un prix encaissé.")
-            return
-        if st.session_state.get("bro_last_off_tx") == tx_key:
-            st.warning("Vente déjà validée.")
-            return
-        _append_off_stock_sale(
-            cd,
-            session,
-            category=category,
-            description=description,
-            quantity=quantity,
-            amount=amount,
-            payment_method=payment,
-            source_lot_idx=source_lot_idx,
-            cost_basis=cost,
-            notes=notes,
-        )
-        context["sd"](cd)
-        save_brocantes(data)
-        st.session_state["bro_last_off_tx"] = tx_key
-        st.success("Vente hors stock enregistrée sans baisse de stock.")
-        st.rerun()
+def catalog_image(st, card):
+    image = card.get("image_url_ja") or card.get("image_url") or card.get("image_url_en") or card.get("image")
+    if isinstance(image, str) and image and image != "__placeholder__":
+        if image.startswith("https://assets.tcgdex.net/") and not image.endswith((".png", ".jpg", ".webp")):
+            image += "/low.webp"
+        st.image(image, width=90)
 
 
-def _render_exchange(st, data, session, context, fp_func):
-    st.markdown("### Échange brocante")
-    st.caption("Les cartes reçues rejoignent le lot Trade. Les valeurs d'échange ne sont pas du CA.")
-    cd = context["ld"]()
-    normalize_name = context["normalize_name"]
-    give_key = f"bro_ex_give_{session['id']}"
-    recv_key = f"bro_ex_recv_{session['id']}"
-    st.session_state.setdefault(give_key, [])
-    st.session_state.setdefault(recv_key, [])
-    search = st.text_input("Carte que tu donnes", key=f"bro_ex_search_{session['id']}")
-    if search:
-        for li, lot in enumerate(cd.get("lots", []) or []):
-            for ci, card in enumerate(lot.get("cards", []) or []):
-                if context["card_available_qty"](card) > 0 and normalize_name(search) in normalize_name(card.get("name", "")):
-                    cols = st.columns([3, 1])
-                    cols[0].caption(f"{card.get('name')} · {lot.get('nom')} · {_money(card.get('suggested_price', 0), fp_func)}")
-                    if cols[1].button("Donner", key=f"bro_ex_give_add_{li}_{ci}"):
-                        st.session_state[give_key].append({"lot_idx": li, "card_idx": ci, "card_uid": card.get("card_uid"), "card_name": card.get("name"), "value": float(card.get("suggested_price", 0) or 0)})
+def purchase(st, event, context):
+    st.subheader("Rachat de cartes")
+    st.caption("Un seul lot de rachats pour cette brocante. Le coût correspond au montant réellement payé.")
+    key = f'bro_purchase_cart_{event["id"]}'
+    cart = st.session_state.setdefault(key, [])
+    query = inventory_live_search("Rechercher une carte", key=f'bro_purchase_query_{event["id"]}', placeholder="Nom, numéro… FR / JAP")
+    results = search_received_cards(query, st.session_state.get("cards_index", {}), context["normalize_name"], limit=12) if query.strip() else []
+    if query and not results:
+        st.info("Aucune carte trouvée dans le catalogue chargé.")
+    for offset in range(0, len(results), 3):
+        for col, (card, set_name, set_id) in zip(st.columns(3), results[offset:offset+3]):
+            with col:
+                with st.container(border=True):
+                    catalog_image(st, card)
+                    st.markdown(f'**{card.get("name", "Carte")}**')
+                    st.caption(f'{card.get("localId", card.get("number", ""))} · {set_name} · {card.get("lang", "fr").upper()}')
+                    if st.button("Sélectionner", key=f'bro_buy_pick_{offset}_{set_id}_{card.get("id", card.get("name"))}'):
+                        selected = context["ecd"](card, set_name, lang=card.get("lang", "fr"))
+                        selected["set_id"] = set_id
+                        st.session_state[f'{key}_selected'] = selected
                         st.rerun()
-                    break
-    with st.expander("Carte reçue", expanded=True):
-        rn = st.text_input("Nom reçu", key=f"bro_ex_recv_name_{session['id']}")
-        rnum = st.text_input("Numéro", key=f"bro_ex_recv_num_{session['id']}")
-        rval = st.number_input("Valeur manuelle", 0.0, 999999.0, 0.0, 0.5, key=f"bro_ex_recv_val_{session['id']}")
-        if st.button("Ajouter la carte reçue", key=f"bro_ex_recv_add_{session['id']}"):
-            if rn.strip():
-                st.session_state[recv_key].append({"name": rn.strip(), "number": rnum.strip(), "value": rval, "set": "", "image_url": ""})
+    selected = st.session_state.get(f'{key}_selected')
+    if selected:
+        with st.form(f'{key}_add', clear_on_submit=True):
+            st.markdown(f'**{selected["name"]} · {selected.get("number", "")}**')
+            a, b = st.columns(2)
+            qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
+            value = b.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
+            if st.form_submit_button("Ajouter au panier de rachat"):
+                cart.append({"card": deepcopy(selected), "quantity": qty, "value": value})
+                st.session_state.pop(f'{key}_selected', None)
                 st.rerun()
-    given = st.session_state[give_key]
-    received = st.session_state[recv_key]
-    total_give = sum(float(x.get("value", 0) or 0) for x in given)
-    total_recv = sum(float(x.get("value", 0) or 0) for x in received)
-    cash_direction = st.radio("Complément espèces", ["Aucun", "Tu reçois", "Tu ajoutes"], horizontal=True, key=f"bro_ex_cash_dir_{session['id']}")
-    cash_amount = st.number_input("Montant espèces", 0.0, 999999.0, 0.0, 0.5, key=f"bro_ex_cash_{session['id']}")
-    cash_received = cash_amount if cash_direction == "Tu reçois" else 0.0
-    cash_given = cash_amount if cash_direction == "Tu ajoutes" else 0.0
-    st.caption(f"Tu donnes {_money(total_give, fp_func)} · tu reçois {_money(total_recv, fp_func)} · espèces nettes {_money(cash_received - cash_given, fp_func)}")
-    if given:
-        st.caption("À donner : " + ", ".join(x["card_name"] for x in given))
-    if received:
-        st.caption("À recevoir : " + ", ".join(x["name"] for x in received))
-    if st.button("Confirmer l'échange", type="primary", width="stretch", key=f"bro_ex_confirm_{session['id']}"):
-        if not given or not received:
-            st.error("Ajoute au moins une carte donnée et une carte reçue.")
-            return
-        trade_id = build_trade_id()
-        trade_date = datetime.now().isoformat()
-        trade_idx = context["ensure_trade_lot"](cd)
-        given_records = []
-        for g in given:
-            li, ci, lot, card = context["resolve_card_ref"](cd, g)
-            if not card:
-                continue
-            historical_cost = card_historical_unit_cost(lot, card)
-            contributors = contributors_from_card(li, lot, card, historical_cost)
-            given_records.append({
-                "lot_idx": li,
-                "card_idx": ci,
-                "lot": lot,
-                "card": card,
-                "reference_value": float(g.get("value", 0) or 0),
-                "historical_cost": historical_cost,
-                "contributors": contributors,
-            })
-
-        contributors, historical_before_cash, historical_remaining = aggregate_contributors(
-            given_records, cash_paid=cash_given, cash_received=cash_received
-        )
-        summary = compute_trade_summary(
-            total_give, total_recv, cash_paid=cash_given, cash_received=cash_received,
-            given_historical_cost=sum(item["historical_cost"] for item in given_records),
-        )
-        received_allocated = allocate_received_cards(received, historical_remaining, contributors)
-        received_names = ", ".join(r.get("name", "") for r in received)
-
-        for record in given_records:
-            card = record["card"]
-            lot = record["lot"]
-            card.setdefault("card_uid", context["new_uid"]("card"))
-            card["exchange_out_quantity"] = int(card.get("exchange_out_quantity", 0) or 0) + 1
-            card.setdefault("exchange_out_entries", []).append({
-                "exchange_id": trade_id,
-                "date": trade_date,
-                "quantity": 1,
-                "card_uid": card.get("card_uid"),
-                "card_name": card.get("name"),
-                "card_set": card.get("set", ""),
-                "card_number": card.get("number", ""),
-                "image_url": card.get("image_url", ""),
-                "image_url_en": card.get("image_url_en", ""),
-                "reference_value": record["reference_value"],
-                "historical_cost": round(record["historical_cost"], 2),
-                "lot_idx": record["lot_idx"],
-                "lot_uid": lot.get("lot_uid"),
-                "lot_name": lot.get("nom", ""),
-                "contributors": record["contributors"],
-                "exchanged_for": received_names,
-                "brocante_id": session.get("id"),
-            })
-
-        for r in received_allocated:
-            cd["lots"][trade_idx].setdefault("cards", []).append(
-                {
-                    "card_uid": context["new_uid"]("card"),
-                    "name": r["name"],
-                    "set": r.get("set", ""),
-                    "number": r.get("number", ""),
-                    "suggested_price": float(r.get("value", 0) or 0),
-                    "quantity": 1,
-                    "sold_quantity": 0,
-                    "condition": "NM",
-                    "image_url": r.get("image_url", ""),
-                    "image_url_en": r.get("image_url_en", ""),
-                    "sold_entries": [],
-                    "received_by_exchange": True,
-                    "exchange_id": trade_id,
-                    "exchange_date": trade_date[:10],
-                    "exchange_cash_paid": cash_given,
-                    "exchange_cash_received": cash_received,
-                    "trade_acquisition_cost": r.get("trade_acquisition_total_cost", 0.0),
-                    "trade_acquisition_unit_cost": r.get("trade_acquisition_unit_cost", 0.0),
-                    "trade_acquisition_total_cost": r.get("trade_acquisition_total_cost", 0.0),
-                    "trade_contributors": r.get("trade_contributors", []),
-                    "exchange_repartition": r.get("exchange_repartition", {}),
-                    "trade_received_cards_value": summary["trade_received_cards_value"],
-                    "trade_given_cards_value": summary["trade_given_cards_value"],
-                    "trade_cash_paid": summary["trade_cash_paid"],
-                    "trade_cash_received": summary["trade_cash_received"],
-                    "trade_economic_received_total": summary["trade_economic_received_total"],
-                    "trade_economic_given_total": summary["trade_economic_given_total"],
-                    "trade_value_difference": summary["trade_value_difference"],
-                    "trade_cost_method": summary["trade_cost_method"],
-                    "brocante_id": session.get("id"),
-                }
-            )
-        cd.setdefault("trade_history", []).append({
-            "exchange_id": trade_id,
-            "date": trade_date,
-            **summary,
-            "trade_historical_cost_before_cash": historical_before_cash,
-            "trade_acquisition_total_cost": historical_remaining,
-            "contributors": contributors,
-            "given_cards": given,
-            "received_cards": received,
-            "brocante_id": session.get("id"),
-        })
-        context["sd"](cd)
-        record_exchange(session, {"given": given, "received": received, "cash_received": cash_received, "cash_given": cash_given, "value_given": total_give, "value_received": total_recv})
-        save_brocantes(data)
-        st.session_state[give_key] = []
-        st.session_state[recv_key] = []
-        st.success("Échange enregistré.")
-        st.rerun()
-
-
-def _render_expenses_and_close(st, data, session, fp_func):
-    st.markdown("### Frais et clôture")
-    with st.expander("Ajouter des frais de journée", expanded=False):
-        label = st.text_input("Libellé", key=f"bro_exp_label_{session['id']}")
-        category = st.selectbox("Catégorie", ["Emplacement", "Transport", "Nourriture", "Matériel", "Autre"], key=f"bro_exp_cat_{session['id']}")
-        amount = st.number_input("Montant", 0.0, 999999.0, 0.0, 0.5, key=f"bro_exp_amount_{session['id']}")
-        note = st.text_input("Note", key=f"bro_exp_note_{session['id']}")
-        if st.button("Ajouter le frais", key=f"bro_exp_add_{session['id']}", width="stretch") and amount > 0:
-            add_expense(session, label, amount, category, note)
-            save_brocantes(data)
-            st.rerun()
-    stats = brocante_stats(session)
-    st.caption(f"CA ventes : {_money(stats['ca'], fp_func)}")
-    st.caption(f"Espèces théoriques : {_money(stats['payments']['cash'] + stats['exchange_cash_received'] - stats['exchange_cash_given'] - stats['fees'], fp_func)}")
-    st.caption(f"PayPal : {_money(stats['payments']['paypal'], fp_func)} · Autres : {_money(stats['payments']['other'], fp_func)}")
-    st.caption(f"Frais : {_money(stats['fees'], fp_func)} · Trésorerie nette : {_money(stats['net_cash'], fp_func)}")
-    st.caption(f"Ventes hors stock sans coût : {stats['unknown_cost_sales']}")
-    counted = st.number_input("Espèces réellement comptées", 0.0, 999999.0, 0.0, 0.5, key=f"bro_counted_cash_{session['id']}")
-    note = st.text_area("Note d'écart éventuel", key=f"bro_close_note_{session['id']}")
-    confirm = st.checkbox("Je confirme la clôture", key=f"bro_close_confirm_{session['id']}")
-    if st.button("Clôturer la brocante", type="primary", width="stretch", key=f"bro_close_{session['id']}", disabled=not confirm):
-        close_session(session, counted, note)
-        save_brocantes(data)
-        st.success("Brocante clôturée.")
-        st.rerun()
-
-
-def _render_history(st, data, fp_func):
-    closed = [s for s in data.get("sessions", []) if s.get("status") == "closed"]
-    st.markdown("### Historique")
-    if not closed:
-        st.info("Aucune brocante clôturée pour le moment.")
+    if not cart:
+        st.caption("Le panier de rachat est vide.")
         return
-    stats_rows = [(s, brocante_stats(s)) for s in closed]
-    avg_ca = sum(row[1]["ca"] for row in stats_rows) / len(stats_rows)
-    best_ca = max(stats_rows, key=lambda row: row[1]["ca"])
-    for session, stats in sorted(stats_rows, key=lambda row: row[0].get("date", ""), reverse=True):
-        with st.container(border=True):
-            st.markdown(f"**{session.get('date')} · {session.get('name')}**")
-            st.caption(f"CA {_money(stats['ca'], fp_func)} · trésorerie {_money(stats['net_cash'], fp_func)} · ventes {stats['sales_count']} · échanges {stats['exchanges_count']}")
-            if avg_ca > 0:
-                st.caption(f"CA : {(stats['ca'] - avg_ca) / avg_ca * 100:+.0f}% par rapport à la moyenne")
-            if session.get("id") == best_ca[0].get("id"):
-                st.caption(f"Meilleur CA sur {len(closed)} brocante(s)")
+    st.markdown("### Panier de rachat")
+    for i, row in enumerate(cart):
+        a, b = st.columns([5, 1])
+        a.write(f'{row["card"]["name"]} · {row["card"].get("number", "")} × {row["quantity"]} · valeur {money(row["value"])} / carte')
+        if b.button("Retirer", key=f'bro_buy_remove_{i}'):
+            cart.pop(i)
+            st.rerun()
+    with st.form(f'{key}_confirm'):
+        a, b = st.columns(2)
+        amount = a.number_input("Montant total réellement payé (€)", min_value=0.0, value=None, step=0.5)
+        payment = b.selectbox("Paiement", PAYMENT_METHODS)
+        confirm = st.checkbox("Je confirme l'achat et son entrée dans le stock")
+        if st.form_submit_button("Valider le rachat", type="primary"):
+            if amount is None or not confirm:
+                st.error("Renseigne le montant payé et confirme l'achat.")
+                return
+            stock, fresh = context["ld"](), load_brocantes()
+            attempt = st.session_state.setdefault(f'{key}_attempt', new_id("purchase"))
+            try:
+                after_stock, after_events = stage_purchase(stock, fresh, event["id"], cart, amount, payment, attempt)
+                commit_staged(stock, fresh, after_stock, after_events, context["sd"], save_brocantes)
+            except (ValueError, OSError) as error:
+                st.error(str(error))
+                return
+            st.session_state[key] = []
+            st.session_state.pop(f'{key}_attempt', None)
+            st.session_state["brocante_flash"] = "Rachat enregistré dans le lot de la journée."
+            st.rerun()
+
+
+def offstock(st, event, context):
+    st.subheader("Vente hors stock")
+    stock = context["ld"]()
+    with st.form(f'bro_offstock_{event["id"]}', clear_on_submit=True):
+        a, b = st.columns(2)
+        category, description = a.selectbox("Catégorie", BRO_CATEGORIES), b.text_input("Description")
+        qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
+        amount = b.number_input("Prix total encaissé (€)", min_value=0.0, value=None, step=0.5)
+        payment = a.selectbox("Paiement", PAYMENT_METHODS)
+        with st.expander("Options"):
+            lot_idx = st.selectbox("Lot source", [None] + list(range(len(stock.get("lots", [])))),
+                                   format_func=lambda i: "Non attribué" if i is None else stock["lots"][i]["nom"])
+            cost = st.number_input("Coût total attribué (€)", min_value=0.0, value=None, step=0.5, help="Vide : coût inconnu. Zéro : coût connu et nul.")
+            notes = st.text_input("Notes")
+        if st.form_submit_button("Enregistrer la vente", type="primary"):
+            if amount is None:
+                st.error("Renseigne le montant encaissé.")
+                return
+            attempt_key = f'bro_offstock_attempt_{event["id"]}'
+            st.session_state.setdefault(attempt_key, new_id("sale_tx"))
+            line = dict(line_type="off_stock", quantity=qty, unit_price=amount/qty, category=category,
+                        description=description, source_lot_idx=lot_idx, cost_basis=cost,
+                        cost_basis_known=cost is not None, notes=notes)
+            ok, message = context["scu_many"]([line], "Brocante", brocante_id=event["id"], payment_method=payment,
+                                             transaction_id=st.session_state[attempt_key])
+            if ok:
+                st.session_state.pop(attempt_key, None)
+                st.session_state["brocante_flash"] = "Vente hors stock enregistrée."
+                st.rerun()
+            st.error(message)
+
+
+def closing(st, data, event):
+    st.subheader("Frais et clôture")
+    with st.expander("Ajouter un frais"):
+        with st.form(f'bro_expense_{event["id"]}', clear_on_submit=True):
+            a, b = st.columns(2)
+            category = a.selectbox("Catégorie", ["Emplacement", "Nourriture", "Transport", "Matériel", "Parking", "Divers"])
+            label, amount = b.text_input("Description"), a.number_input("Montant (€)", min_value=0.0, step=0.5)
+            payment, note = b.selectbox("Paiement", PAYMENT_METHODS), st.text_input("Notes")
+            if st.form_submit_button("Ajouter le frais") and amount > 0:
+                add_expense(event, label, amount, category, note, payment_method=payment)
+                saved(st, data, "Frais enregistré.")
+    if event.get("expenses"):
+        ledger(st, [(f'{e["label"]} · {e.get("payment_method", "Espèces")}', money(e["amount"])) for e in event["expenses"]])
+    dashboard(st, event)
+    s = brocante_stats(event)
+    st.markdown("### Réconciliation de caisse")
+    ledger(st, [("Fonds initial", money(s["initial_cash"])), ("+ Ventes espèces", money(s["payments"]["cash"])),
+                ("+ Compléments reçus", money(s["exchange_cash_received"])), ("− Rachats espèces", money(s["cash_purchases"])),
+                ("− Frais espèces", money(s["cash_fees"])), ("− Compléments donnés", money(s["exchange_cash_given"])),
+                ("= Espèces théoriques", money(s["theoretical_cash"]))])
+    if s["initial_cash"] is None:
+        st.warning("Fonds initial absent dans cet historique : l'écart de caisse ne peut pas être calculé.")
+    counted = st.number_input("Espèces réellement comptées (€)", min_value=0.0, value=None, step=0.5, key=f'bro_counted_{event["id"]}')
+    if counted is not None and s["theoretical_cash"] is not None:
+        variance = counted-s["theoretical_cash"]
+        (st.success if abs(variance) < 0.005 else st.warning)(f'Écart de caisse : {money(variance)}')
+    note = st.text_area("Note d'écart", height=80, key=f'bro_variance_note_{event["id"]}')
+    confirm = st.checkbox("Je confirme la clôture de cette brocante", key=f'bro_close_confirm_{event["id"]}')
+    if st.button("Clôturer la brocante", type="primary", disabled=not confirm or counted is None):
+        close_session(event, counted, note)
+        saved(st, data, "Brocante clôturée.")
+
+
+def management(st, data, event, context):
+    with st.expander("Archiver / supprimer"):
+        if event["status"] == "closed":
+            archived = bool(event.get("archived"))
+            if st.button("Désarchiver" if archived else "Archiver", key=f'bro_archive_{event["id"]}'):
+                event["archived"] = not archived
+                saved(st, data, "Archivage mis à jour. Les ventes sont conservées.")
+        from services.vinted_drops_service import load_vinted_drops
+        audit = deletion_audit(context["ld"](), data, event["id"], load_vinted_drops())
+        s = brocante_stats(audit["event"])
+        st.caption(f'{s["sales_count"]} ventes · {s["cards_sold"]} cartes · {s["off_stock_sales"]} commandes hors stock · {s["purchases_count"]} rachats · {s["exchanges_count"]} échanges · {len(event.get("expenses", []))} frais')
+        for _, lot in audit["purchase_lots"]:
+            st.caption(f'Lot concerné : {lot["nom"]}')
+        for reason in audit["blockers"]:
+            st.warning(reason)
+        if audit["blockers"]:
+            return
+        if audit["has_activity"]:
+            st.warning("Les ventes liées seront annulées et leur stock restauré. Les rachats inutilisés et les frais seront retirés.")
+            confirmed = st.text_input("Saisis le nom de la brocante pour confirmer", key=f'bro_delete_name_{event["id"]}') == event["name"]
+        else:
+            confirmed = st.checkbox("Supprimer cette brocante vide", key=f'bro_delete_empty_{event["id"]}')
+        if st.button("Supprimer définitivement", disabled=not confirmed, key=f'bro_delete_{event["id"]}'):
+            before_stock, before_events = context["ld"](), load_brocantes()
+            try:
+                after_stock, after_events = stage_delete(before_stock, before_events, event["id"], load_vinted_drops())
+                commit_staged(before_stock, before_events, after_stock, after_events, context["sd"], save_brocantes)
+            except (ValueError, OSError) as error:
+                st.error(str(error))
+                return
+            st.session_state["brocante_flash"] = "Brocante supprimée."
+            st.rerun()
+
+
+def history(st, data, context):
+    st.subheader("Historique des brocantes")
+    archives = st.checkbox("Inclure les archives", key="bro_show_archived")
+    closed = [e for e in data.get("sessions", []) if e["status"] == "closed" and (archives or not e.get("archived"))]
+    if not closed:
+        st.info("Aucune brocante clôturée à afficher.")
+    for event in sorted(closed, key=lambda e: e.get("date", ""), reverse=True):
+        s = brocante_stats(event)
+        with st.expander(f'{event.get("date", "")} · {event["name"]} · {money(s["ca"])}'):
+            header(st, event)
+            dashboard(st, event)
+            ledger(st, [("Caisse comptée", money(event.get("closure", {}).get("counted_cash"))),
+                        ("Écart de caisse", money(event.get("closure", {}).get("cash_variance")))])
+            st.caption(event.get("closure", {}).get("variance_note", ""))
+            with st.expander("Opérations de la journée"):
+                for label, collection in (("Ventes", "transactions"), ("Rachats", "purchases"), ("Frais", "expenses")):
+                    st.markdown(f'**{label}**')
+                    ledger(st, [(f'{r.get("created_at", "")} · {r.get("label", label)}', money(r.get("amount", 0))) for r in event.get(collection, [])])
+                for trade in event.get("exchanges", []):
+                    st.caption(f'Échange · {trade.get("created_at", "")} · reçu {money(trade.get("cash_received", 0))} · donné {money(trade.get("cash_given", 0))}')
+            confirm = st.checkbox("Confirmer la réouverture", key=f'bro_reopen_confirm_{event["id"]}')
+            if st.button("Réouvrir", disabled=not confirm, key=f'bro_reopen_{event["id"]}'):
+                ok, message = reopen_session(data, event["id"])
+                if ok:
+                    saved(st, data, message)
+                st.error(message)
+            management(st, data, event, context)
 
 
 def render_brocante_page(context):
-    globals().update(context)
-    st.markdown(render_page_header("Brocante", "Préparation, ventes mobiles, échanges et clôture", "🧺"), unsafe_allow_html=True)
+    st = context["st"]
+    st.html(CSS)
     data = load_brocantes()
-    active = active_session(data)
-    preparing = preparing_session(data)
-    tabs = st.tabs(["Aujourd'hui", "Vente rapide", "Hors stock", "Échange", "Frais / clôture", "Historique"])
-    with tabs[0]:
+    st.markdown(context["render_page_header"]("Brocante", "Préparer la journée, vendre et suivre la caisse", "🧺"), unsafe_allow_html=True)
+    flash = st.session_state.pop("brocante_flash", None)
+    if flash:
+        st.success(flash)
+    st.session_state.setdefault("brocante_view", VIEWS[0])
+    view = st.segmented_control("Brocante", VIEWS, key="brocante_view", label_visibility="collapsed") or VIEWS[0]
+    active, planned = active_session(data), preparing_session(data)
+    relevant = data.get("sessions", []) if view == "Historique" else [e for e in (active, planned) if e]
+    if relevant:
+        stock = context["ld"]()
+        for event in relevant:
+            project_event(event, stock)
+    if view == "Historique":
+        history(st, data, context)
+    elif view == "Aujourd’hui":
         if active:
-            st.success("Brocante en cours")
-            st.markdown(f"## {active.get('name')}")
-            _render_dashboard(st, active, fp)
-        elif preparing:
-            _render_preparing(st, data, preparing, fp)
+            header(st, active)
+            dashboard(st, active, data, actions=True)
+            management(st, data, active, context)
+        elif planned:
+            preparing(st, data, planned)
+            management(st, data, planned, context)
         else:
-            st.info("Aucune brocante active.")
-            _render_create(st, data, fp)
-    current = active or preparing
-    with tabs[1]:
-        if active:
-            _render_stock_sale(st, data, active, context, fp)
-        else:
-            st.info("Démarre une brocante pour vendre depuis ce module.")
-    with tabs[2]:
-        if active:
-            _render_off_stock_sale(st, data, active, context, fp)
-        else:
-            st.info("Démarre une brocante pour enregistrer une vente hors stock.")
-    with tabs[3]:
-        if active:
-            _render_exchange(st, data, active, context, fp)
-        else:
-            st.info("Démarre une brocante pour enregistrer un échange.")
-    with tabs[4]:
-        if active:
-            _render_expenses_and_close(st, data, active, fp)
-        elif current and current.get("status") == "closed":
-            st.info("Brocante clôturée.")
-        else:
-            st.info("Aucune brocante active à clôturer.")
-    with tabs[5]:
-        _render_history(st, data, fp)
-        closed = [s for s in data.get("sessions", []) if s.get("status") == "closed"]
-        if closed:
-            labels = [f"{s.get('date')} · {s.get('name')}" for s in closed]
-            choice = st.selectbox("Réouvrir une brocante clôturée", [""] + labels, key="bro_reopen_choice")
-            if choice:
-                session = closed[labels.index(choice)]
-                if st.checkbox("Confirmer la réouverture", key=f"bro_reopen_confirm_{session['id']}"):
-                    if st.button("Réouvrir", key=f"bro_reopen_{session['id']}"):
-                        ok, msg = reopen_session(data, session["id"])
-                        if ok:
-                            save_brocantes(data)
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+            create(st, data)
+    elif not active:
+        st.info("Démarre une brocante depuis Aujourd’hui pour enregistrer des opérations.")
+        st.button("Préparer la journée", on_click=go, args=(st, VIEWS[0]))
+    elif view in ("Vente", "Échange"):
+        from ui.pages.sales import render_sales_page
+        header(st, active)
+        render_sales_page({**context, "brocante_session": active, "brocante_section": view, "run_html": lambda *a, **k: None})
+    elif view == "Rachat":
+        header(st, active)
+        purchase(st, active, context)
+    elif view == "Hors stock":
+        header(st, active)
+        offstock(st, active, context)
+    elif view == "Frais / clôture":
+        header(st, active)
+        closing(st, data, active)

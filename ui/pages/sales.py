@@ -397,12 +397,14 @@ def _allocate_final_sale_price(cart_items, final_price):
 
 def render_sales_page(context):
     globals().update(context)
+    brocante = context.get("brocante_session")
     if st.session_state.pop("sale_scroll_top_pending", False):
         _request_sale_scroll_top()
-    st.markdown(
-        render_page_header("Vente / Échange", "Vendre, négocier et gérer les échanges", "💰"),
-        unsafe_allow_html=True,
-    )
+    if not brocante:
+        st.markdown(
+            render_page_header("Vente / Échange", "Vendre, négocier et gérer les échanges", "💰"),
+            unsafe_allow_html=True,
+        )
     
     try:
         query_section = str(st.query_params.get("page", "")).lower()
@@ -411,7 +413,7 @@ def render_sales_page(context):
     default_sales_section = "Échange" if query_section in ("echange", "échange") else "Vente"
     if "sales_active_section" not in st.session_state:
         st.session_state["sales_active_section"] = default_sales_section
-    active_sales_section = st.segmented_control(
+    active_sales_section = context.get("brocante_section", "Vente") if brocante else st.segmented_control(
         "Section",
         ["Vente", "Échange"],
         key="sales_active_section",
@@ -434,47 +436,50 @@ def render_sales_page(context):
         else:
             if "bulk_cart" not in st.session_state:
                 st.session_state.bulk_cart = []
+            if brocante and st.session_state.bulk_cart:
+                st.caption("Panier courant · la commande sera enregistrée pour cette brocante.")
 
             flash = st.session_state.pop("classic_offstock_flash", None)
             if flash:
                 getattr(st, flash[0])(flash[1])
 
-            with st.expander("Vente hors stock", expanded=False):
-                st.caption("Pour petites cartes, accessoires ou lots non suivis. Le stock n'est pas diminué.")
-                if st.session_state.get("classic_offstock_category") not in BRO_CATEGORIES:
-                    st.session_state["classic_offstock_category"] = BRO_CATEGORIES[0]
-                if st.session_state.get("classic_offstock_channel") not in SALE_CHANNELS:
-                    st.session_state["classic_offstock_channel"] = SALE_CHANNELS[0]
-                hs1, hs2 = st.columns(2)
-                hs_category = hs1.selectbox("Catégorie", list(BRO_CATEGORIES), key="classic_offstock_category")
-                hs_channel = hs2.selectbox("Canal de vente", list(SALE_CHANNELS), key="classic_offstock_channel")
-                lot_choices = [("Non attribuée", None)] + [
-                    (f"{idx + 1}. {lot.get('nom', f'Lot {idx + 1}')}", idx)
-                    for idx, lot in enumerate(cd.get("lots", []) or [])
-                ]
-                hs3, hs4, hs5 = st.columns([2, 0.7, 1])
-                hs_lot_label = hs3.selectbox("Lot source", [label for label, _ in lot_choices], key="classic_offstock_lot")
-                hs_source_lot_idx = next(value for label, value in lot_choices if label == hs_lot_label)
-                hs4.number_input("Quantité", 1, 9999, 1, 1, key="classic_offstock_quantity")
-                hs_amount = hs5.number_input("Prix total (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
-                hs_desc = st.text_input(
-                    "Description facultative",
-                    key="classic_offstock_desc",
-                    placeholder="Ex : Petit lot de promos + holo",
-                )
-                linked_drop = _off_stock_drop_preview(hs_channel)
-                if linked_drop:
-                    st.caption(f"🔗 Drop associé automatiquement : {linked_drop.get('name', 'Drop sans nom')}")
-                else:
-                    st.caption("Aucun drop actif associé")
-                st.button(
-                    "Ajouter au panier",
-                    type="primary",
-                    width="stretch",
-                    key="classic_offstock_save",
-                    on_click=_queue_classic_off_stock,
-                    args=(lot_choices, cd),
-                )
+            if not brocante:
+                with st.expander("Vente hors stock", expanded=False):
+                    st.caption("Pour petites cartes, accessoires ou lots non suivis. Le stock n'est pas diminué.")
+                    if st.session_state.get("classic_offstock_category") not in BRO_CATEGORIES:
+                        st.session_state["classic_offstock_category"] = BRO_CATEGORIES[0]
+                    if st.session_state.get("classic_offstock_channel") not in SALE_CHANNELS:
+                        st.session_state["classic_offstock_channel"] = SALE_CHANNELS[0]
+                    hs1, hs2 = st.columns(2)
+                    hs_category = hs1.selectbox("Catégorie", list(BRO_CATEGORIES), key="classic_offstock_category")
+                    hs_channel = hs2.selectbox("Canal de vente", list(SALE_CHANNELS), key="classic_offstock_channel")
+                    lot_choices = [("Non attribuée", None)] + [
+                        (f"{idx + 1}. {lot.get('nom', f'Lot {idx + 1}')}", idx)
+                        for idx, lot in enumerate(cd.get("lots", []) or [])
+                    ]
+                    hs3, hs4, hs5 = st.columns([2, 0.7, 1])
+                    hs_lot_label = hs3.selectbox("Lot source", [label for label, _ in lot_choices], key="classic_offstock_lot")
+                    hs_source_lot_idx = next(value for label, value in lot_choices if label == hs_lot_label)
+                    hs4.number_input("Quantité", 1, 9999, 1, 1, key="classic_offstock_quantity")
+                    hs_amount = hs5.number_input("Prix total (€)", 0.0, 99999.0, 0.0, 0.5, key="classic_offstock_amount")
+                    hs_desc = st.text_input(
+                        "Description facultative",
+                        key="classic_offstock_desc",
+                        placeholder="Ex : Petit lot de promos + holo",
+                    )
+                    linked_drop = _off_stock_drop_preview(hs_channel)
+                    if linked_drop:
+                        st.caption(f"🔗 Drop associé automatiquement : {linked_drop.get('name', 'Drop sans nom')}")
+                    else:
+                        st.caption("Aucun drop actif associé")
+                    st.button(
+                        "Ajouter au panier",
+                        type="primary",
+                        width="stretch",
+                        key="classic_offstock_save",
+                        on_click=_queue_classic_off_stock,
+                        args=(lot_choices, cd),
+                    )
 
             # ── Barre de recherche + filtre lot + compteur panier ──
             col_search, col_lot_filter, col_cart = st.columns([3, 2, 1])
@@ -865,6 +870,7 @@ def render_sales_page(context):
             if not st.session_state.bulk_cart:
                 st.info("📭 Panier vide - Cliquez sur 🛒 Ajouter pour ajouter des cartes")
             else:
+                cart_brocante = locals().get("brocante")
                 st.markdown("### 🛒 Panier")
                 
                 for idx, item in enumerate(st.session_state.bulk_cart):
@@ -888,6 +894,10 @@ def render_sales_page(context):
                 total_base = sum(item["quantity"] * item["price_base"] for item in st.session_state.bulk_cart)
                 st.markdown("---")
                 st.markdown(f"**Prix total de base : {fp(total_base)}**")
+                if cart_brocante:
+                    physical_count = sum(int(item["quantity"]) for item in st.session_state.bulk_cart
+                                         if not (item.get("is_off_stock") or item.get("line_type") == "off_stock"))
+                    st.caption(f"{physical_count} carte(s) physique(s) · une commande Brocante")
                 
                 vente_col1, vente_col2 = st.columns(2)
                 
@@ -914,6 +924,8 @@ def render_sales_page(context):
                         estimate = preview_sale(cd, preview_items, resolve_card=resolve_card_ref,
                                                 calc_cost=calc_cout_lot, effective_purchase_price=effective_purchase_price)
                         st.caption(label)
+                        if cart_brocante and estimate["profit"] is not None:
+                            st.caption(f"Coût historique : {fp(estimate['total'] - estimate['profit'])}")
                         if estimate["profit"] is None:
                             st.markdown(f"**Bénéfice estimé partiel : {fp(estimate['known_profit'])}**")
                             st.caption(f"{estimate['unknown_lines']} ligne(s) sans coût fiable, exclue(s) de l'estimation.")
@@ -930,9 +942,26 @@ def render_sales_page(context):
                     def ask_canal_bulk():
                         st.markdown(f"**Vente — {fp(pending.get('price', 0))}**")
                         CANAUX = list(SALE_CHANNELS)
-                        canal_b = st.selectbox("Via quel canal ?", CANAUX, key="canal_bulk_sel")
+                        event_args = {}
+                        cash_missing = False
+                        if cart_brocante:
+                            from core.brocante import PAYMENT_METHODS, payment_key
+                            st.caption(f"Brocante · {cart_brocante['name']}")
+                            payment = st.selectbox("Paiement", PAYMENT_METHODS, key="bro_sale_payment")
+                            if payment_key(payment) == "cash":
+                                tendered = st.number_input("Montant donné", min_value=0.0, value=float(pending.get("price", 0)), step=0.5)
+                                change = tendered - float(pending.get("price", 0))
+                                cash_missing = change < -0.005
+                                st.caption(f"Monnaie à rendre : {fp(max(change, 0))}")
+                            attempt_key = f"bro_sale_attempt_{cart_brocante['id']}"
+                            st.session_state.setdefault(attempt_key, new_uid("sale_tx"))
+                            event_args = dict(brocante_id=cart_brocante["id"], payment_method=payment,
+                                              transaction_id=st.session_state[attempt_key])
+                            canal_b = "Brocante"
+                        else:
+                            canal_b = st.selectbox("Via quel canal ?", CANAUX, key="canal_bulk_sel")
                         c1, c2 = st.columns(2)
-                        if c1.button("✅ Confirmer", type="primary", width="stretch"):
+                        if c1.button("✅ Confirmer", type="primary", width="stretch", disabled=cash_missing):
                             if pending.get("type") == "base":
                                 sale_items = [
                                     {**item, "unit_price": item["price_base"]}
@@ -943,8 +972,10 @@ def render_sales_page(context):
                                     st.session_state.bulk_cart,
                                     pending["price"],
                                 )
-                            ok, msg = scu_many(sale_items, canal_b)
+                            ok, msg = scu_many(sale_items, canal_b, **event_args)
                             if ok:
+                                if cart_brocante:
+                                    st.session_state.pop(attempt_key, None)
                                 st.session_state.bulk_cart = []
                                 st.session_state["pending_bulk_sale"] = {}
                                 st.session_state["show_canal_dialog_bulk"] = False
@@ -964,8 +995,9 @@ def render_sales_page(context):
         st.caption("Échange un ou plusieurs cartes de tes lots contre d'autres cartes.")
         cd_sw = ld()
         trade_snapshot = json.dumps(cd_sw.get("lots", []), ensure_ascii=False, sort_keys=True)
-        ensure_trade_lot(cd_sw)
-        migrate_open_trade_cards(cd_sw)
+        if not brocante:
+            ensure_trade_lot(cd_sw)
+            migrate_open_trade_cards(cd_sw)
         if json.dumps(cd_sw.get("lots", []), ensure_ascii=False, sort_keys=True) != trade_snapshot:
             sd(cd_sw)
             # No need to reload - sd() updates the cache
@@ -997,14 +1029,15 @@ def render_sales_page(context):
         # ── Colonne DONNER ──
         with col_give:
             st.markdown("### 📤 Cartes à donner")
-            search_sw = st.text_input("🔍 Chercher une carte à donner", placeholder="Nom...", key="search_swap")
+            search_input = inventory_live_search if brocante else st.text_input
+            search_sw = search_input("Chercher une carte à donner", placeholder="Nom, numéro, extension...", key="search_swap")
 
             all_stock_sw = []
             for li, lot in enumerate(cd_sw.get("lots", [])):
                 for ci, card in enumerate(lot.get("cards", [])):
                     stock = card_available_qty(card)
                     if stock > 0:
-                        if not search_sw or normalize_name(search_sw) in normalize_name(card.get("name", "")):
+                        if not search_sw or (card_matches_inventory_query(card, search_sw) if brocante else normalize_name(search_sw) in normalize_name(card.get("name", ""))):
                             all_stock_sw.append((li, ci, card, lot, stock))
 
             give_keys = {g.get("card_uid") for g in st.session_state.swap_cart_give if g.get("card_uid")}
@@ -1206,7 +1239,8 @@ def render_sales_page(context):
                 st.session_state.recv_name_val = recv_name
                 st.session_state.recv_num_val = recv_num
 
-                recv_query = st.text_input("Recherche cache", key="recv_query", placeholder="Pikachu, Dracaufeu, 104...")
+                search_input = inventory_live_search if brocante else st.text_input
+                recv_query = search_input("Rechercher une carte reçue", key="recv_query", placeholder="Pikachu, Dracaufeu, 104...")
                 cards_index = st.session_state.get("cards_index", {})
                 selected_card = st.session_state.get("recv_selected_card") or {}
                 if recv_query and len(recv_query.strip()) >= 2:
@@ -1216,8 +1250,12 @@ def render_sales_page(context):
                         for idx, (card_sw, set_name_sw, set_id_sw) in enumerate(candidates):
                             local_id = str(card_sw.get("localId", "") or card_sw.get("number", ""))
                             label = f"{card_sw.get('name','?')} ? {local_id or 'n? ?'} ? {set_name_sw or set_id_sw or 'extension ?'}"
+                            if brocante:
+                                image_url = card_sw.get("image_url") or card_sw.get("image")
+                                if isinstance(image_url, str) and image_url:
+                                    st.image(image_url if image_url.endswith((".png", ".jpg", ".webp")) else image_url + "/low.webp", width=80)
                             if st.button(label, key=f"recv_pick_{idx}_{card_sw.get('id','')}_{local_id}", width="stretch"):
-                                enriched_sw = ecd(card_sw, set_name_sw, lang="fr")
+                                enriched_sw = ecd(card_sw, set_name_sw, lang=card_sw.get("lang", "fr") if brocante else "fr")
                                 enriched_sw["set_id"] = set_id_sw
                                 enriched_sw["raw_cache_card"] = card_sw
                                 if set_id_sw:
@@ -1345,9 +1383,26 @@ def render_sales_page(context):
             st.markdown("---")
             if st.button("Confirmer l'échange", type="primary", width="stretch"):
                 cdd = ld()
+                if brocante:
+                    from services.brocante_workflow import require_active, project_event, tag_trade
+                    from services.brocante_data import save_brocantes
+                    event_data = load_brocantes()
+                    try:
+                        event = require_active(event_data, brocante["id"])
+                    except ValueError as error:
+                        st.error(str(error))
+                        st.stop()
+                    attempt_key = f"bro_trade_attempt_{brocante['id']}"
+                    st.session_state.setdefault(attempt_key, build_trade_id())
+                    if any(t.get("exchange_id") == st.session_state[attempt_key] for t in cdd.get("trade_history", [])):
+                        project_event(event, cdd)
+                        save_brocantes(event_data)
+                        st.session_state.pop(attempt_key, None)
+                        st.session_state["swap_reset_pending"] = True
+                        st.rerun()
                 cash_give = float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
                 cash_receive = float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
-                trade_id = build_trade_id()
+                trade_id = st.session_state[attempt_key] if brocante else build_trade_id()
                 trade_date = datetime.now().isoformat()
                 given_records = _selected_trade_given_records(cdd, st.session_state.swap_cart_give)
                 if len(given_records) != len(st.session_state.swap_cart_give):
@@ -1488,7 +1543,13 @@ def render_sales_page(context):
                     ],
                 })
 
+                if brocante:
+                    tag_trade(cdd, brocante["id"], trade_id)
                 sd(cdd)
+                if brocante:
+                    project_event(event, cdd)
+                    save_brocantes(event_data)
+                    st.session_state.pop(attempt_key, None)
                 nb_give = sum(max(int(item.get("quantity", 1) or 1), 1) for item in st.session_state.swap_cart_give)
                 nb_recv = len(st.session_state.swap_cart_receive)
                 st.session_state.swap_cart_give = []
