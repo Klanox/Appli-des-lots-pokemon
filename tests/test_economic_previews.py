@@ -9,7 +9,12 @@ from core import sales_actions
 from core.sale_preview import historical_unit_cost_or_none, preview_sale
 from core.trade_economics import trade_sale_stat_rows
 from logic import calc_cout_lot, effective_purchase_price, card_available_qty, resolve_card_ref
-from ui.lot_progress import lot_progress, lot_progress_html
+from ui.lot_progress import (
+    format_percentage,
+    lot_progress,
+    lot_progress_html,
+    lot_purchase_cote_ratio,
+)
 from ui.pages.history import _off_stock_cost_for_history
 from ui.pages.sales import _allocate_final_sale_price
 
@@ -156,14 +161,19 @@ class LotProgressTests(unittest.TestCase):
         lot = fixture()["lots"][0]
         lot["ventes"] = [{"price": 6}]
         state = lot_progress(lot)
-        self.assertEqual((state["phase"], state["progress"]), ("repayment", 50))
+        self.assertEqual((state["phase"], state["progress"], state["reimbursement_pct"]), ("repayment", 50, 50))
+        self.assertIn("50 % remboursé", lot_progress_html(lot, [], 0, str))
 
     def test_reimbursed_not_complete(self):
         lot = fixture()["lots"][0]
         lot["ventes"] = [{"price": 30}]
         lot["cards"][0]["sold_quantity"] = 3
         state = lot_progress(lot)
-        self.assertEqual((state["phase"], state["progress"], state["sold"]), ("sales", 75, 3))
+        self.assertEqual((state["phase"], state["progress"], state["sold"]), ("reimbursed", 100, 3))
+        self.assertEqual(state["reimbursement_pct"], 250)
+        markup = lot_progress_html(lot, [], 0, str)
+        self.assertIn("Remboursé · 250 %", markup)
+        self.assertIn('width:100.0%;background:#15803d', markup)
 
     def test_complete(self):
         lot = fixture()["lots"][0]
@@ -174,6 +184,7 @@ class LotProgressTests(unittest.TestCase):
         self.assertIn("Lot terminé", markup)
         self.assertIn('aria-valuenow="100.0"', markup)
         self.assertNotIn("gradient", markup)
+        self.assertNotIn("cartes vendues", markup)
 
     def test_transfers_and_exchanges_are_not_sales(self):
         lot = fixture()["lots"][0]
@@ -181,13 +192,70 @@ class LotProgressTests(unittest.TestCase):
         lot["cards"][0].update(stored_quantity=2, exchange_out_quantity=1)
         storage = {"is_storage": True, "cards": [{"stored_from_lot_uid": "lot-test", "quantity": 2, "sold_quantity": 1}]}
         state = lot_progress(lot, [lot, storage])
-        self.assertEqual((state["sold"], state["total"], state["progress"]), (1, 4, 25))
+        self.assertEqual((state["sold"], state["total"], state["progress"]), (1, 4, 100))
+        self.assertEqual(state["reimbursement_pct"], 250)
 
     def test_system_lot_and_collection_not_falsely_reimbursed(self):
         lot = {"is_trade": True, "cards": [{"quantity": 3, "is_collection_keep": True}]}
         state = lot_progress(lot)
         self.assertFalse(state["reimbursed"])
         self.assertEqual(state["progress"], 0)
+
+    def test_financial_reimbursement_color_thresholds_and_cap(self):
+        lot = fixture()["lots"][0]
+        lot["prix_achat"] = 100
+        for recovered, expected_label, expected_color, expected_progress in (
+            (40, "40 % remboursé", "#dc2626", 40),
+            (85, "85 % remboursé", "#f97316", 85),
+            (100, "Remboursé · 100 %", "#15803d", 100),
+            (135, "Remboursé · 135 %", "#15803d", 100),
+        ):
+            with self.subTest(recovered=recovered):
+                lot["ventes"] = [{"price": recovered}]
+                state = lot_progress(lot)
+                markup = lot_progress_html(lot, [], 0, str)
+                self.assertEqual(state["reimbursement_pct"], recovered)
+                self.assertEqual(state["progress"], expected_progress)
+                self.assertIn(expected_label, markup)
+                self.assertIn(expected_color, markup)
+
+    def test_completed_lot_keeps_financial_reimbursement(self):
+        lot = fixture()["lots"][0]
+        lot.update(prix_achat=100, ventes=[{"price": 160}])
+        lot["cards"][0]["sold_quantity"] = 4
+        state = lot_progress(lot)
+        markup = lot_progress_html(lot, [], 0, str)
+        self.assertTrue(state["completed"])
+        self.assertEqual((state["reimbursement_pct"], state["progress"]), (160, 100))
+        self.assertIn("Lot terminé · 160 % remboursé", markup)
+
+    def test_purchase_cote_ratio_prefers_historical_reference(self):
+        lot = fixture()["lots"][0]
+        lot.update(prix_achat=63, valeur_totale=100)
+        ratio = lot_purchase_cote_ratio(lot)
+        self.assertEqual((ratio["source"], ratio["pct"]), ("historique", 63))
+
+        lot = fixture()["lots"][0]
+        lot.update(prix_achat=75, estimation_value=120)
+        ratio = lot_purchase_cote_ratio(lot)
+        self.assertEqual((ratio["source"], format_percentage(ratio["pct"])), ("estimation", "62,5"))
+
+    def test_purchase_cote_ratio_stays_stable_after_sale(self):
+        lot = fixture()["lots"][0]
+        lot.update(prix_achat=50)
+        lot["cards"][0].update(quantity=10, suggested_price=10)
+        before = lot_purchase_cote_ratio(lot)
+        lot["cards"][0].update(
+            sold_quantity=5,
+            sold_entries=[{"quantity": 5, "suggested_price_at_sale": 10}],
+        )
+        after = lot_purchase_cote_ratio(lot)
+        self.assertEqual((before["pct"], after["pct"]), (50, 50))
+
+    def test_purchase_cote_ratio_hides_unknown_reference(self):
+        lot = fixture()["lots"][0]
+        lot["cards"][0]["suggested_price"] = 0
+        self.assertIsNone(lot_purchase_cote_ratio(lot))
 
 
 class CartRenderTests(unittest.TestCase):

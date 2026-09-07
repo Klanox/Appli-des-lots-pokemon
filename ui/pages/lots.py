@@ -10,7 +10,7 @@ import json
 import os
 import re
 
-from ui.lot_progress import lot_progress_html
+from ui.lot_progress import lot_progress_html, lot_purchase_summary
 from services.card_identity import card_identity_fingerprint
 from services.custom_card_image_service import is_custom_image_ref, register_custom_card_image, resolve_custom_card_image
 from ui.badges import card_is_japanese, card_variant_badges, status_badge
@@ -126,26 +126,23 @@ def render_lots_page(context):
         .lot-reimbursement-unavailable {
             color: #64748b;
             font-weight: 700;
-            background: rgba(148,163,184,0.10);
-            border-color: rgba(148,163,184,0.22);
         }
         .lot-detail-reimbursement-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr);
             align-items: center;
-            gap: 0.4rem;
-            margin: 0 0 0.65rem;
-            padding: 0.55rem 0.8rem;
+            gap: 0.32rem;
+            width: min(100%, 420px);
+            margin: 0.1rem 0 0.15rem;
+            padding: 0;
             font-size: 0.85rem;
+            font-weight: 650;
             overflow-wrap: anywhere;
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
         }
         .lot-detail-reimbursement-track {
-            height: 0.4rem;
+            height: 0.38rem;
             overflow: hidden;
-            border-radius: 999px;
+            border-radius: 6px;
             background: #e2e8f0;
         }
         .lot-detail-reimbursement-track span {
@@ -239,8 +236,7 @@ def render_lots_page(context):
         }
         @media (max-width: 768px) {
             .lot-detail-reimbursement-row {
-                grid-template-columns: 1fr;
-                gap: 0.45rem;
+                width: 100%;
             }
             [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
                 gap: 0.3rem !important;
@@ -491,22 +487,24 @@ def render_lots_page(context):
             just_reached_100 = rp >= 100 and is_profitable and not is_brocante and not is_trade
             badge_100 = " 🎉" if just_reached_100 else ""
             badge_mixte = " 🗂️" if lt.get("is_mixte") else ""
-            expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {fp(lt.get('prix_achat',0))}{badge_mixte}{badge_100}"
+            purchase_summary = lot_purchase_summary(lt, fp)
+            expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {purchase_summary}{badge_mixte}{badge_100}"
             is_active_lot = st.session_state.get("active_lot_ix") == ix
             row_prefix = "▼" if is_active_lot else "›"
-            if st.button(
-                f"{row_prefix} {expander_title}",
-                key=f"lot_row_{ix}",
-                width="stretch",
-                type="secondary",
-            ):
-                if is_active_lot:
-                    st.session_state.pop("active_lot_ix", None)
-                else:
-                    st.session_state["active_lot_ix"] = ix
-                st.rerun()
+            with st.container(border=True):
+                if st.button(
+                    f"{row_prefix} {expander_title}",
+                    key=f"lot_row_{ix}",
+                    width="stretch",
+                    type="secondary",
+                ):
+                    if is_active_lot:
+                        st.session_state.pop("active_lot_ix", None)
+                    else:
+                        st.session_state["active_lot_ix"] = ix
+                    st.rerun()
 
-            st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
+                st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
             if not is_active_lot:
                 continue
 
@@ -520,7 +518,7 @@ def render_lots_page(context):
                     st.markdown('<b style="color:#f97316;font-size:1.2rem">🎪 LOT BROCANTE</b>', unsafe_allow_html=True)
                 elif just_reached_100:
                     st.markdown(f'''
-                    <div style="background:linear-gradient(135deg,#22c55e,#16a34a);color:white;padding:1rem 1.5rem;border-radius:12px;margin-bottom:1rem;font-size:1.1rem;font-weight:800;text-align:center;">
+                    <div style="background:#f0fdf4;border:1px solid #86efac;color:#166534;padding:0.8rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:1.1rem;font-weight:800;text-align:center;">
                         🎉 LOT REMBOURSÉ À {rp:.1f}% — BÉNÉFICE : {fp(pf)}
                     </div>
                     ''', unsafe_allow_html=True)
