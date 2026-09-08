@@ -133,23 +133,48 @@ def render_lots_page(context):
             align-items: center;
             gap: 0.32rem;
             width: min(100%, 420px);
-            margin: 0.1rem 0 0.15rem;
+            margin: 0.36rem 0 0;
             padding: 0;
             font-size: 0.85rem;
             font-weight: 650;
             overflow-wrap: anywhere;
         }
         .lot-detail-reimbursement-track {
-            height: 0.38rem;
+            box-sizing: border-box;
+            height: 8px;
+            padding: 1px;
             overflow: hidden;
             border-radius: 6px;
-            background: #e2e8f0;
+            border: 1px solid #cbd5e1;
+            background: #e5e7eb;
         }
         .lot-detail-reimbursement-track span {
             display: block;
             height: 100%;
             border-radius: inherit;
             background: #7c3aed;
+        }
+        [class*="st-key-lot_summary_card_"] {
+            background: #ffffff;
+        }
+        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] {
+            margin: 0 !important;
+        }
+        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button {
+            min-height: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: #111827 !important;
+            font-weight: 700 !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }
+        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button:hover {
+            color: #5b21b6 !important;
+            background: #faf5ff !important;
         }
         [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
             display: flex !important;
@@ -491,7 +516,7 @@ def render_lots_page(context):
             expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {purchase_summary}{badge_mixte}{badge_100}"
             is_active_lot = st.session_state.get("active_lot_ix") == ix
             row_prefix = "▼" if is_active_lot else "›"
-            with st.container(border=True):
+            with st.container(border=True, key=f"lot_summary_card_{ix}"):
                 if st.button(
                     f"{row_prefix} {expander_title}",
                     key=f"lot_row_{ix}",
