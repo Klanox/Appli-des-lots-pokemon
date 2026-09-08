@@ -1,18 +1,18 @@
 {
   "files": {
     "data": {
-      "fingerprint": "86f3ee6f7de876d8bdfb11cc82641d0d6ee7b0ba0a7ccdcef43fd6c8c4b46e5a",
+      "fingerprint": "bf38e155995848ed76b8ba38c92d4d39036fe99852e2c815b59702f317d25a2f",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T11:21:11.820813+00:00",
-      "last_save_at": "2026-08-24T21:06:22.218420+00:00",
+      "last_read_at": "2026-09-08T14:14:52.770536+00:00",
+      "last_save_at": "2026-09-06T19:28:15.950036+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "lot_estimations": {
       "fingerprint": "c87b5cb763934457802a5ee1d7aaa065a0dccbb81452240be951c57bf28542bc",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T11:21:11.982973+00:00",
+      "last_read_at": "2026-09-08T14:14:52.788740+00:00",
       "last_save_at": "2026-07-11T13:04:56.149798+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
@@ -20,24 +20,24 @@
       "fingerprint": "da8db8c21a19cfbed7e0b38034acbb03f1511d236c3f711a131c4654413375cb",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T11:21:12.770404+00:00",
+      "last_read_at": "2026-09-08T14:14:52.838789+00:00",
       "last_save_at": "2026-07-04T19:10:17.519766+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "monthly_goals": {
-      "fingerprint": "683f9a60815767fce725c836f5f8b81a287fb478c26eebe73be7fbec04a96745",
+      "fingerprint": "cf8e229f1ce5220a2b22a9f9fbf6b081444a0f2aa837f0b8c279d07e0daeb9ab",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-08-24T20:53:44.642216+00:00",
-      "last_read_at": "2026-08-25T11:21:12.287199+00:00",
+      "last_save_at": "2026-09-02T11:23:59.302655+00:00",
+      "last_read_at": "2026-09-08T14:14:52.804524+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "activity_state": {
       "fingerprint": "e43ac73ddf01a232def4f9f1f979349c1e2eae578cca3a770d5b55bcd0e81069",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-08-25T11:21:12.220139+00:00",
-      "last_save_at": "2026-08-23T14:33:07.260934+00:00",
+      "last_read_at": "2026-09-08T14:14:52.800075+00:00",
+      "last_save_at": "2026-09-04T21:07:03.055862+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "lots_archives": {
@@ -46,7 +46,7 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-08-15T18:23:22.434066+00:00",
-      "last_read_at": "2026-08-25T11:21:12.103121+00:00"
+      "last_read_at": "2026-09-08T14:14:52.794967+00:00"
     },
     "counters": {
       "fingerprint": "c5454fdcb086a679ffa0d96076d994b88f6b45f743e0db3ec403c8144d7355f0",
@@ -55,19 +55,26 @@
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
     },
     "vinted_drops": {
-      "fingerprint": "5f58567df0028e7d924d6578c3da35496ea278fc29b4071b4596dc033f3959e2",
+      "fingerprint": "cd55bc1ea47e5407693d8da6ba8ff8d41eadd503de8629a00bdbebdfdbc15c88",
       "source": "cloud",
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
-      "last_save_at": "2026-08-24T08:51:37.364607+00:00",
-      "last_read_at": "2026-08-25T11:21:12.488216+00:00"
+      "last_save_at": "2026-09-04T21:07:02.192706+00:00",
+      "last_read_at": "2026-09-08T14:14:52.815458+00:00"
     },
     "custom_card_images": {
-      "fingerprint": "9dc6084b49231d560d7159837755cd4d04266427b9fb968886a87333c6c92171",
+      "fingerprint": "d0c3fa79d470a316fad11c0de45044b01e9fb525f217e17f904d2685034381a1",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-08-22T18:16:53.986808+00:00",
-      "last_read_at": "2026-08-25T11:21:12.852344+00:00"
+      "last_save_at": "2026-09-06T19:28:15.178556+00:00",
+      "last_read_at": "2026-09-08T14:14:52.849551+00:00"
+    },
+    "brocantes": {
+      "fingerprint": "f2fe240fd2204dce54356b4ecbe35e210fabad2c8c61ec229fe3856d977dd62b",
+      "source": "local",
+      "local_dirty": false,
+      "last_save_at": "2026-09-08T14:14:53.103065+00:00",
+      "last_read_at": "2026-09-08T14:14:52.822136+00:00"
     }
   }
 }
