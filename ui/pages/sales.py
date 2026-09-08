@@ -1100,13 +1100,10 @@ def render_sales_page(context):
                 in_give = card.get("card_uid") in give_keys
                 c_img, c_info, c_btn = st.columns([1, 3, 1])
                 with c_img:
-                    # image_url est déjà l'URL complète stockée dans la carte
-                    img_sw = card.get("image_url","") or card.get("image","")
-                    if img_sw:
-                        border = "border:3px solid #ef4444;" if in_give else ""
-                        st.markdown(f'<img src="{proxy_img(img_sw)}" style="width:60px;border-radius:8px;{border}">', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div style="width:60px;height:84px;background:#f1f5f9;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;">🃏</div>', unsafe_allow_html=True)
+                    st.markdown(
+                        _sale_image_html(card, in_cart=in_give, width="60px"),
+                        unsafe_allow_html=True,
+                    )
                 with c_info:
                     st.markdown(f"**{card['name']}**")
                     st.caption(f"{lot['nom']} · {fp(card.get('suggested_price',0))}")
@@ -1252,7 +1249,7 @@ def render_sales_page(context):
                     total_given_cost_preview += safe_float(record.get("historical_cost"))
                 cash_give = (
                     float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
-                    if trade_mobile
+                    if brocante
                     else st.number_input("Argent ajouté par moi (€)", 0., 99999., step=0.5, key="swap_cash_give")
                 )
                 st.metric("Total donné", fp(total_give + cash_give))
@@ -1310,9 +1307,14 @@ def render_sales_page(context):
                             local_id = str(card_sw.get("localId", "") or card_sw.get("number", ""))
                             label = f"{card_sw.get('name','?')} ? {local_id or 'n? ?'} ? {set_name_sw or set_id_sw or 'extension ?'}"
                             if brocante:
-                                image_url = card_sw.get("image_url") or card_sw.get("image")
-                                if isinstance(image_url, str) and image_url:
-                                    st.image(image_url if image_url.endswith((".png", ".jpg", ".webp")) else image_url + "/low.webp", width=80)
+                                candidate_preview = dict(card_sw)
+                                candidate_preview.setdefault("set_id", set_id_sw)
+                                candidate_preview.setdefault("number", local_id)
+                                _normalize_received_trade_image_fields(candidate_preview)
+                                st.markdown(
+                                    _sale_image_html(candidate_preview, width="80px"),
+                                    unsafe_allow_html=True,
+                                )
                             if st.button(label, key=f"recv_pick_{idx}_{card_sw.get('id','')}_{local_id}", width="stretch"):
                                 enriched_sw = ecd(card_sw, set_name_sw, lang=card_sw.get("lang", "fr") if brocante else "fr")
                                 enriched_sw["set_id"] = set_id_sw
@@ -1397,13 +1399,13 @@ def render_sales_page(context):
                     total_receive += float(r["value"]) * recv_quantity
                 cash_receive = (
                     float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
-                    if trade_mobile
+                    if brocante
                     else st.number_input("Argent reçu en plus (€)", 0., 99999., step=0.5, key="swap_cash_receive")
                 )
                 st.metric("Total reçu", fp(total_receive + cash_receive))
 
                 # Afficher la repartition prevue
-                if st.session_state.swap_cart_give and not trade_mobile:
+                if st.session_state.swap_cart_give and not brocante:
                     preview_records = _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
                     total_give_val = sum(item["reference_value"] for item in preview_records)
                     total_given_cost_preview = sum(item["historical_cost"] for item in preview_records)
@@ -1443,7 +1445,7 @@ def render_sales_page(context):
                     if lot_contributors:
                         st.caption(f"Somme des contributions lots : {ratio_total * 100:.1f} %")
 
-        if trade_mobile:
+        if brocante:
             st.markdown("### Complément espèces")
             current_cash_mode = (
                 "Tu ajoutes" if float(st.session_state.get("swap_cash_give", 0.0) or 0.0) > 0

@@ -12,6 +12,7 @@ from core.trade_economics import search_received_cards
 from services.brocante_data import load_brocantes, save_brocantes
 from services.brocante_workflow import commit_staged, deletion_audit, project_event, stage_delete, stage_purchase
 from ui.inventory_live_search import inventory_live_search
+from ui.pages.sales import _sale_image_html
 
 VIEWS = ["Aujourd’hui", "Vente", "Rachat", "Hors stock", "Échange", "Frais / clôture", "Historique"]
 CSS = """
@@ -197,12 +198,28 @@ def preparing(st, data, event):
             st.error(message)
 
 
-def catalog_image(st, card, *, width=90):
-    image = card.get("image_url_ja") or card.get("image_url") or card.get("image_url_en") or card.get("image")
-    if isinstance(image, str) and image and image != "__placeholder__":
-        if image.startswith("https://assets.tcgdex.net/") and not image.endswith((".png", ".jpg", ".webp")):
-            image += "/low.webp"
-        st.image(image, width=width)
+def catalog_image(st, card, *, width="120px"):
+    """Use the same image resolution and fallbacks as the main Sale renderer."""
+    st.markdown(_sale_image_html(card, width=width), unsafe_allow_html=True)
+
+
+def purchase_card_identity(card):
+    return "|".join(str(card.get(key) or "").strip().casefold() for key in (
+        "id", "set_id", "number", "name", "lang",
+    ))
+
+
+def add_purchase_cart_line(cart, card, quantity):
+    """Add or increment one exact catalogue card without changing purchase economics."""
+    identity = purchase_card_identity(card)
+    quantity = max(int(quantity or 1), 1)
+    for row in cart:
+        if purchase_card_identity(row.get("card", {})) == identity:
+            row["quantity"] = max(int(row.get("quantity", 1) or 1), 1) + quantity
+            return row
+    row = {"card": deepcopy(card), "quantity": quantity}
+    cart.append(row)
+    return row
 
 
 def purchase(st, event, context):
@@ -219,26 +236,28 @@ def purchase(st, event, context):
         st.caption("Aucune carte trouvée.")
     result_columns = 2 if mobile else 4
     for offset in range(0, len(results), result_columns):
-        for col, (card, set_name, set_id) in zip(st.columns(result_columns), results[offset:offset + result_columns]):
+        for result_index, (col, (card, set_name, set_id)) in enumerate(
+            zip(st.columns(result_columns), results[offset:offset + result_columns]), start=offset
+        ):
             with col:
                 with st.container(border=True):
                     catalog_image(st, card)
                     st.markdown(f'**{card.get("name", "Carte")}**')
                     st.caption(f'{card.get("localId", card.get("number", ""))} · {set_name} · {card.get("lang", "fr").upper()}')
-                    if st.button("Sélectionner", key=f'bro_buy_pick_{offset}_{set_id}_{card.get("id", card.get("name"))}'):
+                    quantity = st.number_input(
+                        "Quantité", min_value=1, max_value=9999, value=1,
+                        key=f'bro_buy_qty_{event["id"]}_{result_index}',
+                    )
+                    if st.button(
+                        "Ajouter au panier", key=f'bro_buy_add_{event["id"]}_{result_index}',
+                        type="primary", width="stretch",
+                    ):
                         selected = context["ecd"](card, set_name, lang=card.get("lang", "fr"))
                         selected["set_id"] = set_id
-                        st.session_state[f'{key}_selected'] = selected
+                        selected["raw_cache_card"] = card
+                        add_purchase_cart_line(cart, selected, quantity)
+                        st.session_state["brocante_flash"] = "Carte ajoutée au panier de rachat."
                         st.rerun()
-    selected = st.session_state.get(f'{key}_selected')
-    if selected:
-        with st.form(f'{key}_add', clear_on_submit=True):
-            st.markdown(f'**{selected["name"]} · {selected.get("number", "")}**')
-            qty = st.number_input("Quantité", min_value=1, max_value=9999, value=1)
-            if st.form_submit_button("Ajouter au panier de rachat"):
-                cart.append({"card": deepcopy(selected), "quantity": qty})
-                st.session_state.pop(f'{key}_selected', None)
-                st.rerun()
     if not cart:
         st.caption("Ajoute une ou plusieurs cartes au rachat.")
         return
@@ -247,7 +266,7 @@ def purchase(st, event, context):
     for i, row in enumerate(cart):
         image_col, info_col, action_col = st.columns([1, 3, 1.4])
         with image_col:
-            catalog_image(st, row["card"], width=56)
+            catalog_image(st, row["card"], width="56px")
         info_col.write(f'{row["card"]["name"]} · {row["card"].get("number", "")}')
         info_col.caption(f'{row["card"].get("set", "Extension non renseignée")} · Qté {row["quantity"]}')
         if action_col.button("Retirer", key=f'bro_buy_remove_{i}', width="stretch"):

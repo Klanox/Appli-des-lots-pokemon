@@ -13,7 +13,7 @@ from services.brocante_workflow import (commit_staged, deletion_audit, event_sal
                                         stage_delete, stage_purchase, tag_trade)
 from core import sales_actions
 from core.sales_cancellation import cancel_sale_by_id
-from ui.pages.brocante import go
+from ui.pages.brocante import add_purchase_cart_line, go, purchase_card_identity
 
 
 def fixtures(cash=50):
@@ -35,6 +35,23 @@ def lines(n=1):
 
 
 class BrocanteTests(unittest.TestCase):
+    def test_purchase_cart_adds_directly_and_increments_exact_card(self):
+        cart = []
+        card = {"id": "base1-25", "set_id": "base1", "name": "Pikachu", "number": "25", "lang": "fr"}
+        add_purchase_cart_line(cart, card, 2)
+        add_purchase_cart_line(cart, deepcopy(card), 3)
+        self.assertEqual(len(cart), 1)
+        self.assertEqual(cart[0]["quantity"], 5)
+        self.assertEqual(purchase_card_identity(cart[0]["card"]), purchase_card_identity(card))
+
+    def test_purchase_cart_keeps_distinct_catalogue_cards_separate(self):
+        cart = []
+        first = {"id": "base1-25", "set_id": "base1", "name": "Pikachu", "number": "25", "lang": "fr"}
+        second = {**first, "id": "base2-25", "set_id": "base2"}
+        add_purchase_cart_line(cart, first, 1)
+        add_purchase_cart_line(cart, second, 1)
+        self.assertEqual(len(cart), 2)
+
     def test_legacy_missing_initial_cash_stays_unknown(self):
         event = make_session("Ancienne brocante", "2026-01-01", initial_cash=None)
         record_transaction(event, {"id": "sale-1", "payment_method": "Espèces", "amount": 12})
