@@ -14,6 +14,7 @@ from ui.lot_progress import (
     lot_progress,
     lot_progress_html,
     lot_purchase_cote_ratio,
+    lot_summary_card_css,
 )
 from ui.pages.history import _off_stock_cost_for_history
 from ui.pages.sales import _allocate_final_sale_price
@@ -157,6 +158,14 @@ class PreviewTests(unittest.TestCase):
 
 
 class LotProgressTests(unittest.TestCase):
+    def test_summary_card_has_one_surface_and_transparent_header(self):
+        css = lot_summary_card_css()
+        self.assertIn('background: #ffffff', css)
+        self.assertIn('button {', css)
+        self.assertIn('background: transparent !important', css)
+        self.assertIn('gap: 0 !important', css)
+        self.assertNotIn('gradient', css)
+
     def test_repayment(self):
         lot = fixture()["lots"][0]
         lot["ventes"] = [{"price": 6}]

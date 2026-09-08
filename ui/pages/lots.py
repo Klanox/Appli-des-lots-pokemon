@@ -10,7 +10,7 @@ import json
 import os
 import re
 
-from ui.lot_progress import lot_progress_html, lot_purchase_summary
+from ui.lot_progress import lot_purchase_summary, lot_summary_card_css, render_lot_summary_card
 from services.card_identity import card_identity_fingerprint
 from services.brocante_workflow import finalize_brocante_purchase_costs
 from services.custom_card_image_service import is_custom_image_ref, register_custom_card_image, resolve_custom_card_image
@@ -28,9 +28,6 @@ def render_lots_page(context):
         except (TypeError, ValueError):
             sequence = 0
         return (sequence, original_index)
-
-    def lot_detail_reimbursement_html(lot, lot_index):
-        return lot_progress_html(lot, cd.get("lots", []), lot_index, fp)
 
     def editable_lot_purchase_price(lot, lot_index):
         price_field = "prix_achat_reel" if lot.get("is_mixte") else "prix_achat"
@@ -121,6 +118,7 @@ def render_lots_page(context):
         render_page_header("Gestion des lots", "Inventaire, ajout de cartes et suivi par lot", "📦"),
         unsafe_allow_html=True,
     )
+    st.markdown(f"<style>{lot_summary_card_css()}</style>", unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -154,28 +152,6 @@ def render_lots_page(context):
             height: 100%;
             border-radius: inherit;
             background: #7c3aed;
-        }
-        [class*="st-key-lot_summary_card_"] {
-            background: #ffffff;
-        }
-        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] {
-            margin: 0 !important;
-        }
-        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button {
-            min-height: 0 !important;
-            padding: 0 !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-            background: transparent !important;
-            box-shadow: none !important;
-            color: #111827 !important;
-            font-weight: 700 !important;
-            justify-content: flex-start !important;
-            text-align: left !important;
-        }
-        [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button:hover {
-            color: #5b21b6 !important;
-            background: #faf5ff !important;
         }
         [class*="st-key-lot_cards_grid_"][data-testid="stHorizontalBlock"] {
             display: flex !important;
@@ -304,74 +280,6 @@ def render_lots_page(context):
         sd(cd)
         # No need to reload - sd() updates the cache
 
-    # Bordures des en-têtes de lots. Le script ne déplace aucun nœud Streamlit :
-    # reparent un élément React peut provoquer des NotFoundError removeChild au rerun.
-    run_html("""<script>
-    (function(){
-        const win = parent.window || window;
-        const doc = parent.document;
-        const runId = Date.now() + '-' + Math.random().toString(36).slice(2);
-        win.__pokestockLotHeaderStyleRun = runId;
-        function syncLotHeaders() {
-            if (win.__pokestockLotHeaderStyleRun !== runId) return;
-            const markers = doc.querySelectorAll('[data-lot-index]');
-            const allExpanders = doc.querySelectorAll('[data-testid="stExpander"]');
-            const lotButtons = Array.from(doc.querySelectorAll('button')).filter(function(btn) {
-                const label = (btn.innerText || '').trim();
-                return label.startsWith('› ') || label.startsWith('▼ ');
-            });
-            markers.forEach(function(marker, idx) {
-                let color = '#22c55e';
-                const status = marker.getAttribute('data-lot-status');
-                if (status === 'not-profitable') color = '#ee1515';
-                if (status === 'brocante') color = '#f97316';
-                if (status === 'collection') color = '#3b4cca';
-                if (status === 'trade') color = '#0891b2';
-                if (status === 'storage') color = '#7c3aed';
-                const target = lotButtons[idx] || allExpanders[idx + 1];
-                if (!target) return;
-                const isOpen = (target.innerText || '').trim().startsWith('▼ ');
-                target.style.setProperty('background', isOpen ? '#f8fafc' : '#ffffff', 'important');
-                target.style.setProperty('color', '#0f172a', 'important');
-                target.style.setProperty('border-left', '8px solid ' + color, 'important');
-                target.style.setProperty('border-radius', '8px', 'important');
-                target.style.setProperty('border-top', '1px solid #e2e8f0', 'important');
-                target.style.setProperty('border-right', '1px solid #e2e8f0', 'important');
-                target.style.setProperty('border-bottom', '1px solid #e2e8f0', 'important');
-                target.style.setProperty('justify-content', 'flex-start', 'important');
-                target.style.setProperty('text-align', 'left', 'important');
-                target.style.setProperty('white-space', 'normal', 'important');
-                target.style.setProperty('align-items', 'flex-start', 'important');
-                target.style.setProperty('flex-direction', 'column', 'important');
-                target.style.setProperty('gap', '0.12rem', 'important');
-                target.style.setProperty('text-transform', 'none', 'important');
-                target.style.setProperty('font-weight', '700', 'important');
-                target.style.setProperty('font-size', '0.95rem', 'important');
-                target.style.setProperty('line-height', '1.28', 'important');
-                target.style.setProperty('white-space', 'pre-line', 'important');
-                target.style.setProperty('min-height', '68px', 'important');
-                target.style.setProperty('padding', '0.72rem 1.05rem', 'important');
-                target.style.setProperty('box-shadow', '0 4px 12px rgba(15, 23, 42, 0.08)', 'important');
-                target.style.setProperty('transform', 'none', 'important');
-                target.style.setProperty('margin-bottom', '0.22rem', 'important');
-                target.querySelectorAll('p, div, span').forEach(function(child) {
-                    child.style.setProperty('text-align', 'left', 'important');
-                    child.style.setProperty('justify-content', 'flex-start', 'important');
-                    child.style.setProperty('text-transform', 'none', 'important');
-                    child.style.setProperty('white-space', 'pre-line', 'important');
-                    child.style.setProperty('line-height', '1.28', 'important');
-                });
-                target.setAttribute('data-pokestock-lot-header', '1');
-                target.setAttribute('data-pokestock-lot-status', status || 'default');
-            });
-        }
-        syncLotHeaders();
-        [100, 250, 600, 1200, 2500].forEach(function(delay) {
-            setTimeout(syncLotHeaders, delay);
-        });
-    })();
-    </script>""", height=0)
-
     # ── Tabs : Lot normal / Lot Brocante ──
     with st.expander("➕ Créer un nouveau lot", expanded=False):
         st.subheader("Nouveau lot")
@@ -479,7 +387,7 @@ def render_lots_page(context):
         if not visible_lots:
             st.info("Aucun lot dans cette catégorie.")
 
-        for display_ix,(ix,lt) in enumerate(visible_lots):
+        for ix, lt in visible_lots:
             is_brocante = lt.get("is_brocante", False)
             is_collection = lt.get("is_mixte", False)
             is_trade = is_trade_lot(lt)
@@ -506,9 +414,6 @@ def render_lots_page(context):
 
             st.session_state[f"lot_status_{ix}"] = lot_status
             color_dot = {"storage":"📈","trade":"🔄","brocante":"🟠","collection":"🔵","profitable":"🟢","not-profitable":"🔴"}.get(lot_status,"🟢")
-            # Marker pour colorLotBorders - display_ix suit l'ordre des lots visibles apres filtre.
-            st.markdown(f'<div data-lot-index="{ix}" data-display-index="{display_ix}" data-lot-status="{lot_status}" style="display:none"></div>', unsafe_allow_html=True)
-
             # Badge 🎉 si lot vient d'atteindre 100%
             just_reached_100 = rp >= 100 and is_profitable and not is_brocante and not is_trade
             badge_100 = " 🎉" if just_reached_100 else ""
@@ -516,21 +421,21 @@ def render_lots_page(context):
             purchase_summary = lot_purchase_summary(lt, fp)
             expander_title = f"{color_dot} {'🎪 ' if is_brocante else ''}{lt['nom']} - {purchase_summary}{badge_mixte}{badge_100}"
             is_active_lot = st.session_state.get("active_lot_ix") == ix
-            row_prefix = "▼" if is_active_lot else "›"
-            with st.container(border=True, key=f"lot_summary_card_{ix}"):
-                if st.button(
-                    f"{row_prefix} {expander_title}",
-                    key=f"lot_row_{ix}",
-                    width="stretch",
-                    type="secondary",
-                ):
-                    if is_active_lot:
-                        st.session_state.pop("active_lot_ix", None)
-                    else:
-                        st.session_state["active_lot_ix"] = ix
-                    st.rerun()
-
-                st.markdown(lot_detail_reimbursement_html(lt, ix), unsafe_allow_html=True)
+            if render_lot_summary_card(
+                st,
+                lot=lt,
+                all_lots=cd.get("lots", []),
+                lot_index=ix,
+                status=lot_status,
+                title=expander_title,
+                active=is_active_lot,
+                money=fp,
+            ):
+                if is_active_lot:
+                    st.session_state.pop("active_lot_ix", None)
+                else:
+                    st.session_state["active_lot_ix"] = ix
+                st.rerun()
             if not is_active_lot:
                 continue
 

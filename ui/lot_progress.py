@@ -136,3 +136,79 @@ def lot_progress_html(lot, all_lots, lot_index, money):
         f'aria-valuemin="0" aria-valuemax="100" aria-valuenow="{state["progress"]:.1f}">'
         f'<span style="width:{state["progress"]:.1f}%;background:{color}"></span></div></div>'
     )
+
+
+def lot_summary_card_css():
+    """Styles for the single-surface, clickable lot summary card."""
+    return """
+    [class*="st-key-lot_summary_card_"] {
+        box-sizing: border-box;
+        width: 100%;
+        margin: 0 0 0.55rem;
+        padding: 0.78rem 1rem 0.82rem;
+        border: 1px solid #e2e8f0;
+        border-left: 6px solid #22c55e;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 2px 7px rgba(15, 23, 42, 0.05);
+        gap: 0 !important;
+    }
+    [class*="st-key-lot_summary_card_not-profitable_"] { border-left-color: #dc2626; }
+    [class*="st-key-lot_summary_card_brocante_"] { border-left-color: #f97316; }
+    [class*="st-key-lot_summary_card_collection_"] { border-left-color: #3b4cca; }
+    [class*="st-key-lot_summary_card_trade_"] { border-left-color: #0891b2; }
+    [class*="st-key-lot_summary_card_storage_"] { border-left-color: #7c3aed; }
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] {
+        margin: 0 !important;
+    }
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button {
+        min-height: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #111827 !important;
+        font-size: 0.95rem !important;
+        font-weight: 700 !important;
+        line-height: 1.3 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        white-space: normal !important;
+    }
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button > div,
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button p {
+        width: 100% !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+    }
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button:hover,
+    [class*="st-key-lot_summary_card_"] [data-testid="stButton"] button:focus-visible {
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #5b21b6 !important;
+    }
+    [class*="st-key-lot_summary_card_"] .lot-detail-reimbursement-row {
+        margin-top: 0.68rem;
+    }
+    @media (max-width: 768px) {
+        [class*="st-key-lot_summary_card_"] {
+            padding: 0.72rem 0.78rem 0.76rem;
+        }
+    }
+    """
+
+
+def render_lot_summary_card(st, *, lot, all_lots, lot_index, status, title, active, money):
+    """Render one visual card containing its clickable header and reimbursement."""
+    prefix = "▼" if active else "›"
+    with st.container(key=f"lot_summary_card_{status}_{lot_index}"):
+        clicked = st.button(
+            f"{prefix} {title}",
+            key=f"lot_row_{lot_index}",
+            width="stretch",
+            type="secondary",
+        )
+        st.markdown(lot_progress_html(lot, all_lots, lot_index, money), unsafe_allow_html=True)
+    return clicked
