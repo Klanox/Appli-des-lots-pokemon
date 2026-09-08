@@ -14,6 +14,12 @@ from services.brocante_workflow import (commit_staged, deletion_audit, event_sal
 from core import sales_actions
 from core.sales_cancellation import cancel_sale_by_id
 from ui.pages.brocante import add_purchase_cart_line, go, purchase_card_identity
+from ui.pages.sales import (
+    BRO_CARD_IMAGE_SIZE,
+    _received_trade_image_html,
+    _sale_image_html,
+    _sale_image_preload_urls,
+)
 
 
 def fixtures(cash=50):
@@ -35,6 +41,40 @@ def lines(n=1):
 
 
 class BrocanteTests(unittest.TestCase):
+    def test_raw_catalogue_image_uses_shared_sale_resolution(self):
+        card = {
+            "id": "base1-58",
+            "localId": "58",
+            "set_id": "base1",
+            "image": "https://assets.tcgdex.net/fr/base/base1/58",
+        }
+        expected = "https://assets.tcgdex.net/fr/base/base1/58/high.webp"
+        self.assertIn(expected, _sale_image_html(card))
+        self.assertEqual(_sale_image_preload_urls(card), [expected])
+
+    def test_brocante_image_is_square_six_rem_with_contained_artwork(self):
+        html = _sale_image_html(
+            {"image_url": "https://example.test/pikachu.webp"},
+            width=BRO_CARD_IMAGE_SIZE,
+            square_size=BRO_CARD_IMAGE_SIZE,
+        )
+        self.assertIn("width:6rem", html)
+        self.assertIn("aspect-ratio:1 / 1", html)
+        self.assertIn("object-fit:contain", html)
+        self.assertIn("max-width:100%", html)
+
+    def test_received_trade_preview_uses_shared_custom_image_fallback(self):
+        card = {"card_uid": "custom-1", "name": "Pikachu", "number": "25"}
+        with patch("ui.pages.sales.resolve_custom_card_image", return_value="card_images/custom-1.webp"):
+            with patch("ui.pages.sales.os.path.exists", return_value=True):
+                html = _received_trade_image_html(
+                    card,
+                    width=BRO_CARD_IMAGE_SIZE,
+                    square_size=BRO_CARD_IMAGE_SIZE,
+                )
+        self.assertIn("card_images/custom-1.webp", html)
+        self.assertIn("width:6rem", html)
+
     def test_purchase_cart_adds_directly_and_increments_exact_card(self):
         cart = []
         card = {"id": "base1-25", "set_id": "base1", "name": "Pikachu", "number": "25", "lang": "fr"}

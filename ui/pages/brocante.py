@@ -12,7 +12,7 @@ from core.trade_economics import search_received_cards
 from services.brocante_data import load_brocantes, save_brocantes
 from services.brocante_workflow import commit_staged, deletion_audit, project_event, stage_delete, stage_purchase
 from ui.inventory_live_search import inventory_live_search
-from ui.pages.sales import _sale_image_html
+from ui.pages.sales import BRO_CARD_IMAGE_SIZE, _sale_image_html
 
 VIEWS = ["Aujourd’hui", "Vente", "Rachat", "Hors stock", "Échange", "Frais / clôture", "Historique"]
 CSS = """
@@ -198,9 +198,12 @@ def preparing(st, data, event):
             st.error(message)
 
 
-def catalog_image(st, card, *, width="120px"):
+def catalog_image(st, card, *, width=BRO_CARD_IMAGE_SIZE):
     """Use the same image resolution and fallbacks as the main Sale renderer."""
-    st.markdown(_sale_image_html(card, width=width), unsafe_allow_html=True)
+    st.markdown(
+        _sale_image_html(card, width=width, square_size=BRO_CARD_IMAGE_SIZE),
+        unsafe_allow_html=True,
+    )
 
 
 def purchase_card_identity(card):
@@ -266,7 +269,7 @@ def purchase(st, event, context):
     for i, row in enumerate(cart):
         image_col, info_col, action_col = st.columns([1, 3, 1.4])
         with image_col:
-            catalog_image(st, row["card"], width="56px")
+            catalog_image(st, row["card"])
         info_col.write(f'{row["card"]["name"]} · {row["card"].get("number", "")}')
         info_col.caption(f'{row["card"].get("set", "Extension non renseignée")} · Qté {row["quantity"]}')
         if action_col.button("Retirer", key=f'bro_buy_remove_{i}', width="stretch"):

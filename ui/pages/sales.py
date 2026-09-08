@@ -37,28 +37,84 @@ from ui.infinite_scroll import (
 from ui.sale_virtual_grid import component_v2_available, render_sale_virtual_lot_grid
 
 
-def _sale_image_html(card, *, in_cart=False, width="100%"):
-    """Render a sale card image with a clean fallback instead of a broken icon."""
-    proxy = globals().get("proxy_img", lambda value, *_: value)
+BRO_CARD_IMAGE_SIZE = "6rem"
+
+
+def _normalize_image_url(url):
+    url = str(url or "").strip()
+    if url and "tcgdex.net" in url and not url.split("?", 1)[0].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        return f"{url.rstrip('/')}/high.webp"
+    return url
+
+
+def _sale_image_candidates(card):
+    """Resolve every supported card shape through the shared Sale image path."""
+    if not isinstance(card, dict):
+        return []
+
+    raw_card = card.get("raw_cache_card") if isinstance(card.get("raw_cache_card"), dict) else {}
     candidates = []
-    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url", "image_url", "image_url_en"):
-        url = str(card.get(key) or "").strip()
+
+    def add(url):
+        url = _normalize_image_url(url)
         if not url or url == "__placeholder__":
-            continue
+            return
         if (url.startswith(("card_images/", "card_images\\")) or os.path.exists(url)) and not os.path.exists(url):
-            continue
+            return
         if url not in candidates:
             candidates.append(url)
+
+    for source in (card, raw_card):
+        for key in (
+            "manual_image_path", "manual_image_url", "resolved_collection_image_url",
+            "image_url_ja", "image_url_jp", "image_url_japanese", "image_url",
+            "image_url_en", "image", "imageUrl",
+        ):
+            add(source.get(key))
+        images = source.get("images") if isinstance(source.get("images"), dict) else {}
+        add(images.get("large"))
+        add(images.get("small"))
+
     try:
-        custom_url = resolve_custom_card_image(card)
+        add(resolve_custom_card_image(card))
     except Exception:
-        custom_url = ""
-    if custom_url and custom_url not in candidates:
-        candidates.append(custom_url)
+        pass
+
+    set_id = card.get("set_id") or raw_card.get("set_id") or ""
+    if not set_id:
+        card_id = str(card.get("card_id") or card.get("id") or raw_card.get("id") or "")
+        if "-" in card_id:
+            set_id = card_id.rsplit("-", 1)[0]
+    number = card.get("number") or card.get("localId") or raw_card.get("localId") or raw_card.get("number") or ""
+    lang = str(card.get("lang") or raw_card.get("lang") or "fr").strip().lower()
+    preferred_lang = "ja" if lang in {"ja", "jp", "jap", "japanese"} else "fr"
+    add(_tcgdex_image_url(preferred_lang, set_id, number))
+    if preferred_lang != "fr":
+        add(_tcgdex_image_url("fr", set_id, number))
+    add(_tcgdex_image_url("en", set_id, number))
+    return candidates
+
+
+def _sale_image_html(card, *, in_cart=False, width="100%", square_size=None):
+    """Render a sale card image with a clean fallback instead of a broken icon."""
+    proxy = globals().get("proxy_img", lambda value, *_: value)
+    candidates = _sale_image_candidates(card)
+    square_style = ""
+    image_style = "width:100%;border-radius:12px;"
+    placeholder_shape = "aspect-ratio:0.72;width:100%;"
+    if square_size:
+        safe_size = html.escape(str(square_size), quote=True)
+        square_style = (
+            f"width:{safe_size};max-width:100%;aspect-ratio:1 / 1;overflow:hidden;"
+            "display:flex;align-items:center;justify-content:center;background:#f8fafc;"
+            "border:1px solid #e2e8f0;border-radius:8px;"
+        )
+        image_style = "width:100%;height:100%;object-fit:contain;border-radius:7px;"
+        placeholder_shape = "width:100%;height:100%;"
     placeholder = (
         '<div class="sale-img-placeholder" '
-        'style="display:flex;align-items:center;justify-content:center;aspect-ratio:0.72;'
-        'width:100%;border-radius:12px;background:#f8fafc;border:2px dashed #cbd5e1;'
+        f'style="display:flex;align-items:center;justify-content:center;{placeholder_shape}'
+        'border-radius:8px;background:#f8fafc;border:1px dashed #cbd5e1;'
         'color:#64748b;font-weight:800;text-align:center;padding:0.4rem;">'
         'Image indisponible</div>'
     )
@@ -88,8 +144,8 @@ def _sale_image_html(card, *, in_cart=False, width="100%"):
         else ""
     )
     return (
-        f'<div style="position:relative;width:{html.escape(str(width), quote=True)};">'
-        f'<img src="{proxied[0]}" onerror="{onerror}" style="width:100%;border-radius:12px;{border}">'
+        f'<div style="position:relative;width:{html.escape(str(width), quote=True)};{square_style}">'
+        f'<img src="{proxied[0]}" onerror="{onerror}" style="{image_style}{border}">'
         f'{badge}</div>'
     )
 
@@ -98,12 +154,7 @@ def _sale_image_preload_urls(card, *, limit=1):
     """Return the same first useful image URL as the sale card renderer, without rendering a widget."""
     proxy = globals().get("proxy_img", lambda value, *_: value)
     urls = []
-    for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url", "image_url", "image_url_en"):
-        url = str(card.get(key) or "").strip()
-        if not url or url == "__placeholder__":
-            continue
-        if (url.startswith(("card_images/", "card_images\\")) or os.path.exists(url)) and not os.path.exists(url):
-            continue
+    for url in _sale_image_candidates(card):
         if url in urls:
             continue
         try:
@@ -112,16 +163,6 @@ def _sale_image_preload_urls(card, *, limit=1):
             urls.append(url)
         if len(urls) >= limit:
             break
-    if len(urls) < limit:
-        try:
-            custom_url = resolve_custom_card_image(card)
-        except Exception:
-            custom_url = ""
-        if custom_url and custom_url not in urls:
-            try:
-                urls.append(str(proxy(custom_url)))
-            except Exception:
-                urls.append(custom_url)
     return urls
 
 
@@ -161,21 +202,10 @@ def _sale_frontend_lot_groups(source_items, fp_func, lot_profitable_func, *, con
     return [groups_by_lot[lot_key] for lot_key in lot_order]
 
 
-def _received_trade_image_html(card, *, width="45px"):
+def _received_trade_image_html(card, *, width="45px", square_size=None):
     """Render a received-trade preview image without leaving a broken icon."""
     _normalize_received_trade_image_fields(card)
-    image_html = globals().get("img_with_fallback")
-    if callable(image_html):
-        url = str(card.get("image_url") or "").strip()
-        url_en = str(card.get("image_url_en") or "").strip()
-        if url or url_en:
-            return image_html(url, url_en, width=width, style="border-radius:6px;")
-    return (
-        '<div style="width:45px;height:62px;border-radius:6px;background:#f8fafc;'
-        'border:1px dashed #cbd5e1;color:#64748b;display:flex;align-items:center;'
-        'justify-content:center;font-size:0.75rem;font-weight:700;text-align:center;">'
-        'Image<br>indispo.</div>'
-    )
+    return _sale_image_html(card, width=width, square_size=square_size)
 
 
 def _tcgdex_series_from_set_id(set_id):
@@ -1075,6 +1105,7 @@ def render_sales_page(context):
         st.session_state.setdefault("swap_cash_receive", 0.0)
 
         trade_mobile = bool(brocante and is_mobile_mode())
+        trade_square_size = BRO_CARD_IMAGE_SIZE if brocante else None
         col_give, col_receive = (st.container(), st.container()) if trade_mobile else st.columns(2)
 
         # ── Colonne DONNER ──
@@ -1101,7 +1132,12 @@ def render_sales_page(context):
                 c_img, c_info, c_btn = st.columns([1, 3, 1])
                 with c_img:
                     st.markdown(
-                        _sale_image_html(card, in_cart=in_give, width="60px"),
+                        _sale_image_html(
+                            card,
+                            in_cart=in_give,
+                            width=BRO_CARD_IMAGE_SIZE if brocante else "60px",
+                            square_size=trade_square_size,
+                        ),
                         unsafe_allow_html=True,
                     )
                 with c_info:
@@ -1207,44 +1243,58 @@ def render_sales_page(context):
                     g = record["ui"]
                     available_qty = max(int(record.get("available_qty", 0) or 0), 0)
                     quantity = max(int(record.get("quantity", 1) or 1), 1)
-                    if available_qty > 1:
-                        quantity = update_given_quantity(record, min(quantity, available_qty))
-                        qty_key_raw = f"{g.get('card_uid') or record['lot_idx']}_{record['card_idx']}"
-                        qty_key = "".join(ch if ch.isalnum() else "_" for ch in str(qty_key_raw))
-                        with st.container(key=f"swap_give_qty_row_{qty_key}", horizontal=True, gap="small"):
-                            with st.container(key=f"swap_give_qty_text_{qty_key}"):
-                                st.markdown(
-                                    f"• **{g['card_name']}** · {fp(record['unit_reference_value'])} × {quantity} = **{fp(record['reference_value'])}**"
-                                )
-                            with st.container(key=f"swap_give_qty_label_{qty_key}"):
-                                st.markdown(
-                                    "<span style='color:#64748b;font-size:0.78rem;font-weight:800;white-space:nowrap;'>Qté :</span>",
-                                    unsafe_allow_html=True,
-                                )
-                            with st.container(key=f"swap_give_qty_dec_wrap_{qty_key}"):
-                                st.button(
-                                    "−",
-                                    key=f"swap_give_qty_dec_{qty_key}",
-                                    disabled=quantity <= 1,
-                                    on_click=adjust_given_quantity,
-                                    args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], -1, available_qty),
-                                )
-                            with st.container(key=f"swap_give_qty_value_{qty_key}"):
-                                st.markdown(
-                                    f"<span style='display:inline-block;min-width:1.1rem;text-align:center;font-size:0.86rem;font-weight:900;'>{quantity}</span>",
-                                    unsafe_allow_html=True,
-                                )
-                            with st.container(key=f"swap_give_qty_inc_wrap_{qty_key}"):
-                                st.button(
-                                    "+",
-                                    key=f"swap_give_qty_inc_{qty_key}",
-                                    disabled=quantity >= available_qty,
-                                    on_click=adjust_given_quantity,
-                                    args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], 1, available_qty),
-                                )
-                    else:
-                        g["quantity"] = 1
-                        st.markdown(f"• **{g['card_name']}** · **{fp(record['unit_reference_value'])}**")
+                    preview_image_col, preview_detail_col = (
+                        st.columns([1, 4]) if brocante else (None, st.container())
+                    )
+                    if preview_image_col is not None:
+                        preview_image_col.markdown(
+                            _sale_image_html(
+                                record["card"],
+                                in_cart=True,
+                                width=BRO_CARD_IMAGE_SIZE,
+                                square_size=BRO_CARD_IMAGE_SIZE,
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with preview_detail_col:
+                        if available_qty > 1:
+                            quantity = update_given_quantity(record, min(quantity, available_qty))
+                            qty_key_raw = f"{g.get('card_uid') or record['lot_idx']}_{record['card_idx']}"
+                            qty_key = "".join(ch if ch.isalnum() else "_" for ch in str(qty_key_raw))
+                            with st.container(key=f"swap_give_qty_row_{qty_key}", horizontal=True, gap="small"):
+                                with st.container(key=f"swap_give_qty_text_{qty_key}"):
+                                    st.markdown(
+                                        f"• **{g['card_name']}** · {fp(record['unit_reference_value'])} × {quantity} = **{fp(record['reference_value'])}**"
+                                    )
+                                with st.container(key=f"swap_give_qty_label_{qty_key}"):
+                                    st.markdown(
+                                        "<span style='color:#64748b;font-size:0.78rem;font-weight:800;white-space:nowrap;'>Qté :</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                with st.container(key=f"swap_give_qty_dec_wrap_{qty_key}"):
+                                    st.button(
+                                        "−",
+                                        key=f"swap_give_qty_dec_{qty_key}",
+                                        disabled=quantity <= 1,
+                                        on_click=adjust_given_quantity,
+                                        args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], -1, available_qty),
+                                    )
+                                with st.container(key=f"swap_give_qty_value_{qty_key}"):
+                                    st.markdown(
+                                        f"<span style='display:inline-block;min-width:1.1rem;text-align:center;font-size:0.86rem;font-weight:900;'>{quantity}</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                with st.container(key=f"swap_give_qty_inc_wrap_{qty_key}"):
+                                    st.button(
+                                        "+",
+                                        key=f"swap_give_qty_inc_{qty_key}",
+                                        disabled=quantity >= available_qty,
+                                        on_click=adjust_given_quantity,
+                                        args=(g.get("card_uid"), record["lot_idx"], record["card_idx"], 1, available_qty),
+                                    )
+                        else:
+                            g["quantity"] = 1
+                            st.markdown(f"• **{g['card_name']}** · **{fp(record['unit_reference_value'])}**")
                     total_give += record["reference_value"]
                     total_given_cost_preview += safe_float(record.get("historical_cost"))
                 cash_give = (
@@ -1312,7 +1362,11 @@ def render_sales_page(context):
                                 candidate_preview.setdefault("number", local_id)
                                 _normalize_received_trade_image_fields(candidate_preview)
                                 st.markdown(
-                                    _sale_image_html(candidate_preview, width="80px"),
+                                    _sale_image_html(
+                                        candidate_preview,
+                                        width=BRO_CARD_IMAGE_SIZE if brocante else "80px",
+                                        square_size=trade_square_size,
+                                    ),
                                     unsafe_allow_html=True,
                                 )
                             if st.button(label, key=f"recv_pick_{idx}_{card_sw.get('id','')}_{local_id}", width="stretch"):
@@ -1349,8 +1403,15 @@ def render_sales_page(context):
 
                 recv_name = recv_name.strip().title() if recv_name else recv_name
 
-                if recv_image_url and recv_name and recv_num:
-                    st.markdown(img_with_fallback(recv_image_url, recv_image_url_en, width="80px", style="border-radius:8px;margin:0.3rem 0;"), unsafe_allow_html=True)
+                if selected_card and recv_name and recv_num:
+                    st.markdown(
+                        _sale_image_html(
+                            selected_card,
+                            width=BRO_CARD_IMAGE_SIZE if brocante else "80px",
+                            square_size=trade_square_size,
+                        ),
+                        unsafe_allow_html=True,
+                    )
                 elif recv_name and recv_num:
                     st.warning("Carte sans image locale. Tu pourras ajouter la photo manuellement une fois la carte ajoutée au lot.")
                 elif recv_name and not recv_num:
@@ -1387,7 +1448,14 @@ def render_sales_page(context):
                 total_receive = 0.
                 for i, r in enumerate(st.session_state.swap_cart_receive):
                     rc1, rc2, rc3 = st.columns([1, 4, 1])
-                    rc1.markdown(_received_trade_image_html(r), unsafe_allow_html=True)
+                    rc1.markdown(
+                        _received_trade_image_html(
+                            r,
+                            width=BRO_CARD_IMAGE_SIZE if brocante else "45px",
+                            square_size=trade_square_size,
+                        ),
+                        unsafe_allow_html=True,
+                    )
                     recv_quantity = max(int(r.get("quantity", 1) or 1), 1)
                     rc2.markdown(f"**{r['name']}** · {recv_quantity} × {fp(r['value'])}")
                     if r.get("is_collection_keep"):
