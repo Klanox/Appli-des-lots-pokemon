@@ -597,13 +597,18 @@ def render_sales_page(context):
 
             # Construire liste panier pour verification rapide
             cart_keys = {item.get("card_uid") for item in st.session_state.bulk_cart if item.get("card_uid")}
+            mobile_search_text = str(search_vente or "").strip()
             sale_records = []
-            for li, lot in vente_lots_with_idx:
-                if selected_lot_idx is not None and li != selected_lot_idx:
-                    continue
-                for ci, card in enumerate(lot.get("cards", [])):
-                    stock = card_available_qty(card)
-                    if stock > 0:
+            if not brocante_mobile or mobile_search_text:
+                for li, lot in vente_lots_with_idx:
+                    if selected_lot_idx is not None and li != selected_lot_idx:
+                        continue
+                    for ci, card in enumerate(lot.get("cards", [])):
+                        stock = card_available_qty(card)
+                        if stock <= 0 or card.get("cost_basis_pending"):
+                            continue
+                        if brocante_mobile and not card_matches_inventory_query(card, mobile_search_text):
+                            continue
                         sale_records.append({
                             "lot_idx": li,
                             "card_idx": ci,
@@ -611,10 +616,19 @@ def render_sales_page(context):
                             "lot": lot,
                             "stock": stock,
                         })
-            sale_items = [
+            all_sale_items = [
                 (record["lot_idx"], record["card_idx"], record["card"], record["lot"], record["stock"])
                 for record in (sort_inventory_records(sale_records) if search_vente.strip() else sale_records)
             ]
+            if brocante_mobile:
+                search_scope = f"{mobile_search_text}|{selected_lot_idx}"
+                if st.session_state.get("brocante_sale_search_scope") != search_scope:
+                    st.session_state["brocante_sale_search_scope"] = search_scope
+                    st.session_state["brocante_sale_result_limit"] = 24
+                result_limit = max(int(st.session_state.get("brocante_sale_result_limit", 24) or 24), 24)
+                sale_items = all_sale_items[:result_limit]
+            else:
+                sale_items = all_sale_items
 
             lot_profitable_cache = {}
 
@@ -881,10 +895,18 @@ def render_sales_page(context):
                 return True
 
             frontend_lot_grid_ok = False
-            if component_v2_available() and not st.session_state.get("sale_frontend_lot_grid_disabled", False):
+            if brocante_mobile and not mobile_search_text:
+                st.caption("Recherche une carte pour commencer.")
+                frontend_lot_grid_ok = True
+            elif component_v2_available() and not st.session_state.get("sale_frontend_lot_grid_disabled", False):
                 frontend_lot_grid_ok = render_sales_frontend_lot_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
             if not frontend_lot_grid_ok:
                 render_sales_progressive_grid(search_vente, selected_lot_idx, sale_items, cart_keys)
+            if brocante_mobile and len(all_sale_items) > len(sale_items):
+                st.caption(f"{len(sale_items)} résultats affichés sur {len(all_sale_items)}")
+                if st.button("Afficher 24 résultats de plus", key="brocante_sale_more", width="stretch"):
+                    st.session_state["brocante_sale_result_limit"] = len(sale_items) + 24
+                    st.rerun()
 
             # Panier
             st.markdown('<div id="cart-anchor"></div>', unsafe_allow_html=True)
@@ -1033,8 +1055,8 @@ def render_sales_page(context):
         if st.session_state.pop("swap_reset_pending", False):
             for key in (
                 "swap_cart_give", "swap_cart_receive", "swap_cash_give", "swap_cash_receive",
-                "search_swap", "recv_name", "recv_num", "recv_val", "recv_collection_keep",
-                "recv_query", "recv_selected_card",
+                "search_swap", "recv_name", "recv_num", "recv_val", "recv_qty", "recv_collection_keep",
+                "recv_query", "recv_selected_card", "brocante_trade_cash_mode", "brocante_trade_cash_amount",
             ):
                 st.session_state.pop(key, None)
             st.session_state["swap_cart_give"] = []
@@ -1066,7 +1088,7 @@ def render_sales_page(context):
                 for li, lot in enumerate(cd_sw.get("lots", [])):
                     for ci, card in enumerate(lot.get("cards", [])):
                         stock = card_available_qty(card)
-                        if stock > 0:
+                        if stock > 0 and not card.get("cost_basis_pending"):
                             if not search_sw or (card_matches_inventory_query(card, search_sw) if brocante else normalize_name(search_sw) in normalize_name(card.get("name", ""))):
                                 all_stock_sw.append((li, ci, card, lot, stock))
             elif brocante:
@@ -1228,7 +1250,11 @@ def render_sales_page(context):
                         st.markdown(f"• **{g['card_name']}** · **{fp(record['unit_reference_value'])}**")
                     total_give += record["reference_value"]
                     total_given_cost_preview += safe_float(record.get("historical_cost"))
-                cash_give = st.number_input("Argent ajouté par moi (€)", 0., 99999., step=0.5, key="swap_cash_give")
+                cash_give = (
+                    float(st.session_state.get("swap_cash_give", 0.0) or 0.0)
+                    if trade_mobile
+                    else st.number_input("Argent ajouté par moi (€)", 0., 99999., step=0.5, key="swap_cash_give")
+                )
                 st.metric("Total donné", fp(total_give + cash_give))
                 st.caption(f"Coût historique estimé des cartes données : {fp(total_given_cost_preview)}")
 
@@ -1241,7 +1267,7 @@ def render_sales_page(context):
             with st.expander("➕ Ajouter une carte reçue", expanded=len(st.session_state.swap_cart_receive)==0):
                 # Initialiser les clés si absentes
                 if st.session_state.pop("clear_recv_fields", False):
-                    for key in ("recv_name", "recv_num", "recv_val", "recv_collection_keep", "recv_query", "recv_selected_card"):
+                    for key in ("recv_name", "recv_num", "recv_val", "recv_qty", "recv_collection_keep", "recv_query", "recv_selected_card"):
                         st.session_state.pop(key, None)
                     st.session_state.recv_name_val = ""
                     st.session_state.recv_num_val = ""
@@ -1265,6 +1291,7 @@ def render_sales_page(context):
                     placeholder="Ex: 042",
                     value=st.session_state.recv_num_val)
                 recv_val = st.number_input("Valeur estimée (€)", 0., 9999., 0., 0.5, key="recv_val")
+                recv_qty = st.number_input("Quantité", 1, 9999, 1, 1, key="recv_qty")
                 recv_collection_keep = st.checkbox("Carte collection / à garder", key="recv_collection_keep")
 
                 # Mettre à jour les valeurs en session
@@ -1334,6 +1361,7 @@ def render_sales_page(context):
                             "set": recv_set_name,
                             "number": recv_num,
                             "value": recv_val,
+                            "quantity": int(recv_qty),
                             "image_url": recv_image_url,
                             "image_url_en": recv_image_url_en,
                             "image_url_ja": recv_image_url_ja,
@@ -1358,19 +1386,24 @@ def render_sales_page(context):
                 for i, r in enumerate(st.session_state.swap_cart_receive):
                     rc1, rc2, rc3 = st.columns([1, 4, 1])
                     rc1.markdown(_received_trade_image_html(r), unsafe_allow_html=True)
-                    rc2.markdown(f"**{r['name']}** ({fp(r['value'])})")
+                    recv_quantity = max(int(r.get("quantity", 1) or 1), 1)
+                    rc2.markdown(f"**{r['name']}** · {recv_quantity} × {fp(r['value'])}")
                     if r.get("is_collection_keep"):
                         rc2.caption("Collection / à garder")
                     if rc3.button("❌", key=f"rm_recv_{i}"):
                         st.session_state.swap_cart_receive.pop(i)
                         save_activity_state()
                         st.rerun()
-                    total_receive += r["value"]
-                cash_receive = st.number_input("Argent reçu en plus (€)", 0., 99999., step=0.5, key="swap_cash_receive")
+                    total_receive += float(r["value"]) * recv_quantity
+                cash_receive = (
+                    float(st.session_state.get("swap_cash_receive", 0.0) or 0.0)
+                    if trade_mobile
+                    else st.number_input("Argent reçu en plus (€)", 0., 99999., step=0.5, key="swap_cash_receive")
+                )
                 st.metric("Total reçu", fp(total_receive + cash_receive))
 
                 # Afficher la repartition prevue
-                if st.session_state.swap_cart_give:
+                if st.session_state.swap_cart_give and not trade_mobile:
                     preview_records = _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
                     total_give_val = sum(item["reference_value"] for item in preview_records)
                     total_given_cost_preview = sum(item["historical_cost"] for item in preview_records)
@@ -1410,6 +1443,49 @@ def render_sales_page(context):
                     if lot_contributors:
                         st.caption(f"Somme des contributions lots : {ratio_total * 100:.1f} %")
 
+        if trade_mobile:
+            st.markdown("### Complément espèces")
+            current_cash_mode = (
+                "Tu ajoutes" if float(st.session_state.get("swap_cash_give", 0.0) or 0.0) > 0
+                else "Tu reçois" if float(st.session_state.get("swap_cash_receive", 0.0) or 0.0) > 0
+                else "Aucun"
+            )
+            cash_mode = st.segmented_control(
+                "Sens du complément",
+                ["Aucun", "Tu reçois", "Tu ajoutes"],
+                default=current_cash_mode,
+                key="brocante_trade_cash_mode",
+                label_visibility="collapsed",
+            ) or "Aucun"
+            cash_amount = 0.0
+            if cash_mode != "Aucun":
+                cash_amount = st.number_input(
+                    "Montant du complément (€)", 0.0, 99999.0, step=0.5,
+                    key="brocante_trade_cash_amount",
+                )
+            st.session_state["swap_cash_give"] = float(cash_amount if cash_mode == "Tu ajoutes" else 0.0)
+            st.session_state["swap_cash_receive"] = float(cash_amount if cash_mode == "Tu reçois" else 0.0)
+
+            if st.session_state.swap_cart_give and st.session_state.swap_cart_receive:
+                mobile_given = _selected_trade_given_records(cd_sw, st.session_state.swap_cart_give)
+                mobile_given_value = sum(item["reference_value"] for item in mobile_given)
+                mobile_received_value = sum(
+                    float(item.get("value", 0.0) or 0.0) * max(int(item.get("quantity", 1) or 1), 1)
+                    for item in st.session_state.swap_cart_receive
+                )
+                mobile_summary = compute_trade_summary(
+                    mobile_given_value,
+                    mobile_received_value,
+                    cash_paid=st.session_state["swap_cash_give"],
+                    cash_received=st.session_state["swap_cash_receive"],
+                    given_historical_cost=sum(item["historical_cost"] for item in mobile_given),
+                )
+                st.markdown("### Résumé")
+                m1, m2 = st.columns(2)
+                m1.metric("Tu donnes", fp(mobile_summary["trade_economic_given_total"]))
+                m2.metric("Tu reçois", fp(mobile_summary["trade_economic_received_total"]))
+                st.caption(f"Écart de valeur · {fp(mobile_summary['trade_value_difference'])}")
+
         # ── Bouton confirmer l'échange ──
         if st.session_state.swap_cart_give and st.session_state.swap_cart_receive:
             st.markdown("---")
@@ -1447,7 +1523,10 @@ def render_sales_page(context):
                         st.stop()
 
                 total_given_value = sum(item["reference_value"] for item in given_records)
-                total_received_value = sum(float(r.get("value", 0.0) or 0.0) for r in st.session_state.swap_cart_receive)
+                total_received_value = sum(
+                    float(r.get("value", 0.0) or 0.0) * max(int(r.get("quantity", 1) or 1), 1)
+                    for r in st.session_state.swap_cart_receive
+                )
                 total_given_historical_cost = sum(item["historical_cost"] for item in given_records)
                 contributors, historical_before_cash, historical_remaining = aggregate_contributors(
                     given_records, cash_paid=cash_give, cash_received=cash_receive
@@ -1505,7 +1584,7 @@ def render_sales_page(context):
                         "rarity": r.get("rarity", ""),
                         "lang": r.get("lang", "fr"),
                         "suggested_price": float(r.get("value", 0.0) or 0.0),
-                        "quantity": 1,
+                        "quantity": max(int(r.get("quantity", 1) or 1), 1),
                         "sold_quantity": 0,
                         "condition": "NM",
                         "is_reverse": False,
@@ -1567,7 +1646,8 @@ def render_sales_page(context):
                             "name": r.get("name", ""),
                             "number": r.get("number", ""),
                             "set": r.get("set", ""),
-                            "reference_value": float(r.get("value", 0.0) or 0.0),
+                            "quantity": max(int(r.get("quantity", 1) or 1), 1),
+                            "reference_value": float(r.get("value", 0.0) or 0.0) * max(int(r.get("quantity", 1) or 1), 1),
                             "historical_cost": r.get("trade_acquisition_total_cost", 0.0),
                             "contributors": r.get("trade_contributors", []),
                         }
@@ -1583,7 +1663,7 @@ def render_sales_page(context):
                     save_brocantes(event_data)
                     st.session_state.pop(attempt_key, None)
                 nb_give = sum(max(int(item.get("quantity", 1) or 1), 1) for item in st.session_state.swap_cart_give)
-                nb_recv = len(st.session_state.swap_cart_receive)
+                nb_recv = sum(max(int(item.get("quantity", 1) or 1), 1) for item in st.session_state.swap_cart_receive)
                 st.session_state.swap_cart_give = []
                 st.session_state.swap_cart_receive = []
                 st.session_state["swap_reset_pending"] = True

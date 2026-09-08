@@ -20,6 +20,8 @@ def _amount_known(record, fields):
 
 def historical_unit_cost_or_none(lot, card):
     """Keep missing costs distinct from a documented zero-cost acquisition."""
+    if card.get("cost_basis_pending"):
+        return None
     trade_fields = (
         "trade_acquisition_unit_cost", "trade_historical_unit_cost", "historical_unit_cost",
         "acquisition_unit_cost", "trade_acquisition_total_cost", "trade_historical_total_cost",

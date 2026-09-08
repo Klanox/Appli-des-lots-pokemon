@@ -197,24 +197,26 @@ def preparing(st, data, event):
             st.error(message)
 
 
-def catalog_image(st, card):
+def catalog_image(st, card, *, width=90):
     image = card.get("image_url_ja") or card.get("image_url") or card.get("image_url_en") or card.get("image")
     if isinstance(image, str) and image and image != "__placeholder__":
         if image.startswith("https://assets.tcgdex.net/") and not image.endswith((".png", ".jpg", ".webp")):
             image += "/low.webp"
-        st.image(image, width=90)
+        st.image(image, width=width)
 
 
 def purchase(st, event, context):
     st.subheader("Rachat de cartes")
-    st.caption("Un seul lot de rachats pour cette brocante. Le coût correspond au montant réellement payé.")
+    st.caption("Ajoute les cartes proposées puis indique le montant total payé.")
     mobile = bool(context.get("is_mobile_mode", lambda: False)())
     key = f'bro_purchase_cart_{event["id"]}'
     cart = st.session_state.setdefault(key, [])
     query = inventory_live_search("Rechercher une carte", key=f'bro_purchase_query_{event["id"]}', placeholder="Nom, numéro… FR / JAP")
     results = search_received_cards(query, st.session_state.get("cards_index", {}), context["normalize_name"], limit=12) if query.strip() else []
+    if not query.strip():
+        st.caption("Recherche une carte pour commencer.")
     if query and not results:
-        st.info("Aucune carte trouvée dans le catalogue chargé.")
+        st.caption("Aucune carte trouvée.")
     result_columns = 2 if mobile else 4
     for offset in range(0, len(results), result_columns):
         for col, (card, set_name, set_id) in zip(st.columns(result_columns), results[offset:offset + result_columns]):
@@ -232,26 +234,23 @@ def purchase(st, event, context):
     if selected:
         with st.form(f'{key}_add', clear_on_submit=True):
             st.markdown(f'**{selected["name"]} · {selected.get("number", "")}**')
-            if mobile:
-                qty = st.number_input("Quantité", min_value=1, max_value=9999, value=1)
-                value = st.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
-            else:
-                a, b = st.columns(2)
-                qty = a.number_input("Quantité", min_value=1, max_value=9999, value=1)
-                value = b.number_input("Valeur estimée par carte (€)", min_value=0.0, step=0.5)
+            qty = st.number_input("Quantité", min_value=1, max_value=9999, value=1)
             if st.form_submit_button("Ajouter au panier de rachat"):
-                cart.append({"card": deepcopy(selected), "quantity": qty, "value": value})
+                cart.append({"card": deepcopy(selected), "quantity": qty})
                 st.session_state.pop(f'{key}_selected', None)
                 st.rerun()
     if not cart:
-        st.caption("Le panier de rachat est vide.")
+        st.caption("Ajoute une ou plusieurs cartes au rachat.")
         return
-    st.markdown("### Panier de rachat")
+    purchase_quantity = sum(int(row.get("quantity", 1) or 1) for row in cart)
+    st.markdown(f"### Panier de rachat · {purchase_quantity} carte{'s' if purchase_quantity != 1 else ''}")
     for i, row in enumerate(cart):
-        a, b = st.columns([4, 1])
-        a.write(f'{row["card"]["name"]} · {row["card"].get("number", "")} × {row["quantity"]}')
-        a.caption(f'Valeur estimée : {money(row["value"])} / carte')
-        if b.button("Retirer", key=f'bro_buy_remove_{i}', width="stretch"):
+        image_col, info_col, action_col = st.columns([1, 3, 1.4])
+        with image_col:
+            catalog_image(st, row["card"], width=56)
+        info_col.write(f'{row["card"]["name"]} · {row["card"].get("number", "")}')
+        info_col.caption(f'{row["card"].get("set", "Extension non renseignée")} · Qté {row["quantity"]}')
+        if action_col.button("Retirer", key=f'bro_buy_remove_{i}', width="stretch"):
             cart.pop(i)
             st.rerun()
     with st.form(f'{key}_confirm'):
@@ -262,10 +261,9 @@ def purchase(st, event, context):
             a, b = st.columns(2)
             amount = a.number_input("Montant total réellement payé (€)", min_value=0.0, value=None, step=0.5)
             payment = b.selectbox("Paiement", PAYMENT_METHODS)
-        confirm = st.checkbox("Je confirme l'achat et son entrée dans le stock")
         if st.form_submit_button("Valider le rachat", type="primary"):
-            if amount is None or not confirm:
-                st.error("Renseigne le montant payé et confirme l'achat.")
+            if amount is None:
+                st.error("Renseigne le montant total payé.")
                 return
             stock, fresh = context["ld"](), load_brocantes()
             attempt = st.session_state.setdefault(f'{key}_attempt', new_id("purchase"))

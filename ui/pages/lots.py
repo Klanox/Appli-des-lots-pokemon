@@ -12,6 +12,7 @@ import re
 
 from ui.lot_progress import lot_progress_html, lot_purchase_summary
 from services.card_identity import card_identity_fingerprint
+from services.brocante_workflow import finalize_brocante_purchase_costs
 from services.custom_card_image_service import is_custom_image_ref, register_custom_card_image, resolve_custom_card_image
 from ui.badges import card_is_japanese, card_variant_badges, status_badge
 from ui.lot_image_upload_bridge import render_lot_image_upload_bridge
@@ -586,6 +587,15 @@ def render_lots_page(context):
 
                 editable_lot_purchase_price(lt, ix)
 
+                pending_purchase_cards = [
+                    card for card in lt.get("cards", []) if card.get("cost_basis_pending")
+                ]
+                if pending_purchase_cards:
+                    st.info(
+                        "Répartition du coût en attente · Renseigne les prix de vente "
+                        "des cartes de ce rachat pour répartir le montant réellement payé."
+                    )
+
                 c1,c2,c3,c4,c5=st.columns(5)
                 c1.metric("Stock", f"{stock_qty} · {fp(stock_val)}")
                 if trade_stock_val > 0:
@@ -1102,6 +1112,7 @@ def render_lots_page(context):
                                                     "date": datetime.now().isoformat()[:10],
                                                     "price": new_price
                                                 })
+                                            finalize_brocante_purchase_costs(cdd["lots"][ix])
                                             sd(cdd)
 
                                         st.number_input("Valeur actuelle (€)" if is_collection_card else "Prix (€)", 0., 9999., value=float(crd.get("suggested_price") or 0), step=0.5, key=f"ep{widget_key}", on_change=save_price)
@@ -1502,6 +1513,7 @@ def render_lots_page(context):
                                     "date": datetime.now().isoformat()[:10],
                                     "price": new_price,
                                 })
+                            finalize_brocante_purchase_costs(cdd["lots"][ix])
                             sd(cdd)
                             st.rerun()
                     elif action_type == "set_quantity":

@@ -6,11 +6,13 @@ from unittest.mock import patch
 
 from core.brocante import (add_expense, brocante_stats, close_session, make_session,
                            record_exchange, record_transaction, start_session)
-from services.brocante_workflow import (commit_staged, deletion_audit, event_sales, project_event,
+from core.sale_preview import historical_unit_cost_or_none
+from core.trade_economics import allocate_received_cards, search_received_cards
+from services.brocante_workflow import (commit_staged, deletion_audit, event_sales,
+                                        finalize_brocante_purchase_costs, project_event,
                                         stage_delete, stage_purchase, tag_trade)
 from core import sales_actions
 from core.sales_cancellation import cancel_sale_by_id
-from logic import calc_cout_lot
 from ui.pages.brocante import go
 
 
@@ -82,27 +84,87 @@ class BrocanteTests(unittest.TestCase):
         self.assertEqual(stats["theoretical_cash"], 20)
         self.assertEqual(stats["net_cash"], -42)
 
-    def test_purchase_costs_sum_exactly_paid_and_normal_lot_costs(self):
-        for amount in (100, 0.03, 0):
-            stock, data = fixtures()
-            payload = lines(5)
-            payload[0]["quantity"] = 3
-            after, _ = stage_purchase(stock, data, "event-1", payload, amount, "Espèces", "p1")
-            lot = after["lots"][-1]
-            self.assertEqual(round(sum(c["purchase_total"] for c in lot["cards"]), 2), amount)
-            self.assertTrue(all(c["purchase_price"] >= 0 for c in lot["cards"]))
-            for card in lot["cards"]:
-                card["sold_entries"] = [{"price": 10, "quantity": card["quantity"]}]
-            rows, _ = calc_cout_lot(lot)
-            for card, _, cost in rows:
-                self.assertAlmostEqual(cost, card["purchase_total"], places=2)
-
-    def test_missing_values_uses_quantity_weights(self):
+    def test_purchase_costs_wait_for_complete_sale_prices(self):
         stock, data = fixtures()
-        payload = lines(2)
-        payload[0].update(value=0, quantity=2)
-        after, _ = stage_purchase(stock, data, "event-1", payload, 30, "PayPal", "p1")
-        self.assertEqual([c["purchase_total"] for c in after["lots"][-1]["cards"]], [20, 10])
+        after, _ = stage_purchase(stock, data, "event-1", lines(3), 100, "PayPal", "p1")
+        lot = after["lots"][-1]
+        self.assertTrue(all(card["purchase_total"] is None for card in lot["cards"]))
+        self.assertTrue(all(card["cost_basis_pending"] for card in lot["cards"]))
+        lot["cards"][0]["suggested_price"] = 120
+        lot["cards"][1]["suggested_price"] = 50
+        self.assertEqual(finalize_brocante_purchase_costs(lot)["pending"], 1)
+        self.assertTrue(all(card["purchase_total"] is None for card in lot["cards"]))
+
+        lot["cards"][2]["suggested_price"] = 30
+        result = finalize_brocante_purchase_costs(lot, allocated_at="2026-09-06T18:00:00")
+        self.assertTrue(result["changed"])
+        self.assertEqual([card["purchase_total"] for card in lot["cards"]], [60, 25, 15])
+        self.assertEqual(sum(card["purchase_total"] for card in lot["cards"]), 100)
+        self.assertTrue(all(not card["cost_basis_pending"] for card in lot["cards"]))
+
+        lot["cards"][0]["suggested_price"] = 240
+        self.assertFalse(finalize_brocante_purchase_costs(lot)["changed"])
+        self.assertEqual([card["purchase_total"] for card in lot["cards"]], [60, 25, 15])
+
+    def test_purchase_allocation_absorbs_rounding_on_last_card(self):
+        stock, data = fixtures()
+        after, _ = stage_purchase(stock, data, "event-1", lines(3), 100, "Espèces", "p1")
+        lot = after["lots"][-1]
+        for card in lot["cards"]:
+            card["suggested_price"] = 1
+        finalize_brocante_purchase_costs(lot)
+        self.assertEqual([card["purchase_total"] for card in lot["cards"]], [33.33, 33.33, 33.34])
+
+    def test_purchase_allocation_waits_when_a_reference_is_missing(self):
+        stock, data = fixtures()
+        after, _ = stage_purchase(stock, data, "event-1", lines(2), 40, "Espèces", "p1")
+        lot = after["lots"][-1]
+        for card in lot["cards"]:
+            card["suggested_price"] = 20
+        lot["brocante_purchases"][0]["cards"].append({"card_uid": "missing", "quantity": 1})
+        self.assertEqual(finalize_brocante_purchase_costs(lot)["pending"], 1)
+        self.assertTrue(all(card["purchase_total"] is None for card in lot["cards"]))
+
+    def test_legacy_allocated_purchase_is_never_rewritten(self):
+        lot = {
+            "brocante_purchase_lot": True,
+            "cost_basis_method": "per_card",
+            "cards": [{"card_uid": "c1", "quantity": 1, "suggested_price": 999,
+                       "purchase_price": 12, "purchase_total": 12}],
+            "brocante_purchases": [{"purchase_id": "legacy", "amount": 12,
+                                     "cards": [{"card_uid": "c1", "quantity": 1, "cost": 12}]}],
+        }
+        finalize_brocante_purchase_costs(lot)
+        self.assertEqual((lot["cards"][0]["purchase_price"], lot["cards"][0]["purchase_total"]), (12, 12))
+
+    def test_zero_cost_purchase_can_allocate_without_prices(self):
+        stock, data = fixtures()
+        after, _ = stage_purchase(stock, data, "event-1", lines(2), 0, "Espèces", "p1")
+        lot = after["lots"][-1]
+        self.assertEqual([card["purchase_total"] for card in lot["cards"]], [0, 0])
+        self.assertTrue(all(not card["cost_basis_pending"] for card in lot["cards"]))
+
+    def test_pending_purchase_has_no_invented_historical_cost(self):
+        stock, data = fixtures()
+        after, _ = stage_purchase(stock, data, "event-1", lines(), 40, "Espèces", "p1")
+        lot = after["lots"][-1]
+        self.assertIsNone(historical_unit_cost_or_none(lot, lot["cards"][0]))
+
+    def test_purchase_search_accepts_joined_name_and_number(self):
+        card = {"id": "xy-199", "name": "Dracaufeu", "localId": "199"}
+        index = {"Dracaufeu": [(card, "Étincelles", "xy")]}
+        normalize = lambda value: str(value or "").casefold().replace("é", "e")
+        for query in ("dracaufeu", "dracaufeu 199", "dracaufeu199", "199"):
+            self.assertEqual(search_received_cards(query, index, normalize)[0][0]["id"], "xy-199")
+
+    def test_received_trade_quantities_weight_value_and_unit_cost(self):
+        cards = [
+            {"name": "A", "value": 20, "quantity": 2},
+            {"name": "B", "value": 10, "quantity": 1},
+        ]
+        allocated = allocate_received_cards(cards, 90, [])
+        self.assertEqual([card["trade_acquisition_total_cost"] for card in allocated], [72, 18])
+        self.assertEqual([card["trade_acquisition_unit_cost"] for card in allocated], [36, 18])
 
     def test_cash_closure_and_non_cash_expenses(self):
         _, data = fixtures()

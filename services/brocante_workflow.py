@@ -61,6 +61,91 @@ def money(value):
     return round(value, 2)
 
 
+def finalize_brocante_purchase_costs(lot, *, allocated_at=None):
+    """Freeze pending Brocante purchase costs once every card price is known.
+
+    Allocation is performed per purchase, so a later purchase never rewrites a
+    cost basis already established for earlier cards in the same daily lot.
+    """
+    if not lot.get("brocante_purchase_lot"):
+        return {"changed": False, "allocated": 0, "pending": 0}
+
+    cards_by_uid = {
+        str(card.get("card_uid")): card
+        for card in lot.get("cards", [])
+        if card.get("card_uid")
+    }
+    changed = False
+    allocated = 0
+    pending = 0
+    allocation_time = allocated_at or now_iso()
+
+    for purchase in lot.get("brocante_purchases", []):
+        status = purchase.get("cost_allocation_status")
+        if status == "allocated":
+            allocated += 1
+            continue
+
+        references = list(purchase.get("cards", []))
+        if status not in (None, "pending"):
+            pending += 1
+            continue
+
+        purchase_cards = []
+        for reference in references:
+            card = cards_by_uid.get(str(reference.get("card_uid") or ""))
+            if card is not None:
+                purchase_cards.append((reference, card))
+        # Purchases written by the previous workflow already own frozen costs.
+        # Never reinterpret them from today's prices.
+        if status is None and references and len(purchase_cards) == len(references) and all(
+            reference.get("cost") is not None
+            and card.get("purchase_price") is not None
+            and not card.get("cost_basis_pending")
+            for reference, card in purchase_cards
+        ):
+            allocated += 1
+            continue
+        amount = money(purchase.get("amount", 0))
+        ready = bool(references) and len(purchase_cards) == len(references) and (
+            amount == 0
+            or all(float(card.get("suggested_price", 0) or 0) > 0 for _, card in purchase_cards)
+        )
+        if not ready:
+            if status != "pending":
+                purchase["cost_allocation_status"] = "pending"
+                changed = True
+            pending += 1
+            continue
+
+        weights = [
+            max(float(card.get("suggested_price", 0) or 0), 0.0)
+            * max(int(card.get("quantity", 1) or 1), 1)
+            for _, card in purchase_cards
+        ]
+        allocations = allocate_amount(amount, weights)
+        for (reference, card), card_cost in zip(purchase_cards, allocations):
+            quantity = max(int(card.get("quantity", 1) or 1), 1)
+            card["purchase_total"] = card_cost
+            card["purchase_price"] = round(card_cost / quantity, 6)
+            card["cost_basis_pending"] = False
+            card["cost_basis_allocated_at"] = allocation_time
+            reference["cost"] = card_cost
+        purchase["cost_allocation_status"] = "allocated"
+        purchase["cost_allocated_at"] = allocation_time
+        allocated += 1
+        changed = True
+
+    lot_status = "pending" if pending else "allocated"
+    if lot.get("brocante_cost_allocation_status") != lot_status:
+        lot["brocante_cost_allocation_status"] = lot_status
+        changed = True
+    if lot.get("cost_basis_method") != "per_card":
+        lot["cost_basis_method"] = "per_card"
+        changed = True
+    return {"changed": changed, "allocated": allocated, "pending": pending}
+
+
 def stage_purchase(stock, events, event_id, lines, amount, payment, purchase_id):
     stock, events = deepcopy(stock), deepcopy(events)
     event = require_active(events, event_id)
@@ -73,15 +158,6 @@ def stage_purchase(stock, events, event_id, lines, amount, payment, purchase_id)
     quantities = [int(line.get("quantity", 1)) for line in lines]
     if any(q < 1 for q in quantities):
         raise ValueError("Quantité invalide.")
-    values = [money(line.get("value", 0)) for line in lines]
-    weights = [v*q for v, q in zip(values, quantities)] if all(values) else quantities
-    allocations = allocate_amount(amount, weights)
-    # The shared allocator rounds each line; cap preceding lines for sub-cent bundles.
-    remaining = amount
-    for i in range(len(allocations) - 1):
-        allocations[i] = min(max(allocations[i], 0), remaining)
-        remaining = round(remaining - allocations[i], 2)
-    allocations[-1] = remaining
     lots = stock.setdefault("lots", [])
     lot = next((l for l in lots if l.get("brocante_purchase_lot") and l.get("brocante_id") == event_id), None)
     if lot is None:
@@ -93,7 +169,7 @@ def stage_purchase(stock, events, event_id, lines, amount, payment, purchase_id)
                "brocante_purchase_lot": True, "brocante_id": event_id, "brocante_purchases": []}
         lots.append(lot)
     cards = []
-    for line, qty, value, cost in zip(lines, quantities, values, allocations):
+    for line, qty in zip(lines, quantities):
         source = line["card"]
         # Catalog identity and images only; never inherit another physical card's history.
         card = {k: deepcopy(source[k]) for k in (
@@ -103,15 +179,19 @@ def stage_purchase(stock, events, event_id, lines, amount, payment, purchase_id)
         if not card.get("name"):
             raise ValueError("L'identité d'une carte est manquante.")
         card.update(card_uid=new_id("card"), quantity=qty, sold_quantity=0, sold_entries=[],
-                    condition=source.get("condition", "NM"), suggested_price=value,
-                    purchase_price=cost / qty, purchase_total=cost, added_at=now_iso(),
+                    condition=source.get("condition", "NM"), suggested_price=0.0,
+                    purchase_price=None, purchase_total=None, cost_basis_pending=True, added_at=now_iso(),
                     brocante_id=event_id, brocante_purchase_id=purchase_id, provenance="Brocante / rachat")
         lot["cards"].append(card)
-        cards.append({"card_uid": card["card_uid"], "quantity": qty, "cost": cost})
+        cards.append({"card_uid": card["card_uid"], "quantity": qty, "cost": None})
     purchase = {"purchase_id": purchase_id, "created_at": now_iso(), "amount": amount,
-                "payment_method": payment, "cards": cards, "lot_uid": lot["lot_uid"]}
+                "payment_method": payment, "cards": cards, "lot_uid": lot["lot_uid"],
+                "cost_allocation_status": "pending"}
     lot["prix_achat"] = round(float(lot.get("prix_achat", 0)) + amount, 2)
     lot.setdefault("brocante_purchases", []).append(purchase)
+    lot["brocante_cost_allocation_status"] = "pending"
+    if amount == 0:
+        finalize_brocante_purchase_costs(lot)
     project_event(event, stock)
     return stock, events
 

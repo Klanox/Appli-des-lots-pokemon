@@ -7,6 +7,7 @@ only transform data already loaded by the caller.
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from uuid import uuid4
 
 
@@ -251,7 +252,10 @@ def aggregate_contributors(given_records, cash_paid=0.0, cash_received=0.0):
 
 
 def allocate_received_cards(received_cards, total_cost, contributors):
-    weights = [max(safe_float(card.get("value")), 0.0) for card in received_cards]
+    weights = [
+        max(safe_float(card.get("value")), 0.0) * max(safe_int(card.get("quantity"), 1), 1)
+        for card in received_cards
+    ]
     card_costs = allocate_amount(total_cost, weights)
     contributor_weights = [max(safe_float(c.get("remaining_cost")), 0.0) for c in contributors]
     result = []
@@ -269,8 +273,9 @@ def allocate_received_cards(received_cards, total_cost, contributors):
                 if copied.get("source_type") == "lot" and copied.get("lot_idx") is not None:
                     exchange_repartition[str(copied.get("lot_idx"))] = part
         enriched = dict(card)
+        quantity = max(safe_int(card.get("quantity"), 1), 1)
         enriched["trade_acquisition_total_cost"] = card_cost
-        enriched["trade_acquisition_unit_cost"] = card_cost
+        enriched["trade_acquisition_unit_cost"] = rounded(card_cost / quantity)
         enriched["trade_contributors"] = card_contributors
         enriched["exchange_repartition"] = exchange_repartition
         result.append(enriched)
@@ -397,6 +402,10 @@ def search_received_cards(query, cards_index, normalize_func, limit=12):
         return []
     q_norm = normalize_func(query)
     q_num = normalize_number(query) if any(ch.isdigit() for ch in query) else ""
+    compact_query = re.sub(r"\s+", "", q_norm)
+    compact_match = re.fullmatch(r"(.+?)(\d+[a-z]?)", compact_query)
+    compact_name = normalize_func(compact_match.group(1)) if compact_match else ""
+    compact_number = normalize_number(compact_match.group(2)) if compact_match else ""
     matches = []
     seen = set()
 
@@ -428,7 +437,11 @@ def search_received_cards(query, cards_index, normalize_func, limit=12):
                     set_id,
                 )
             )
-            if q_num and number == q_num:
+            if compact_name and compact_number and number == compact_number and (
+                name_norm == compact_name or name_norm.startswith(compact_name)
+            ):
+                add(card, set_name, set_id, 110)
+            elif q_num and number == q_num:
                 add(card, set_name, set_id, 100)
             elif name_norm == q_norm or idx_norm == q_norm:
                 add(card, set_name, set_id, 90)
