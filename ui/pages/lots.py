@@ -936,7 +936,7 @@ def render_lots_page(context):
 
                                 with st.container(key=f"lot_card_item_{safe_lot_key}_scope-{safe_scope}_{card_key_part}_{col_idx}"):
                                     # Image + informations statiques.
-                                    img_url = crd.get("image_url","") or resolve_custom_card_image(crd)
+                                    img_url = resolve_custom_card_image(crd) or crd.get("image_url", "")
                                     img_url_en = crd.get("image_url_en", "")
                                     static_parts = []
                                     if img_url or img_url_en:
@@ -1089,7 +1089,7 @@ def render_lots_page(context):
                                                 f"{duplicate.get('number', '')}. Les entrées resteront séparées."
                                             )
 
-                                        current_identity_image = crd.get("image_url") or resolve_custom_card_image(crd)
+                                        current_identity_image = resolve_custom_card_image(crd) or crd.get("image_url")
                                         if current_identity_image:
                                             st.image(proxy_img(current_identity_image), width=108, caption="Image actuelle")
                                         st.markdown(
@@ -1266,7 +1266,7 @@ def render_lots_page(context):
 
                 def lot_card_image_url(card):
                     candidates = []
-                    for raw_url in (card.get("image_url", "") or resolve_custom_card_image(card), card.get("image_url_en", "")):
+                    for raw_url in (resolve_custom_card_image(card) or card.get("image_url", ""), card.get("image_url_en", "")):
                         raw_url = str(raw_url or "").strip()
                         if not raw_url or raw_url == "__placeholder__":
                             continue

@@ -64,9 +64,7 @@ def _collection_card_number(card):
 
 
 def _collection_card_image_url(card):
-    url = str(card.get("image") or card.get("image_url") or card.get("image_url_en") or "").strip()
-    if not url:
-        url = resolve_custom_card_image(card)
+    url = str(resolve_custom_card_image(card) or card.get("image") or card.get("image_url") or card.get("image_url_en") or "").strip()
     if url and not url.endswith((".webp", ".png", ".jpg", ".jpeg")):
         url = url.rstrip("/") + "/high.webp"
     return url

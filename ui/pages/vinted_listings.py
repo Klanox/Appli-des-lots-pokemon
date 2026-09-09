@@ -103,17 +103,17 @@ def _card_image(card, proxy_img_func=None):
         if value not in candidates:
             candidates.append(value)
 
+    try:
+        add_candidate(resolve_custom_card_image(card))
+    except Exception:
+        pass
+
     for key in ("manual_image_path", "manual_image_url", "resolved_collection_image_url"):
         add_candidate(card.get(key))
     for key in ("image_path", "local_image_path"):
         add_candidate(card.get(key))
     for key in ("image_url", "image_url_en"):
         add_candidate(card.get(key))
-
-    try:
-        add_candidate(resolve_custom_card_image(card))
-    except Exception:
-        pass
 
     if not candidates:
         return ""

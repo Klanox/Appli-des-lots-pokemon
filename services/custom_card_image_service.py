@@ -258,9 +258,16 @@ def _upload_local_image_to_storage(identity: str, image_ref: str) -> dict:
     }
 
 
-def register_custom_card_image(card: dict, image_ref: str, *, source: str = "manual", path: str = CUSTOM_CARD_IMAGES_FILE) -> bool:
+def register_custom_card_image(
+    card: dict,
+    image_ref: str,
+    *,
+    source: str = "manual",
+    path: str = CUSTOM_CARD_IMAGES_FILE,
+    override_official: bool = True,
+) -> bool:
     image_ref = str(image_ref or "").strip().replace("\\", "/")
-    if not image_ref or has_official_image(card):
+    if not image_ref:
         return False
     if not is_custom_image_ref(image_ref):
         return False
@@ -284,6 +291,7 @@ def register_custom_card_image(card: dict, image_ref: str, *, source: str = "man
         "card_name": str(card.get("name") or card.get("card_name") or ""),
         "number": str(card.get("number") or card.get("card_number") or ""),
         "set": str(card.get("set") or card.get("card_set") or ""),
+        "override_official": bool(override_official),
     }
     if image_ref.startswith(("card_images/", "card_images\\")) or os.path.exists(image_ref):
         entry["local_image_ref"] = image_ref
@@ -293,8 +301,6 @@ def register_custom_card_image(card: dict, image_ref: str, *, source: str = "man
 
 
 def resolve_custom_card_image(card: dict, *, path: str = CUSTOM_CARD_IMAGES_FILE) -> str:
-    if has_official_image(card):
-        return ""
     identities = card_image_identities(card)
     if not identities:
         return ""
@@ -304,6 +310,8 @@ def resolve_custom_card_image(card: dict, *, path: str = CUSTOM_CARD_IMAGES_FILE
         entry = images.get(identity, {})
         if entry:
             break
+    if not entry or (has_official_image(card) and not entry.get("override_official")):
+        return ""
     image_ref = str(entry.get("image_ref") or "").strip()
     local_ref = str(entry.get("local_image_ref") or "").strip()
     storage_url = str(entry.get("storage_public_url") or "").strip()
@@ -332,6 +340,20 @@ def resolve_custom_card_image(card: dict, *, path: str = CUSTOM_CARD_IMAGES_FILE
             except Exception:
                 return ""
     return ""
+
+
+def remove_custom_card_image(card: dict, *, path: str = CUSTOM_CARD_IMAGES_FILE) -> bool:
+    identities = card_image_identities(card)
+    if not identities:
+        return False
+    payload = load_custom_card_images(path)
+    images = payload.get("images", {})
+    removed = False
+    for identity in identities:
+        if identity in images:
+            images.pop(identity, None)
+            removed = True
+    return save_custom_card_images(payload, path) if removed else False
 
 
 def apply_custom_image_fallback(card: dict, *, path: str = CUSTOM_CARD_IMAGES_FILE) -> bool:

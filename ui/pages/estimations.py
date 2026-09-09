@@ -20,6 +20,11 @@ from st_keyup import st_keyup
 from services.estimations_service import (
     QUICK_BULK_PURCHASE_UNIT_PRICE,
     QUICK_BULK_RESALE_UNIT_PRICE,
+    automatic_offer_amount,
+    estimation_offer_is_sent,
+    estimation_offer_mode,
+    estimation_source_rate,
+    price_to_cote_pct,
 )
 from services.market_price_cache_service import (
     apply_market_price_to_card,
@@ -32,7 +37,12 @@ from services.market_price_cache_service import (
     save_market_price_cache,
     upsert_market_price,
 )
-from services.custom_card_image_service import resolve_custom_card_image
+from services.custom_card_image_service import (
+    CUSTOM_CARD_IMAGES_FILE,
+    register_custom_card_image,
+    remove_custom_card_image,
+    resolve_custom_card_image,
+)
 
 
 _ESTIMATION_LOG_SIGNATURES = set()
@@ -289,18 +299,18 @@ def _estimate_score(totals):
     total_cote = _safe_float(totals.get("total_cote"))
     seller_price = _safe_float(totals.get("seller_price"))
     margin = _safe_float(totals.get("theoretical_margin"))
-    if total_cote <= 0 or seller_price <= 0:
+    real_pct = price_to_cote_pct(seller_price, total_cote)
+    if real_pct is None:
         return -999999
-    real_pct = seller_price / total_cote * 100
     return (100 - real_pct) * 100 + margin
 
 
 def _opportunity_label(totals):
     total_cote = _safe_float(totals.get("total_cote"))
     seller_price = _safe_float(totals.get("seller_price"))
-    if total_cote <= 0 or seller_price <= 0:
+    real_pct = price_to_cote_pct(seller_price, total_cote)
+    if real_pct is None:
         return "À vérifier", "check"
-    real_pct = seller_price / total_cote * 100
     if real_pct < 60:
         return "Très intéressant", "great"
     if real_pct < 70:
@@ -1234,7 +1244,7 @@ def _estimation_card_badges(card, normalize_name_func):
 
 
 def _manual_estimation_image_dir():
-    path = os.path.join("images", "manual_estimations")
+    path = os.path.join("card_images", "estimations")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -2100,7 +2110,13 @@ def _fast_index_image_fields(card, number, lang):
 
 def _estimation_image_cache_key(card):
     card = card or {}
-    parts = [_card_language(card, default="fr"), str(card.get("id") or card.get("card_id") or ""), str(card.get("number") or card.get("localId") or "")]
+    registry_mtime = os.path.getmtime(CUSTOM_CARD_IMAGES_FILE) if os.path.exists(CUSTOM_CARD_IMAGES_FILE) else 0
+    parts = [
+        _card_language(card, default="fr"),
+        str(card.get("id") or card.get("card_id") or ""),
+        str(card.get("number") or card.get("localId") or ""),
+        str(registry_mtime),
+    ]
     for key in _ESTIMATION_IMAGE_FIELDS:
         parts.append(str(card.get(key) or ""))
     return "|".join(parts)
@@ -2113,6 +2129,15 @@ def _resolve_estimation_card_image(card, *, log=True):
         return dict(_ESTIMATION_IMAGE_RESOLUTION_CACHE[cache_key])
     started_at = time.perf_counter()
     is_japanese = _card_is_japanese(card)
+    card_id = card.get("card_id") or card.get("id")
+    number = card.get("number") or card.get("localId")
+    custom_image_url = resolve_custom_card_image({**card, "card_id": card_id, "number": number})
+    if custom_image_url:
+        result = {"url": custom_image_url, "url_en": "", "fallbacks": [], "source": "custom_library"}
+        if len(_ESTIMATION_IMAGE_RESOLUTION_CACHE) >= _ESTIMATION_IMAGE_RESOLUTION_CACHE_MAX:
+            _ESTIMATION_IMAGE_RESOLUTION_CACHE.pop(next(iter(_ESTIMATION_IMAGE_RESOLUTION_CACHE)))
+        _ESTIMATION_IMAGE_RESOLUTION_CACHE[cache_key] = dict(result)
+        return result
     candidates = [
         ("manual_image_path", card.get("manual_image_path")),
         ("manual_image_url", card.get("manual_image_url")),
@@ -2174,26 +2199,6 @@ def _resolve_estimation_card_image(card, *, log=True):
             )
         return result
 
-    card_id = card.get("card_id") or card.get("id")
-    number = card.get("number") or card.get("localId")
-    custom_image_url = resolve_custom_card_image({**card, "card_id": card_id, "number": number})
-    if custom_image_url:
-        result = {"url": custom_image_url, "url_en": "", "fallbacks": [], "source": "custom_library"}
-        if len(_ESTIMATION_IMAGE_RESOLUTION_CACHE) >= _ESTIMATION_IMAGE_RESOLUTION_CACHE_MAX:
-            _ESTIMATION_IMAGE_RESOLUTION_CACHE.pop(next(iter(_ESTIMATION_IMAGE_RESOLUTION_CACHE)))
-        _ESTIMATION_IMAGE_RESOLUTION_CACHE[cache_key] = dict(result)
-        if log:
-            _log_once(
-                "estimation_image",
-                f'{card_id}|{number}|custom_library',
-                f'[Estimations Image] card="{card.get("name", "Carte")}" source=custom_library valid=yes',
-            )
-            _perf_log_once(
-                "image",
-                f'{card_id}|{number}|custom_library',
-                f'[Estimations Perf] image card="{card.get("name", "Carte")}" source=custom_library elapsed_ms={int((time.perf_counter() - started_at) * 1000)}',
-            )
-        return result
     rebuilt_candidates = []
     for lang in (["ja", "fr", "en"] if is_japanese else ["fr", "en"]):
         for candidate in _tcgdex_image_candidates_from_id(card_id, number, lang=lang):
@@ -2424,6 +2429,16 @@ def _build_search_index(cards_index, normalize_name_func):
     if source_id and source_id == _ESTIMATION_SEARCH_INDEX_SOURCE_ID:
         _est_perf_record("lecture index en cache", (time.perf_counter() - started_at) * 1000, cartes=len(_ESTIMATION_SEARCH_INDEX))
         return _ESTIMATION_SEARCH_INDEX
+    session_cache = st.session_state.get("estimation_search_index_cache")
+    if isinstance(session_cache, dict) and session_cache.get("source_id") == source_id:
+        cached_index = session_cache.get("index")
+        cached_by_lang = session_cache.get("by_lang")
+        if isinstance(cached_index, list) and isinstance(cached_by_lang, dict):
+            _ESTIMATION_SEARCH_INDEX = cached_index
+            _ESTIMATION_SEARCH_INDEX_BY_LANG = cached_by_lang
+            _ESTIMATION_SEARCH_INDEX_SOURCE_ID = source_id
+            _est_perf_record("lecture index session", (time.perf_counter() - started_at) * 1000, cartes=len(cached_index))
+            return cached_index
     index = []
     by_lang = {"fr": [], "ja": []}
     pocket_hidden = 0
@@ -2543,6 +2558,11 @@ def _build_search_index(cards_index, normalize_name_func):
     _ESTIMATION_SEARCH_INDEX = index
     _ESTIMATION_SEARCH_INDEX_SOURCE_ID = source_id
     _ESTIMATION_SEARCH_INDEX_BY_LANG = by_lang
+    st.session_state["estimation_search_index_cache"] = {
+        "source_id": source_id,
+        "index": index,
+        "by_lang": by_lang,
+    }
     _perf_log_once(
         "build_index",
         f"{source_id}|{len(index)}",
@@ -3066,6 +3086,7 @@ def _reset_estimation_search_memory_cache():
     _ESTIMATION_SEARCH_INDEX = []
     _ESTIMATION_SEARCH_INDEX_BY_LANG = {"fr": [], "ja": []}
     _ESTIMATION_SEARCH_INDEX_SOURCE_ID = None
+    st.session_state.pop("estimation_search_index_cache", None)
 
 
 def _image_html(card, proxy_img_func, class_name="est-box-img"):
@@ -3152,7 +3173,7 @@ def _estimate_box_html(item, fp_func, proxy_img_func, active=False):
                     {_kpi("Prix demandé", _seller_price_label(estimate, fp_func), tone)}
                     {_kpi("Cote", fp_func(total_cote), tone)}
                     {_kpi("% cote", pct_label, tone)}
-                    {_kpi("Marge", fp_func(margin) if total_cote else "À vérifier", tone)}
+                    {_kpi("Écart à la cote", fp_func(margin) if total_cote else "À vérifier", tone)}
                     {_kpi("Cartes", f"{card_count}", tone)}
                 </div>
             </div>
@@ -3228,7 +3249,9 @@ def _render_tracked_card(card, estimate, fp_func, img_with_fallback_func, cardma
         "cm_url": cm_url,
         "image_source": image_info.get("source", ""),
         "has_image": image_info.get("source") != "placeholder" and bool(image_info.get("url") or image_info.get("url_en") or image_info.get("fallbacks")),
-        "has_manual_image": bool(_normalize_image_source(card.get("manual_image_path") or card.get("manual_image_url"))),
+        "has_manual_image": image_info.get("source") == "custom_library" or bool(
+            _normalize_image_source(card.get("manual_image_path") or card.get("manual_image_url"))
+        ),
         "badges": badges,
         "market_badge_label": market_badge_label,
         "market_badge_css": market_badge_css,
@@ -3676,7 +3699,21 @@ def _finish_estimation_report(estimate, totals):
     }
 
 
-def _render_finish_estimation_panel(estimate, totals, uid, edata, save_estimations_func, fp_func, normalize_name_func, parse_float_input_func):
+def _mark_offer_input_custom(mode_key):
+    st.session_state[mode_key] = "custom"
+
+
+def _render_finish_estimation_panel(
+    estimate,
+    totals,
+    settings,
+    uid,
+    edata,
+    save_estimations_func,
+    fp_func,
+    normalize_name_func,
+    parse_float_input_func,
+):
     finish_key = f"est_finish_panel_{uid}"
     c1, c2 = st.columns([1, 1])
     if c1.button("Finir l’estimation", key=f"est_finish_open_{uid}", width="stretch"):
@@ -3786,11 +3823,28 @@ def _render_finish_estimation_panel(estimate, totals, uid, edata, save_estimatio
             st.rerun()
 
         offer_key = f"est_offer_amount_{uid}"
+        offer_mode_key = f"est_offer_mode_{uid}"
+        offer_signature_key = f"est_offer_auto_signature_{uid}"
         existing_offer = _safe_float(estimate.get("offer_amount") or estimate.get("sent_offer_amount"))
+        offer_sent = estimation_offer_is_sent(estimate)
+        auto_offer = automatic_offer_amount(estimate, settings, totals.get("total_cote", 0.0))
+        auto_signature = (
+            round(_safe_float(totals.get("total_cote")), 4),
+            round(estimation_source_rate(estimate, settings), 4),
+        )
+        if offer_mode_key not in st.session_state:
+            st.session_state[offer_mode_key] = estimation_offer_mode(estimate)
+        current_offer_mode = st.session_state.get(offer_mode_key, "auto")
         if offer_key not in st.session_state:
-            st.session_state[offer_key] = f"{existing_offer:.2f}".replace(".", ",") if existing_offer > 0 else ""
-        st.markdown("**Offre vendeur**")
-        if existing_offer > 0:
+            initial_offer = auto_offer if current_offer_mode == "auto" and not offer_sent else existing_offer
+            if initial_offer <= 0:
+                initial_offer = auto_offer
+            st.session_state[offer_key] = f"{initial_offer:.2f}".replace(".", ",") if initial_offer > 0 else ""
+        elif not offer_sent and current_offer_mode == "auto" and st.session_state.get(offer_signature_key) != auto_signature:
+            st.session_state[offer_key] = f"{auto_offer:.2f}".replace(".", ",") if auto_offer > 0 else ""
+        st.session_state[offer_signature_key] = auto_signature
+        st.markdown("**Mon offre**")
+        if offer_sent and existing_offer > 0:
             st.caption(
                 " · ".join(
                     [
@@ -3800,9 +3854,21 @@ def _render_finish_estimation_panel(estimate, totals, uid, edata, save_estimatio
                 )
             )
         offer_cols = st.columns([2, 1])
-        offer_raw = offer_cols[0].text_input("Montant de l’offre à envoyer (€)", key=offer_key, placeholder="Ex: 120")
-        offer_disabled = bool(blockers)
-        offer_label = "Modifier l’offre" if existing_offer > 0 else "Enregistrer l’offre envoyée"
+        offer_raw = offer_cols[0].text_input(
+            "Montant de l’offre à envoyer (€)",
+            key=offer_key,
+            placeholder="Ex: 120",
+            disabled=offer_sent,
+            on_change=_mark_offer_input_custom,
+            args=(offer_mode_key,),
+        )
+        displayed_offer = parse_float_input_func(offer_raw, 0.0)
+        displayed_pct = price_to_cote_pct(displayed_offer, totals.get("total_cote"))
+        if displayed_offer > 0 and displayed_pct is not None:
+            mode_label = "offre personnalisée" if st.session_state.get(offer_mode_key) == "custom" else "offre automatique"
+            st.caption(f"Mon offre : {fp_func(displayed_offer)} · {displayed_pct:.1f} % cote · {mode_label}")
+        offer_disabled = bool(blockers) or offer_sent
+        offer_label = "Offre déjà enregistrée" if offer_sent else "Enregistrer l’offre envoyée"
         if offer_cols[1].button(offer_label, key=f"est_offer_save_{uid}", disabled=offer_disabled, width="stretch"):
             amount = parse_float_input_func(offer_raw, 0.0)
             if amount <= 0:
@@ -3810,6 +3876,9 @@ def _render_finish_estimation_panel(estimate, totals, uid, edata, save_estimatio
             else:
                 estimate["offer_amount"] = amount
                 estimate["offer_sent_at"] = datetime.now().isoformat()
+                estimate["offer_mode"] = st.session_state.get(offer_mode_key, "auto")
+                estimate["offer_rate"] = price_to_cote_pct(amount, totals.get("total_cote"))
+                estimate["offer_reference_cote"] = _safe_float(totals.get("total_cote"))
                 estimate["workflow_status"] = "Offre envoyée"
                 estimate["status"] = "Offre envoyée"
                 save_estimations_func(edata)
@@ -3825,7 +3894,10 @@ def _save_estimation_manual_image(card, uploaded_file):
     path = os.path.join(folder, filename)
     with open(path, "wb") as target:
         target.write(uploaded_file.getbuffer())
-    return path.replace("\\", "/")
+    image_ref = path.replace("\\", "/")
+    register_custom_card_image(card, image_ref, source="estimations_upload", override_official=True)
+    _ESTIMATION_IMAGE_RESOLUTION_CACHE.clear()
+    return image_ref
 
 
 def _render_css():
@@ -4716,67 +4788,6 @@ def _build_opportunities(estimates, settings, estimation_totals_func):
     return opportunities
 
 
-def _render_estimations_comparison(opportunities, fp_func, normalize_name_func):
-    if len(opportunities) < 2:
-        return
-    with st.expander("Comparer les estimations", expanded=False):
-        labels = [
-            f"{item['estimate'].get('name', 'Estimation')} · {_estimation_tracking_status(item['estimate'])}"
-            for item in opportunities
-        ]
-        selected = st.multiselect(
-            "Estimations à comparer",
-            labels,
-            default=labels[: min(3, len(labels))],
-            key="est_compare_selection",
-        )
-        selected_set = set(selected)
-        sort_by = st.selectbox(
-            "Trier par",
-            ["Marge", "% cote", "Cote totale", "Prix demandé"],
-            key="est_compare_sort",
-        )
-        rows = []
-        label_to_uid = {}
-        for label, item in zip(labels, opportunities):
-            if label not in selected_set:
-                continue
-            estimate = item["estimate"]
-            totals = item["totals"]
-            label_to_uid[label] = estimate.get("uid")
-            rows.append(
-                {
-                    "Estimation": estimate.get("name", "Estimation"),
-                    "Statut": _estimation_tracking_status(estimate),
-                    "Prix demandé": _seller_price_label(estimate, fp_func),
-                    "Cote totale": fp_func(_safe_float(totals.get("total_cote"))),
-                    "% cote": f"{_safe_float(totals.get('real_pct')):.1f}%" if _safe_float(totals.get("real_pct")) else "À vérifier",
-                    "Marge": fp_func(_safe_float(totals.get("theoretical_margin"))),
-                    "_sort_margin": _safe_float(totals.get("theoretical_margin")),
-                    "_sort_pct": _safe_float(totals.get("real_pct")) or 999,
-                    "_sort_total": _safe_float(totals.get("total_cote")),
-                    "_sort_seller": _explicit_seller_price(estimate),
-                }
-            )
-        sort_key = {
-            "Marge": "_sort_margin",
-            "% cote": "_sort_pct",
-            "Cote totale": "_sort_total",
-            "Prix demandé": "_sort_seller",
-        }[sort_by]
-        reverse = sort_by not in {"% cote", "Prix demandé"}
-        rows.sort(key=lambda row: row.get(sort_key, 0), reverse=reverse)
-        display_rows = [{k: v for k, v in row.items() if not k.startswith("_")} for row in rows]
-        if display_rows:
-            st.dataframe(display_rows, hide_index=True, width="stretch")
-            open_label = st.selectbox("Ouvrir depuis la comparaison", [""] + selected, key="est_compare_open")
-            if open_label and st.button("Ouvrir cette estimation", key="est_compare_open_btn", width="stretch"):
-                st.session_state["active_estimation_uid"] = label_to_uid.get(open_label, "")
-                st.rerun()
-        else:
-            st.caption("Sélectionne au moins une estimation à comparer.")
-
-
 def _bind_estimation_box_clicks(run_html_func):
     run_html_func(
         """
@@ -4872,9 +4883,6 @@ def render_estimations_page(
     _est_perf_record("lecture cache cotes", (time.perf_counter() - market_started) * 1000)
     _render_est_perf_panel()
 
-    _render_market_alerts(market_cache, edata, fp_func)
-    _render_market_cache_tools(market_cache, edata)
-
     st.markdown(
         '<div class="est-create-card"><strong>Créer une nouvelle estimation</strong><br><span>Ajoute un prix demandé, puis complète avec les cartes à comparer.</span></div>',
         unsafe_allow_html=True,
@@ -4915,6 +4923,9 @@ def render_estimations_page(
 
     if not estimates:
         st.info("Aucune estimation pour le moment. Crée ta première boîte au-dessus.")
+        st.markdown("### Outils de cote")
+        _render_market_cache_tools(market_cache, edata)
+        _render_market_alerts(market_cache, edata, fp_func)
         return
 
     opportunities = _build_opportunities(estimates, settings, estimation_totals_func)
@@ -4933,8 +4944,6 @@ def render_estimations_page(
         )
         or "Aucun statut actif à signaler"
     )
-    _render_estimations_comparison(opportunities, fp_func, normalize_name_func)
-
     f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
     search = f1.text_input("Rechercher une estimation", placeholder="Nom, carte, source...", key="est_box_search")
     status_filter = f2.selectbox("Intérêt", ["Tous", "Très intéressant", "Intéressant", "Correct", "Trop cher", "À vérifier"], key="est_box_status_filter")
@@ -5010,6 +5019,10 @@ def render_estimations_page(
 
     _bind_estimation_box_clicks(run_html_func)
 
+    st.markdown("### Outils de cote")
+    _render_market_cache_tools(market_cache, edata)
+    _render_market_alerts(market_cache, edata, fp_func)
+
     with st.expander("Réglages de rachat", expanded=False):
         st.caption("Ces pourcentages servent à calculer le prix maximum conseillé.")
         with st.form("estimation_settings_form_box"):
@@ -5081,7 +5094,7 @@ def _render_open_estimation(
             {_kpi("Prix demandé", _seller_price_label(estimate, fp_func), accent="price")}
             {_kpi("Cote totale", fp_func(total_cote), accent="value")}
             {_kpi("% cote", f"{real_pct:.1f}%" if real_pct else "À vérifier", accent="percent")}
-            {_kpi("Marge", fp_func(margin) if total_cote else "À vérifier", accent=margin_accent)}
+            {_kpi("Écart à la cote", fp_func(margin) if total_cote else "À vérifier", accent=margin_accent)}
             {_kpi("Cartes", card_count, accent="count")}
             {_kpi("Rachat max", fp_func(totals.get("max_buy", 0.0)), accent="buy")}
             {_kpi("Collection", totals.get("collection_cards", 0), accent="count")}
@@ -5669,7 +5682,7 @@ def _render_open_estimation(
         )
         mobile_mode = is_mobile_mode_func()
         display_limit_key = f"est_visible_card_limit_{uid}"
-        default_limit = 20
+        default_limit = 12 if mobile_mode else 16
         if display_limit_key not in st.session_state:
             st.session_state[display_limit_key] = default_limit
         if internal_query:
@@ -5715,9 +5728,7 @@ def _render_open_estimation(
                         )
                         card_uid = card.get("uid") or f"{cidx}"
                         cote_key = f"est_card_cote_{uid}_{card_uid}"
-                        cote_seen_key = f"{cote_key}_seen"
                         qty_edit_key = f"est_card_qty_{uid}_{card_uid}"
-                        qty_seen_key = f"{qty_edit_key}_seen"
                         current_cote = _safe_float(card.get("cote"))
                         if cote_key not in st.session_state:
                             st.session_state[cote_key] = f"{current_cote:.2f}".replace(".", ",") if current_cote > 0 else ""
@@ -5727,31 +5738,21 @@ def _render_open_estimation(
                             if card_meta.get("tags"):
                                 st.caption(card_meta["tags"])
                             badge_parts = list(card_meta.get("badges", []) or [])
-                            if card_meta.get("market_badge_label"):
-                                badge_parts.append(card_meta["market_badge_label"])
                             if badge_parts:
                                 st.caption(" · ".join(str(part) for part in badge_parts if part))
                             current_qty = _safe_int(card.get("quantity"))
-                            edited_qty = st.number_input("Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key)
-                            previous_qty_seen = st.session_state.get(qty_seen_key)
-                            st.session_state[qty_seen_key] = int(edited_qty)
-                            if previous_qty_seen is not None and int(edited_qty) != previous_qty_seen and int(edited_qty) != current_qty:
-                                print(
-                                    f'[Estimations Quantity] card="{card.get("name", "Carte")}" old={current_qty} new={int(edited_qty)}',
-                                    flush=True,
-                                )
+                            with st.form(f"est_card_values_{uid}_{card_uid}"):
+                                edited_qty = st.number_input("Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key)
+                                cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
+                                st.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
+                                cote_text = st.text_input("Cote (€)", key=cote_key, placeholder="0,00")
+                                save_card_values = st.form_submit_button("Enregistrer", width="stretch")
+                            new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
+                            if save_card_values and (
+                                int(edited_qty) != current_qty or abs(new_cote - current_cote) > 0.009
+                            ):
                                 _mark_estimation_needs_review(estimate)
                                 card["quantity"] = int(edited_qty)
-                                save_estimations_func(edata)
-                                st.rerun()
-                            cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
-                            st.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
-                            cote_text = st.text_input("Cote (€)", key=cote_key, placeholder="0,00")
-                            new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
-                            previous_cote_seen = st.session_state.get(cote_seen_key)
-                            st.session_state[cote_seen_key] = str(cote_text or "")
-                            if previous_cote_seen is not None and str(cote_text or "") != previous_cote_seen and abs(new_cote - current_cote) > 0.009:
-                                _mark_estimation_needs_review(estimate)
                                 card["cote"] = new_cote
                                 mark_manual_price(card, new_cote)
                                 if new_cote > 0:
@@ -5793,7 +5794,7 @@ def _render_open_estimation(
                                 f"""
                                 <div class="est-card-mini-grid">
                                     <div><span>Payé estimé</span><strong>{html.escape(card_meta["paid_label"])}</strong></div>
-                                    <div class="{html.escape(card_meta["margin_class"])}"><span>Marge</span><strong>{html.escape(card_meta["margin_label"])}</strong></div>
+                                    <div class="{html.escape(card_meta["margin_class"])}"><span>Écart à la cote</span><strong>{html.escape(card_meta["margin_label"])}</strong></div>
                                 </div>
                                 <a class="est-cardmarket-link" href="{card_meta["cm_url"]}" target="_blank">Chercher la cote sur Cardmarket</a>
                                 """,
@@ -5805,40 +5806,32 @@ def _render_open_estimation(
                                         _mark_estimation_needs_review(estimate)
                                         save_estimations_func(edata)
                                     st.rerun()
-                            upload_label = "Remplacer la photo" if card_meta.get("has_manual_image") else "Ajouter une photo"
-                            if (not card_meta.get("has_image")) or card_meta.get("has_manual_image"):
-                                with st.expander(upload_label, expanded=False):
-                                    uploaded = st.file_uploader(
-                                        upload_label,
-                                        type=["png", "jpg", "jpeg", "webp"],
-                                        key=f"est_manual_img_upload_{uid}_{card_uid}",
-                                    )
-                                    if uploaded:
-                                        st.image(uploaded, width=110)
-                                        if st.button("Enregistrer la photo", key=f"est_manual_img_save_{uid}_{card_uid}", width="stretch"):
-                                            saved_path = _save_estimation_manual_image(card, uploaded)
-                                            if saved_path:
-                                                _mark_estimation_needs_review(estimate)
-                                                card["manual_image_path"] = saved_path
-                                                card.pop("manual_image_url", None)
-                                                save_estimations_func(edata)
-                                                print(
-                                                    f'[Estimations Manual Image] card="{card.get("name", "Carte")}" '
-                                                    f'action=upload saved=yes path="{saved_path}"',
-                                                    flush=True,
-                                                )
-                                                st.rerun()
-                                    if card_meta.get("has_manual_image"):
-                                        if st.button("Supprimer la photo manuelle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
+                            upload_label = "Modifier l’image" if card_meta.get("has_image") else "Ajouter une image"
+                            with st.expander(upload_label, expanded=False):
+                                uploaded = st.file_uploader(
+                                    upload_label,
+                                    type=["png", "jpg", "jpeg", "webp"],
+                                    key=f"est_manual_img_upload_{uid}_{card_uid}",
+                                )
+                                if uploaded:
+                                    st.image(uploaded, width=110)
+                                    if st.button("Enregistrer l’image", key=f"est_manual_img_save_{uid}_{card_uid}", width="stretch"):
+                                        saved_path = _save_estimation_manual_image(card, uploaded)
+                                        if saved_path:
                                             _mark_estimation_needs_review(estimate)
-                                            card.pop("manual_image_path", None)
+                                            card["manual_image_path"] = saved_path
                                             card.pop("manual_image_url", None)
                                             save_estimations_func(edata)
-                                            print(
-                                                f'[Estimations Manual Image] card="{card.get("name", "Carte")}" action=delete saved=yes',
-                                                flush=True,
-                                            )
                                             st.rerun()
+                                if card_meta.get("has_manual_image"):
+                                    if st.button("Revenir à l’image officielle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
+                                        _mark_estimation_needs_review(estimate)
+                                        remove_custom_card_image(card)
+                                        card.pop("manual_image_path", None)
+                                        card.pop("manual_image_url", None)
+                                        _ESTIMATION_IMAGE_RESOLUTION_CACHE.clear()
+                                        save_estimations_func(edata)
+                                        st.rerun()
                             st.markdown('<span class="est-retirer-marker"></span>', unsafe_allow_html=True)
                             if st.button("Retirer", key=f"del_est_card_box_{uid}_{card_uid}"):
                                 _mark_estimation_needs_review(estimate)
@@ -5857,7 +5850,7 @@ def _render_open_estimation(
             total=len(visible_cards),
         )
         if len(render_cards) < len(visible_cards):
-            more_step = 20
+            more_step = 12 if mobile_mode else 16
             if st.button(
                 f"Afficher plus ({len(visible_cards) - len(render_cards)} restantes)",
                 key=f"est_show_more_cards_{uid}",
@@ -5869,6 +5862,7 @@ def _render_open_estimation(
     _render_finish_estimation_panel(
         estimate,
         totals,
+        settings,
         uid,
         edata,
         save_estimations_func,

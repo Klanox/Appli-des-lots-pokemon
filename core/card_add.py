@@ -152,6 +152,17 @@ def _render_popup_candidate_details(card_dict, set_name=""):
 
 
 def _popup_candidate_image(card_dict):
+    custom_image = resolve_custom_card_image(
+        {
+            **card_dict,
+            "card_id": card_dict.get("card_id") or card_dict.get("id") or "",
+            "set_id": _popup_candidate_set_id(card_dict),
+            "number": _popup_candidate_number(card_dict),
+            "raw_cache_card": card_dict,
+        }
+    )
+    if custom_image:
+        return custom_image
     images = card_dict.get("images") if isinstance(card_dict.get("images"), dict) else {}
     for value in (
         card_dict.get("image"),
@@ -168,15 +179,7 @@ def _popup_candidate_image(card_dict):
             img = f"{img}/high.webp"
         return img
 
-    return resolve_custom_card_image(
-        {
-            **card_dict,
-            "card_id": card_dict.get("card_id") or card_dict.get("id") or "",
-            "set_id": _popup_candidate_set_id(card_dict),
-            "number": _popup_candidate_number(card_dict),
-            "raw_cache_card": card_dict,
-        }
-    )
+    return ""
 
 
 def _safe_int(value, default=0):

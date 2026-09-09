@@ -64,6 +64,11 @@ def _sale_image_candidates(card):
         if url not in candidates:
             candidates.append(url)
 
+    try:
+        add(resolve_custom_card_image(card))
+    except Exception:
+        pass
+
     for source in (card, raw_card):
         for key in (
             "manual_image_path", "manual_image_url", "resolved_collection_image_url",
@@ -74,11 +79,6 @@ def _sale_image_candidates(card):
         images = source.get("images") if isinstance(source.get("images"), dict) else {}
         add(images.get("large"))
         add(images.get("small"))
-
-    try:
-        add(resolve_custom_card_image(card))
-    except Exception:
-        pass
 
     set_id = card.get("set_id") or raw_card.get("set_id") or ""
     if not set_id:

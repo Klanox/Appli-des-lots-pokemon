@@ -11,7 +11,7 @@ from utils import safe_write_json
 
 
 DEFAULT_ESTIMATION_SOURCES = {
-    "Vinted": 60.0,
+    "Vinted": 55.0,
     "Main propre": 65.0,
     "Brocante": 55.0,
 }
@@ -101,6 +101,54 @@ def quick_bulk_resale_total(card):
     return float(card.get("resale_unit_price", QUICK_BULK_RESALE_UNIT_PRICE) or 0.0) * int(card.get("quantity", 1) or 1)
 
 
+def price_to_cote_pct(price, total_cote):
+    """Return the canonical explicit-price share of a total reference value."""
+    try:
+        price = float(price)
+        total_cote = float(total_cote)
+    except (TypeError, ValueError):
+        return None
+    if price <= 0 or total_cote <= 0:
+        return None
+    return price / total_cote * 100.0
+
+
+def estimation_source_rate(estimation, settings):
+    source = estimation.get("source") or settings.get("default_source") or "Vinted"
+    fallback = DEFAULT_ESTIMATION_SOURCES.get(source, DEFAULT_ESTIMATION_SOURCES["Vinted"])
+    raw_rate = (settings.get("sources") or {}).get(source, fallback)
+    try:
+        return min(max(float(raw_rate), 0.0), 100.0)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def estimation_offer_is_sent(estimation):
+    status = str(estimation.get("workflow_status") or estimation.get("status") or "").strip()
+    return bool(estimation.get("offer_sent_at") or estimation.get("sent_offer_at") or status == "Offre envoyée")
+
+
+def estimation_offer_mode(estimation):
+    explicit_mode = str(estimation.get("offer_mode") or "").strip().lower()
+    if explicit_mode in {"auto", "custom"}:
+        return explicit_mode
+    try:
+        existing_offer = float(estimation.get("offer_amount") or estimation.get("sent_offer_amount") or 0.0)
+    except (TypeError, ValueError):
+        existing_offer = 0.0
+    return "custom" if estimation_offer_is_sent(estimation) or existing_offer > 0 else "auto"
+
+
+def automatic_offer_amount(estimation, settings, total_cote):
+    try:
+        total_cote = float(total_cote or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if total_cote <= 0:
+        return 0.0
+    return round(total_cote * estimation_source_rate(estimation, settings) / 100.0, 2)
+
+
 def load_estimations(estimations_file="lot_estimations.json"):
     should_write_default = False
     if os.path.exists(estimations_file):
@@ -157,20 +205,35 @@ def estimation_totals(estimation, settings):
         + quick_bulk_value
     )
     collection_cote = sum(float(c.get("cote", 0.) or 0.) * int(c.get("quantity", 1) or 1) for c in collection_cards)
-    source = estimation.get("source", settings.get("default_source", "Vinted"))
-    pct = float(settings.get("sources", {}).get(source, 60.0) or 60.0)
+    pct = estimation_source_rate(estimation, settings)
     fees = 0.0
     safety = float(estimation.get("safety_eur", 0.) or 0.)
     max_buy = max(quick_bulk_cost + (regular_resale_cote * pct / 100) - fees - safety, 0.)
-    seller_price = float(estimation.get("seller_price", 0.) or 0.) + quick_bulk_cost
-    real_pct = (seller_price / total_cote * 100) if total_cote > 0 and seller_price > 0 else 0.
+    seller_price = float(estimation.get("seller_price", 0.) or 0.)
+    real_pct = price_to_cote_pct(seller_price, total_cote) or 0.0
     theoretical_margin = total_cote - seller_price - fees if seller_price > 0 else total_cote - max_buy - fees
+    try:
+        existing_offer = float(estimation.get("offer_amount") or estimation.get("sent_offer_amount") or 0.0)
+    except (TypeError, ValueError):
+        existing_offer = 0.0
+    offer_mode = estimation_offer_mode(estimation)
+    offer_sent = estimation_offer_is_sent(estimation)
+    offer_amount = (
+        automatic_offer_amount(estimation, settings, total_cote)
+        if offer_mode == "auto" and not offer_sent
+        else existing_offer
+    )
+    if offer_amount <= 0:
+        offer_amount = automatic_offer_amount(estimation, settings, total_cote)
     return {
         "total_cote": total_cote,
         "pct": pct,
         "max_buy": max_buy,
         "seller_price": seller_price,
         "real_pct": real_pct,
+        "offer_amount": offer_amount,
+        "offer_pct": price_to_cote_pct(offer_amount, total_cote),
+        "offer_mode": offer_mode,
         "theoretical_margin": theoretical_margin,
         "fees": fees,
         "safety": safety,
