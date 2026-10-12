@@ -29,6 +29,7 @@ from services.estimations_service import (
 from services.market_price_cache_service import (
     apply_market_price_to_card,
     build_market_alerts,
+    card_cache_key,
     import_estimations_history,
     load_market_price_cache,
     mark_manual_price,
@@ -37,6 +38,7 @@ from services.market_price_cache_service import (
     save_market_price_cache,
     upsert_market_price,
 )
+from ui.lot_image_upload_bridge import render_lot_image_upload_bridge
 from services.custom_card_image_service import (
     CUSTOM_CARD_IMAGES_FILE,
     register_custom_card_image,
@@ -3182,6 +3184,44 @@ def _estimate_box_html(item, fp_func, proxy_img_func, active=False):
     """
 
 
+def _estimate_grid_card_html(item, fp_func, proxy_img_func):
+    estimate = item["estimate"]
+    totals = item["totals"]
+    label = item["label"]
+    tone = _tone_for_status(label, estimate.get("status"))
+    uid = html.escape(str(estimate.get("uid") or ""), quote=True)
+    card_count = sum(_safe_int(card.get("quantity")) for card in estimate.get("cards", []) or [])
+    total_cote = _safe_float(totals.get("total_cote"))
+    real_pct = _safe_float(totals.get("real_pct"))
+    margin = _safe_float(totals.get("theoretical_margin"))
+    margin_class = "margin-good" if margin > 0 else "margin-bad" if margin < 0 else "margin-neutral"
+    pct_label = f"{real_pct:.1f}% de la cote" if real_pct else "% de la cote à vérifier"
+    bar_width = min(max(real_pct, 0.0), 100.0)
+    thumb_cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)][:3]
+    thumbs = "".join(f'<span class="est-thumb">{_image_html(card, proxy_img_func, class_name="est-thumb-img")}</span>' for card in thumb_cards)
+    return (
+        f'<div class="est-list-card {tone}" data-est-card-uid="{uid}" role="button" tabindex="0">'
+        '<div class="est-list-pills">'
+        f'<span class="est-badge {tone}">{html.escape(label)}</span>'
+        f'<span class="est-chip">{html.escape(str(estimate.get("source") or "Vinted"))}</span>'
+        f'<span class="est-chip">{html.escape(str(estimate.get("status") or "En cours"))}</span>'
+        "</div>"
+        f'<h4>{html.escape(str(estimate.get("name") or "Estimation"))}</h4>'
+        '<div class="est-list-vals">'
+        f'<div class="est-list-val"><span>Prix demandé</span><strong>{html.escape(_seller_price_label(estimate, fp_func))}</strong></div>'
+        f'<div class="est-list-val"><span>Cote</span><strong>{html.escape(fp_func(total_cote))}</strong></div>'
+        f'<div class="est-list-val {margin_class}"><span>Écart</span><strong>{html.escape(fp_func(margin) if total_cote else "À vérifier")}</strong></div>'
+        "</div>"
+        f'<div class="est-list-pct">{html.escape(pct_label)}</div>'
+        f'<div class="est-list-bar"><i style="width:{bar_width:.0f}%"></i></div>'
+        '<div class="est-list-foot">'
+        f'<span class="est-thumbs">{thumbs}</span>'
+        f'<span class="est-list-count">{card_count} cartes</span>'
+        '<span class="est-list-open">Ouvrir →</span>'
+        "</div></div>"
+    )
+
+
 def _render_tracked_card(card, estimate, fp_func, img_with_fallback_func, cardmarket_search_url_func, normalize_name_func, proxy_img_func=None, market_cache=None):
     qty = _safe_int(card.get("quantity"))
     cote = _safe_float(card.get("cote"))
@@ -3448,7 +3488,7 @@ def _render_suggestion_card(enriched, proxy_img_func=None):
     return bool(image_info.get("cache_hit"))
 
 
-def _render_compact_suggestion(enriched, language="fr"):
+def _render_compact_suggestion(enriched, language="fr", proxy_img_func=None):
     number = str(enriched.get("number") or "").strip()
     set_name = str(enriched.get("set") or enriched.get("set_id") or "").strip()
     rarity = str(enriched.get("rarity") or enriched.get("special") or "").strip()
@@ -3460,8 +3500,20 @@ def _render_compact_suggestion(enriched, language="fr"):
     # Sans alias, l'ancienne ligne vide coupait le bloc HTML pour Markdown : <em> et </div>
     # s'affichaient en texte brut. Aucune ligne vide ne doit exister dans ce bloc.
     alias_html = f"<span>{html.escape(alias)}</span>" if alias else ""
+    # Vignette : image déjà présente dans les données de la suggestion (index local, sans recherche ni réseau).
+    thumb_info = _suggestion_image_info(enriched)
+    thumb_html = _estimation_image_html(
+        thumb_info.get("url", ""),
+        "",
+        style="height:100%;object-fit:cover;",
+        placeholder_class="est-sugg-thumb-ph",
+        fallbacks=thumb_info.get("fallbacks", []),
+        proxy_img_func=proxy_img_func,
+    )
     st.markdown(
-        '<div class="est-suggestion-card compact"><div class="est-suggestion-copy">'
+        '<div class="est-suggestion-card compact">'
+        f'<div class="est-sugg-thumb">{thumb_html}</div>'
+        '<div class="est-suggestion-copy">'
         f"<strong>{html.escape(str(enriched.get('name') or 'Carte'))}</strong>"
         f"{alias_html}"
         f"<em>{html.escape(detail)}</em>"
@@ -3712,13 +3764,18 @@ def _render_finish_estimation_panel(
     fp_func,
     normalize_name_func,
     parse_float_input_func,
+    show_open_button=True,
 ):
     finish_key = f"est_finish_panel_{uid}"
-    c1, c2 = st.columns([1, 1])
-    if c1.button("Finir l’estimation", key=f"est_finish_open_{uid}", width="stretch"):
-        st.session_state[finish_key] = True
-    if estimate.get("ready_for_offer"):
-        c2.success("Prête pour offre")
+    if show_open_button:
+        c1, c2 = st.columns([1, 1])
+        if c1.button("Finir l’estimation", key=f"est_finish_open_{uid}", width="stretch"):
+            st.session_state[finish_key] = True
+        if estimate.get("ready_for_offer"):
+            c2.success("Prête pour offre")
+    elif estimate.get("ready_for_offer"):
+        # Le bouton « Finir l’estimation » est alors affiché dans l'en-tête de la vue détail.
+        st.success("Prête pour offre")
 
     if not st.session_state.get(finish_key):
         return
@@ -3885,6 +3942,113 @@ def _render_finish_estimation_panel(
                 st.rerun()
 
 
+class _DataUrlUpload:
+    """Adapte une image reçue du pont (data URL) à l'interface attendue par _save_estimation_manual_image."""
+
+    def __init__(self, name, payload):
+        self.name = name
+        self._payload = payload
+
+    def getbuffer(self):
+        return memoryview(self._payload)
+
+
+def _save_direct_card_image_upload(card, filename, mime, data_url):
+    """Enregistre l'image choisie via le bouton compact (mêmes règles que les lots : jpg/png/webp)."""
+    raw = str(data_url or "")
+    if "," not in raw:
+        return False, "Image illisible.", ""
+    try:
+        payload = base64.b64decode(raw.split(",", 1)[1], validate=True)
+    except Exception:
+        return False, "Image illisible.", ""
+    if not payload:
+        return False, "Image vide.", ""
+    ext = os.path.splitext(str(filename or "").split("?", 1)[0])[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(str(mime or "").lower(), ".jpg")
+    saved_path = _save_estimation_manual_image(card, _DataUrlUpload(f"upload{ext}", payload))
+    if not saved_path:
+        return False, "Image non enregistrée.", ""
+    return True, "Image mise à jour.", saved_path
+
+
+def _market_refresh_signature(card):
+    return (
+        card_cache_key(card),
+        str(card.get("condition") or "").strip().upper(),
+        _safe_int(card.get("quantity")),
+    )
+
+
+def _use_auto_price_on_card(*, card, estimate, edata, save_estimations_func, cote_key, auto_price):
+    """Callback on_click : exécuté avant la création des widgets au rerun, donc le champ Cote peut être mis à jour."""
+    _mark_estimation_needs_review(estimate)
+    card["cote"] = auto_price
+    card["market_price_origin"] = "auto"
+    card.pop("manual_price", None)
+    st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
+    save_estimations_func(edata)
+
+
+def _autosave_estimation_card_field(field, *, card, estimate, edata, market_cache, save_estimations_func,
+                                    parse_float_input_func, qty_key, cote_key):
+    """Enregistrement automatique d'un champ de carte suivie (callback on_change de Qté ou Cote).
+
+    Reprend exactement la séquence de l'ancien bouton « Enregistrer », séparée par champ :
+    - Qté : quantité seulement (la cote n'est pas marquée manuelle) ;
+    - Cote : chemin « cote saisie à la main » (origine manual + copie dans le cache de prix),
+      seulement si la valeur a réellement changé. Aucune valeur changée : aucune écriture.
+    """
+    if field == "qty":
+        try:
+            new_qty = int(st.session_state.get(qty_key))
+        except (TypeError, ValueError):
+            return
+        if new_qty < 1 or new_qty == _safe_int(card.get("quantity")):
+            return
+        _mark_estimation_needs_review(estimate)
+        card["quantity"] = new_qty
+        save_estimations_func(edata)
+        return
+    current_cote = _safe_float(card.get("cote"))
+    cote_text = st.session_state.get(cote_key)
+    new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
+    if abs(new_cote - current_cote) <= 0.009:
+        return
+    _mark_estimation_needs_review(estimate)
+    card["cote"] = new_cote
+    mark_manual_price(card, new_cote)
+    if new_cote > 0:
+        upsert_market_price(
+            market_cache,
+            card,
+            new_cote,
+            origin="manual_estimation",
+            source=f"Estimation · {estimate.get('name', 'sans nom')}",
+            confidence="saisie manuelle",
+        )
+        save_market_price_cache(market_cache)
+        st.session_state["market_price_cache"] = market_cache
+    save_estimations_func(edata)
+
+
+def _auto_refresh_card_market_price(card, market_cache, memo_key):
+    """Remplace l'ancien bouton « Actualiser la cote » par carte : même logique
+    (apply_market_price_to_card : cache local, aucun appel réseau, cote manuelle préservée),
+    déclenchée seulement quand l'identité, l'état ou la quantité de la carte changent.
+    La première vue d'une carte dans la session sert de référence (aucune mise à jour en masse)."""
+    signature = _market_refresh_signature(card)
+    previous = st.session_state.get(memo_key)
+    st.session_state[memo_key] = signature
+    if previous is None or previous == signature:
+        return None
+    before = dict(card)
+    result = apply_market_price_to_card(card, market_cache)
+    result["changed"] = card != before
+    return result
+
+
 def _save_estimation_manual_image(card, uploaded_file):
     if not uploaded_file:
         return ""
@@ -3901,7 +4065,7 @@ def _save_estimation_manual_image(card, uploaded_file):
 
 # Grille « Cartes suivies » : colonnes de largeur fixe (part de la ligne), retour à la ligne,
 # jamais étirées selon le nombre de cartes. Clé dédiée : les autres grilles (accueil, collection,
-# popups, choix d'estimation) gardent leurs règles partagées de app.py.
+# popups, choix d'estimation) gardent leurs règles partagées de app.py. 6 par ligne par défaut.
 _TRACKED_GRID_GAP = "0.46rem"
 _TRACKED_GRID_CSS = """
 <style>
@@ -3916,12 +4080,21 @@ _TRACKED_GRID_CSS = """
     max-width:100%% !important;
 }
 [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
-    flex:0 0 calc((100%% - 7 * %(gap)s) / 8) !important;
-    width:calc((100%% - 7 * %(gap)s) / 8) !important;
-    max-width:calc((100%% - 7 * %(gap)s) / 8) !important;
+    flex:0 0 calc((100%% - 5 * %(gap)s) / 6) !important;
+    width:calc((100%% - 5 * %(gap)s) / 6) !important;
+    max-width:calc((100%% - 5 * %(gap)s) / 6) !important;
     min-width:0 !important;
     box-sizing:border-box !important;
 }
+/* Bouton image compact : même classe que les cartes des lots, écoutée par le pont d'upload. */
+.est-tracked-name-row { display:flex; align-items:center; gap:0.22rem; min-width:0; margin:0.1rem 0; font-weight:700; }
+.est-tracked-name-row .est-tracked-name-text { min-width:0; overflow-wrap:anywhere; }
+.ps-lot-inline-image-btn {
+    flex:0 0 auto; appearance:none; border:1px solid rgba(124,58,237,0.18); background:rgba(124,58,237,0.06);
+    color:#4c1d95; border-radius:8px; width:1.55rem; height:1.55rem; line-height:1; display:inline-flex;
+    align-items:center; justify-content:center; padding:0; margin:0; cursor:pointer; font-size:0.8rem;
+}
+.ps-lot-inline-image-btn:hover { background:rgba(124,58,237,0.12); border-color:rgba(124,58,237,0.32); }
 @media (max-width:1100px) {
     [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
         flex-basis:calc((100%% - 3 * %(gap)s) / 4) !important;
@@ -3941,6 +4114,180 @@ _TRACKED_GRID_CSS = """
 }
 </style>
 """ % {"gap": _TRACKED_GRID_GAP}
+
+
+_DETAIL_LAYOUT_CSS = """
+<style>
+/* Estimations : affichage uniquement. Palette alignée sur ui/theme.py (lavande #F6F5FB, violet #6D4AFF, bordure #E6E3F3). */
+/* Les blocs <style> n'occupent plus d'espace dans la page (gap Streamlit). */
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] > [data-testid="stMarkdownContainer"] > style:only-child) { display:none !important; }
+
+/* ---------- En-tête du détail ---------- */
+[class*="st-key-est_back_to_list_"] { margin:-0.4rem 0 -0.2rem 0 !important; }
+[class*="st-key-est_back_to_list_"] button { border:0 !important; background:transparent !important; box-shadow:none !important; padding:0 !important; min-height:0 !important; color:#6D4AFF !important; font-weight:800 !important; font-size:0.85rem !important; }
+.est-detail-head h3 { margin:0; font-size:clamp(1.15rem,2.2vw,1.55rem); font-weight:900; color:#1E1B3A; }
+.est-detail-head .est-detail-pills { display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.3rem; }
+[class*="st-key-est_finish_open_"] button { min-height:2.2rem !important; font-size:0.85rem !important; background:#6D4AFF !important; border-color:#6D4AFF !important; }
+[data-testid="stForm"]:has([class*="st-key-est_workflow_status_"]) { border:0 !important; padding:0 !important; }
+[data-testid="stForm"]:has([class*="st-key-est_workflow_status_"]) button { min-height:2.2rem !important; font-size:0.8rem !important; padding:0.1rem 0.5rem !important; white-space:normal !important; line-height:1.1 !important; background:#6D4AFF !important; border-color:#6D4AFF !important; }
+[data-testid="stForm"]:has([class*="st-key-est_workflow_status_"]) [data-baseweb="select"] > div { min-height:2.2rem !important; }
+
+/* ---------- Bande de chiffres ---------- */
+.est-band { background:#FFFFFF !important; border:1px solid #E6E3F3 !important; border-radius:16px !important; box-shadow:0 6px 18px rgba(109,74,255,0.06) !important; padding:0.15rem 0 !important; margin:0.35rem 0 0.9rem 0 !important; }
+.est-band .est-detail-kpis { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:0; margin:0; }
+.est-band .est-kpi { background:transparent !important; border:0 !important; border-left:1px solid #EEEBF8 !important; border-radius:0 !important; box-shadow:none !important; padding:0.62rem 0.85rem !important; }
+.est-band .est-kpi:first-child { border-left:0 !important; }
+.est-band .est-kpi span { color:#7a7799 !important; font-weight:700 !important; }
+.est-band .est-detail-kpis .est-kpi strong { color:#1E1B3A !important; font-weight:850 !important; font-size:clamp(0.95rem,1.35vw,1.15rem); }
+.est-band .est-kpi.margin-good strong { color:#15803d !important; }
+.est-band .est-kpi.margin-bad strong { color:#be123c !important; }
+
+.est-section-title { font-weight:850; color:#1E1B3A; font-size:0.92rem; margin:0 0 0.35rem 0; }
+.est-exv-qty { color:#4b4670; font-size:0.9rem; margin-bottom:0.3rem; }
+.est-exv-qty strong { color:#6D4AFF; font-size:1.25rem; }
+[class*="st-key-est_add_bar_"], [class*="st-key-est_exv_"], [class*="st-key-est_settings_menu_"] {
+    background:#FFFFFF !important; border:1px solid #E6E3F3 !important; border-radius:16px !important; padding:0.8rem 0.9rem !important; margin-bottom:0.8rem;
+    box-shadow:0 6px 18px rgba(109,74,255,0.05);
+}
+[class*="st-key-est_add_bar_"] button[kind="primary"] { background:#6D4AFF !important; border-color:#6D4AFF !important; }
+
+/* ---------- Barre d'ajout : une seule ligne de base ---------- */
+[class*="st-key-est_add_bar_"] [data-testid="stHorizontalBlock"] { align-items:center !important; }
+[class*="st-key-est_add_bar_"] input, [class*="st-key-est_add_bar_"] [data-baseweb="select"] > div { min-height:2.4rem !important; }
+[class*="st-key-est_add_bar_"] [data-testid="stCheckbox"] { margin:0 !important; }
+
+/* ---------- Suggestions : grille 2 colonnes de tuiles avec vignette ---------- */
+[class*="st-key-est_sugg_grid_"] { container-type:inline-size; display:flex !important; flex-direction:row !important; flex-wrap:wrap !important; gap:0.4rem !important; width:100% !important; }
+[class*="st-key-est_sugg_grid_"] > [data-testid="stElementContainer"] { flex:0 0 100% !important; }
+[class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 calc((100% - 0.4rem - 2px) / 2) !important; width:calc((100% - 0.4rem - 2px) / 2) !important; max-width:calc((100% - 0.4rem - 2px) / 2) !important; min-width:0 !important; }
+@container (max-width:560px) {
+    [class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex-basis:100% !important; width:100% !important; max-width:100% !important; }
+}
+[class*="st-key-est_sugg_tile_"] { display:flex !important; flex-direction:row !important; align-items:center !important; gap:0.4rem !important; background:#FFFFFF; border:1px solid #E6E3F3; border-radius:12px; padding:0.35rem 0.5rem; }
+[class*="st-key-est_sugg_tile_"] > [data-testid="stElementContainer"]:first-child { flex:1 1 0 !important; min-width:0 !important; width:auto !important; }
+[class*="st-key-est_sugg_tile_"] > [data-testid="stElementContainer"]:last-child { flex:0 0 auto !important; width:auto !important; }
+[class*="st-key-est_sugg_tile_"] button { min-height:1.8rem !important; padding:0.1rem 0.7rem !important; font-size:0.75rem !important; width:auto !important; }
+.est-suggestion-card.compact { display:flex !important; align-items:center; gap:0.5rem; border:0 !important; background:transparent !important; padding:0 !important; margin:0 !important; min-height:0 !important; box-shadow:none !important; }
+.est-sugg-thumb { width:40px; flex:0 0 40px; aspect-ratio:0.716; border-radius:6px; overflow:hidden; background:#F0ECFF; }
+.est-sugg-thumb .est-img-safe-wrap { width:100%; height:100%; gap:0 !important; }
+.est-sugg-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.est-sugg-thumb .est-sugg-thumb-ph { font-size:0; width:100%; height:100%; background:#E6E3F3; }
+
+/* ---------- Colonnes gauche / droite (droite fixe 290px) ---------- */
+[data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) { flex-wrap:nowrap !important; align-items:flex-start !important; }
+[data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) > [data-testid="stColumn"]:first-child { flex:1 1 0 !important; width:auto !important; min-width:0 !important; }
+[data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) > [data-testid="stColumn"]:last-child { flex:0 0 290px !important; width:290px !important; min-width:290px !important; }
+[class*="st-key-est_side_"] [data-testid="stHorizontalBlock"] { flex-direction:column !important; gap:0.4rem !important; }
+[class*="st-key-est_side_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width:100% !important; flex:1 1 auto !important; min-width:0 !important; }
+
+/* ---------- Réglages : une seule carte, rangées séparées par un trait ---------- */
+[class*="st-key-est_settings_menu_"] { gap:0 !important; padding-bottom:0.3rem !important; }
+[class*="st-key-est_settings_menu_"] [data-testid="stExpander"] { border:0 !important; border-top:1px solid #EEEBF8 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; margin:0 !important; }
+[class*="st-key-est_settings_menu_"] [data-testid="stExpander"] details { border:0 !important; border-radius:0 !important; background:transparent !important; box-shadow:none !important; }
+[class*="st-key-est_settings_menu_"] [data-testid="stExpander"] summary { padding:0.55rem 0 !important; font-size:0.9rem !important; }
+[class*="st-key-est_side_"] { gap:0.6rem !important; }
+[class*="st-key-est_settings_menu_"] .est-section-title { margin-bottom:0.5rem; }
+[class*="st-key-refresh_market_prices_"] button { min-height:2.1rem !important; font-size:0.8rem !important; padding:0.2rem 0.6rem !important; }
+
+/* Streamlit retire 1rem sous chaque bloc markdown (prévu pour les <p>) : les blocs <div> se chevauchaient. */
+[class*="st-key-est_tracked_grid_"] [data-testid="stMarkdownContainer"],
+[class*="st-key-est_sugg_grid_"] [data-testid="stMarkdownContainer"],
+[class*="st-key-est_list_grid"] [data-testid="stMarkdownContainer"] { margin-bottom:0 !important; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stMarkdownContainer"] p,
+[class*="st-key-est_sugg_grid_"] [data-testid="stMarkdownContainer"] p { margin:0 !important; }
+
+[data-testid="stMarkdownContainer"]:has(> .est-section-title) { margin-bottom:0 !important; }
+.est-section-title { margin-bottom:0.5rem !important; }
+[class*="st-key-est_tracked_grid_"] [data-baseweb="input"] input, [class*="st-key-est_tracked_grid_"] [data-testid="stNumberInputContainer"] input { padding-left:0.3rem !important; padding-right:0.1rem !important; text-align:center; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stNumberInputContainer"], [class*="st-key-est_tracked_grid_"] [data-testid="stNumberInput"] { min-width:0 !important; }
+[class*="st-key-est_tracked_grid_"] [class*="st-key-del_est_card_box_"] button p { overflow:visible !important; text-overflow:clip !important; }
+[class*="st-key-est_tracked_grid_"] [class*="st-key-del_est_card_box_"] button { padding:0 0.1rem !important; }
+
+[class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] [class*="st-key-search_result_card_estimations_"] div[data-testid="stVerticalBlock"] { padding:0 !important; }
+[class*="st-key-est_tracked_grid_"] [class*="st-key-del_est_card_box_"] button p, [class*="st-key-est_tracked_grid_"] [data-testid="stFormSubmitButton"] button p { font-size:0.68rem !important; line-height:1.1 !important; }
+
+/* ---------- Cartes suivies : une carte blanche par carte ---------- */
+[class*="st-key-est_tracked_grid_"] { container-type:inline-size; }
+[class*="st-key-est_tracked_grid_"][data-testid="stHorizontalBlock"] { align-items:stretch !important; }
+[class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] { display:flex !important; }
+[class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] > [class*="st-key-search_result_card_estimations_"] {
+    flex:1 1 auto; min-width:0; background:#FFFFFF !important; border:1px solid #E6E3F3 !important; border-radius:14px !important; padding:0.45rem !important; gap:0.3rem !important;
+    box-shadow:0 4px 12px rgba(109,74,255,0.05) !important;
+}
+[class*="st-key-est_tracked_grid_"] .est-tracked-image { height:auto !important; aspect-ratio:0.716; }
+[class*="st-key-est_tracked_grid_"] .est-tracked-image .est-img-safe-wrap { height:100%; }
+[class*="st-key-est_tracked_grid_"] .est-tracked-name-row { font-size:0.84rem; line-height:1.25; margin:0.1rem 0 0 0; }
+.est-tracked-meta { display:flex; flex-wrap:wrap; align-items:center; gap:0.25rem; font-size:0.72rem; line-height:1.4; color:#6b6890; margin:0 0 0.15rem 0; }
+.est-pill { background:#F0ECFF; color:#5B3FD6; border-radius:999px; padding:0.02rem 0.45rem; font-weight:800; font-size:0.66rem; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stForm"] { border:0 !important; padding:0 !important; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stForm"] [data-testid="stHorizontalBlock"] { gap:0.3rem !important; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stNumberInputStepUp"], [class*="st-key-est_tracked_grid_"] [data-testid="stNumberInputStepDown"] { display:none !important; }
+[class*="st-key-est_tracked_grid_"] label p { font-size:0.62rem !important; margin:0 !important; color:#7a7799 !important; }
+[class*="st-key-est_tracked_grid_"] input { min-height:1.9rem !important; padding:0.2rem 0.4rem !important; }
+[class*="st-key-est_tracked_grid_"] [data-testid="stForm"] button { min-height:1.75rem !important; padding:0.1rem 0.4rem !important; font-size:0.72rem !important; background:#6D4AFF !important; border-color:#6D4AFF !important; color:#fff !important; }
+[class*="st-key-est_tracked_grid_"] [class*="st-key-use_auto_price_"] button, [class*="st-key-est_tracked_grid_"] [class*="st-key-est_refresh_img_"] button, [class*="st-key-est_tracked_grid_"] [class*="st-key-est_manual_img_delete_"] button { min-height:1.6rem !important; height:1.6rem !important; padding:0.05rem 0.3rem !important; font-size:0.62rem !important; }
+.est-cardmarket-link { margin-bottom:0 !important; min-height:0 !important; padding:0.5rem 0.1rem !important; white-space:nowrap !important; font-size:0.6rem !important; }
+[data-testid="stElementContainer"]:has(.est-retirer-marker) + div { gap:0.25rem !important; flex-wrap:nowrap !important; }
+[data-testid="stElementContainer"]:has(.est-retirer-marker) + div button { padding:0 0.2rem !important; min-height:2rem !important; font-size:0.62rem !important; white-space:nowrap !important; }
+/* Cartes par ligne selon la largeur réelle de la zone de gauche. */
+@container (max-width:880px) {
+    [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex-basis:calc((100% - 3 * __GAP__) / 4) !important; width:calc((100% - 3 * __GAP__) / 4) !important; max-width:calc((100% - 3 * __GAP__) / 4) !important;
+    }
+}
+@container (max-width:520px) {
+    [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex-basis:calc((100% - __GAP__) / 2) !important; width:calc((100% - __GAP__) / 2) !important; max-width:calc((100% - __GAP__) / 2) !important;
+    }
+}
+
+/* ---------- Liste des estimations ---------- */
+.est-counters { display:flex; flex-wrap:wrap; gap:0.4rem; justify-content:flex-end; }
+.est-count-pill { background:#FFFFFF; border:1px solid #E6E3F3; border-radius:999px; padding:0.3rem 0.7rem; font-size:0.82rem; color:#4b4670; white-space:nowrap; }
+.est-count-pill b { color:#6D4AFF; }
+[class*="st-key-est_list_grid"] { container-type:inline-size; display:flex !important; flex-direction:row !important; flex-wrap:wrap !important; align-items:stretch !important; gap:0.8rem !important; width:100% !important; }
+[class*="st-key-est_list_grid"] > [data-testid="stLayoutWrapper"] { flex:0 0 100% !important; width:100% !important; max-width:100% !important; min-width:0 !important; display:flex !important; }
+@container (min-width:650px) { [class*="st-key-est_list_grid"] > [data-testid="stLayoutWrapper"] { flex-basis:calc((100% - 0.8rem - 2px) / 2) !important; width:calc((100% - 0.8rem - 2px) / 2) !important; max-width:calc((100% - 0.8rem - 2px) / 2) !important; } }
+@container (min-width:970px) { [class*="st-key-est_list_grid"] > [data-testid="stLayoutWrapper"] { flex-basis:calc((100% - 1.6rem - 2px) / 3) !important; width:calc((100% - 1.6rem - 2px) / 3) !important; max-width:calc((100% - 1.6rem - 2px) / 3) !important; } }
+@container (min-width:1260px) { [class*="st-key-est_list_grid"] > [data-testid="stLayoutWrapper"] { flex-basis:calc((100% - 2.4rem - 2px) / 4) !important; width:calc((100% - 2.4rem - 2px) / 4) !important; max-width:calc((100% - 2.4rem - 2px) / 4) !important; } }
+[class*="st-key-est_list_card_"] { gap:0 !important; flex:1 1 auto; min-width:0; }
+.est-list-card { background:#FFFFFF !important; border:1px solid #E6E3F3 !important; border-radius:16px !important; padding:0.85rem 0.95rem !important; box-shadow:0 6px 18px rgba(109,74,255,0.05) !important; cursor:pointer; box-sizing:border-box; }
+.est-list-card:hover { border-color:#6D4AFF !important; }
+.est-list-pills { display:flex; flex-wrap:wrap; gap:0.3rem; margin-bottom:0.45rem; }
+.est-list-card h4 { margin:0 0 0.55rem 0; font-size:1.02rem; font-weight:850; color:#1E1B3A; line-height:1.25; }
+.est-list-vals { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0.4rem; }
+.est-list-val { background:#F6F5FB; border-radius:10px; padding:0.4rem 0.5rem; min-width:0; }
+.est-list-val span { display:block; font-size:0.68rem; color:#7a7799; }
+.est-list-val strong { display:block; font-size:0.98rem; color:#1E1B3A; overflow-wrap:anywhere; }
+.est-list-val.margin-good strong { color:#15803d; }
+.est-list-val.margin-bad strong { color:#be123c; }
+.est-list-pct { font-size:0.76rem; color:#6b6890; margin:0.55rem 0 0.25rem 0; }
+.est-list-bar { height:6px; border-radius:99px; background:#E6E3F3; overflow:hidden; }
+.est-list-bar i { display:block; height:100%; background:#6D4AFF; border-radius:99px; }
+.est-list-foot { display:flex; align-items:center; gap:0.5rem; margin-top:0.65rem; }
+.est-thumbs { display:flex; gap:0.2rem; }
+.est-thumb { width:26px; height:36px; border-radius:5px; overflow:hidden; background:#E6E3F3; display:block; }
+.est-thumb .est-img-safe-wrap { height:100%; gap:0 !important; }
+.est-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.est-thumb .est-placeholder { font-size:0; }
+.est-list-count { color:#7a7799; font-size:0.78rem; flex:1; }
+.est-list-open { color:#6D4AFF; font-weight:800; font-size:0.85rem; }
+
+/* ---------- Responsive ---------- */
+@media (max-width:1100px) {
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) { flex-wrap:wrap !important; }
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) > [data-testid="stColumn"]:first-child,
+    [data-testid="stHorizontalBlock"]:has([class*="st-key-est_side_"]) > [data-testid="stColumn"]:last-child { flex:1 1 100% !important; width:100% !important; min-width:0 !important; }
+    .est-band .est-detail-kpis { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .est-band .est-kpi:nth-child(5) { border-left:0 !important; }
+}
+@media (max-width:640px) {
+    .est-band .est-detail-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .est-band .est-kpi:nth-child(odd) { border-left:0 !important; }
+    .est-counters { justify-content:flex-start; }
+}
+</style>
+""".replace("__GAP__", _TRACKED_GRID_GAP)
 
 
 def _render_css():
@@ -4812,6 +5159,7 @@ def _render_css():
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(_DETAIL_LAYOUT_CSS, unsafe_allow_html=True)
 
 
 def _build_opportunities(estimates, settings, estimation_totals_func):
@@ -4876,6 +5224,29 @@ def _bind_estimation_box_clicks(run_html_func):
     )
 
 
+def _render_buyback_settings(edata, settings, save_estimations_func, parse_float_input_func):
+    with st.expander("Réglages de rachat", expanded=False):
+        st.caption("Ces pourcentages servent à calculer le prix maximum conseillé.")
+        with st.form("estimation_settings_form_box"):
+            new_sources = {}
+            cols = st.columns(3)
+            for col, (source_name, pct) in zip(cols, settings.get("sources", {}).items()):
+                raw = col.text_input(f"{source_name} (%)", value=f"{float(pct):.0f}".replace(".", ","), key=f"est_setting_box_{source_name}")
+                new_sources[source_name] = min(max(parse_float_input_func(raw, pct), 0.0), 100.0)
+            source_names = list(new_sources.keys()) or ["Vinted"]
+            default_source = st.selectbox(
+                "Type par défaut",
+                source_names,
+                index=source_names.index(settings.get("default_source")) if settings.get("default_source") in source_names else 0,
+                key="est_default_source_box",
+            )
+            if st.form_submit_button("Sauvegarder les règles"):
+                edata["settings"]["sources"] = new_sources
+                edata["settings"]["default_source"] = default_source
+                save_estimations_func(edata)
+                st.rerun()
+
+
 def render_estimations_page(
     *,
     load_estimations_func,
@@ -4900,14 +5271,6 @@ def render_estimations_page(
     cache_enrichment_func=None,
 ):
     normalize_name_func = _cached_normalizer(normalize_name_func)
-    st.markdown(
-        render_page_header_func("Estimations", "Repérer vite les cartes à acheter", "📉"),
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<p class="est-page-intro">Des boîtes simples pour comparer une opportunité, regarder la cote, puis décider si ça vaut le coup.</p>',
-        unsafe_allow_html=True,
-    )
     _render_css()
 
     page_started = time.perf_counter()
@@ -4925,13 +5288,41 @@ def render_estimations_page(
         market_cache = load_market_price_cache()
         st.session_state["market_price_cache"] = market_cache
     _est_perf_record("lecture cache cotes", (time.perf_counter() - market_started) * 1000)
-    _render_est_perf_panel()
+    # Vue détail : l'estimation ouverte remplace la liste (même fonction, mêmes arguments).
+    detail_uid = st.session_state.get("active_estimation_uid", "")
+    if detail_uid and any(e.get("uid") == detail_uid for e in estimates):
+        detail_item = next(
+            item for item in _build_opportunities(estimates, settings, estimation_totals_func) if item["estimate"].get("uid") == detail_uid
+        )
+        _render_est_perf_panel()
+        _render_open_estimation(
+            estimate=detail_item["estimate"],
+            totals=detail_item["totals"],
+            settings=settings,
+            edata=edata,
+            uid=detail_uid,
+            save_estimations_func=save_estimations_func,
+            add_estimation_card_func=add_estimation_card_func,
+            ld_func=ld_func,
+            sd_func=sd_func,
+            fetch_listing_preview_image_func=fetch_listing_preview_image_func,
+            cardmarket_search_url_func=cardmarket_search_url_func,
+            search_in_cache_func=search_in_cache_func,
+            img_with_fallback_func=img_with_fallback_func,
+            fp_func=fp_func,
+            normalize_name_func=normalize_name_func,
+            parse_float_input_func=parse_float_input_func,
+            new_uid_func=new_uid_func,
+            is_mobile_mode_func=is_mobile_mode_func,
+            ecd_func=ecd_func,
+            proxy_img_func=proxy_img_func,
+            cache_enrichment_func=cache_enrichment_func,
+            market_cache=market_cache,
+        )
+        _render_market_alerts(market_cache, edata, fp_func)
+        return
 
-    st.markdown(
-        '<div class="est-create-card"><strong>Créer une nouvelle estimation</strong><br><span>Ajoute un prix demandé, puis complète avec les cartes à comparer.</span></div>',
-        unsafe_allow_html=True,
-    )
-    with st.expander("Créer une nouvelle estimation", expanded=not estimates):
+    def _new_estimation_dialog():
         with st.form("new_estimation_box"):
             source_names = list(settings.get("sources", {}).keys()) or ["Vinted"]
             c1, c2, c3 = st.columns([2.2, 1, 1])
@@ -4965,8 +5356,22 @@ def render_estimations_page(
                     st.session_state["active_estimation_uid"] = estimate["uid"]
                     st.rerun()
 
+    new_estimation_dialog = st.dialog("Créer une nouvelle estimation")(_new_estimation_dialog)
+
+    head_cols = st.columns([2.4, 1.7, 1.2], vertical_alignment="center")
+    head_cols[0].markdown(
+        render_page_header_func("Estimations", "Repérer vite les cartes à acheter", "📉"),
+        unsafe_allow_html=True,
+    )
+    search = ""
+    if estimates:
+        search = head_cols[1].text_input("Rechercher une estimation", placeholder="Rechercher une estimation...", key="est_box_search", label_visibility="collapsed")
+    if head_cols[2].button("+ Nouvelle estimation", key="est_new_open", type="primary", width="stretch"):
+        new_estimation_dialog()
+    _render_est_perf_panel()
+
     if not estimates:
-        st.info("Aucune estimation pour le moment. Crée ta première boîte au-dessus.")
+        st.info("Aucune estimation pour le moment. Utilise « + Nouvelle estimation » pour créer la première.")
         st.markdown("### Outils de cote")
         _render_market_cache_tools(market_cache, edata)
         _render_market_alerts(market_cache, edata, fp_func)
@@ -4976,24 +5381,32 @@ def render_estimations_page(
     status_counts = {status: 0 for status in _ESTIMATION_STATUS_OPTIONS}
     for estimate in estimates:
         status_counts[_estimation_tracking_status(estimate)] = status_counts.get(_estimation_tracking_status(estimate), 0) + 1
-    st.caption(
-        " · ".join(
-            part
-            for part in [
-                f"{status_counts.get('En négociation', 0)} négociations en cours",
-                f"{status_counts.get('Offre envoyée', 0)} offres envoyées",
-                f"{status_counts.get('À analyser', 0)} lots à analyser",
-            ]
-            if not part.startswith("0 ")
-        )
-        or "Aucun statut actif à signaler"
+    to_check_count = sum(1 for item in opportunities if item["label"] == "À vérifier")
+    f1, f2, f3, f4 = st.columns([1, 1, 1, 2.6], vertical_alignment="center")
+    status_filter = f1.selectbox(
+        "Intérêt",
+        ["Tous", "Très intéressant", "Intéressant", "Correct", "Trop cher", "À vérifier"],
+        key="est_box_status_filter",
+        label_visibility="collapsed",
+        format_func=lambda value: "Intérêt : Tous" if value == "Tous" else value,
     )
-    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
-    search = f1.text_input("Rechercher une estimation", placeholder="Nom, carte, source...", key="est_box_search")
-    status_filter = f2.selectbox("Intérêt", ["Tous", "Très intéressant", "Intéressant", "Correct", "Trop cher", "À vérifier"], key="est_box_status_filter")
-    workflow_filter = f3.selectbox("Statut", ["Tous", *_ESTIMATION_STATUS_OPTIONS], key="est_box_workflow_filter")
-    max_budget_raw = f4.text_input("Budget max (€)", value="", placeholder="Ex: 120", key="est_box_budget")
+    workflow_filter = f2.selectbox(
+        "Statut",
+        ["Tous", *_ESTIMATION_STATUS_OPTIONS],
+        key="est_box_workflow_filter",
+        label_visibility="collapsed",
+        format_func=lambda value: "Statut : Tous" if value == "Tous" else value,
+    )
+    max_budget_raw = f3.text_input("Budget max (€)", value="", placeholder="Budget max (€)", key="est_box_budget", label_visibility="collapsed")
     max_budget = parse_float_input_func(max_budget_raw, 0.0) if max_budget_raw.strip() else 0.0
+    f4.markdown(
+        '<div class="est-counters">'
+        f'<span class="est-count-pill"><b>{status_counts.get("À analyser", 0)}</b> à analyser</span>'
+        f'<span class="est-count-pill"><b>{to_check_count}</b> à vérifier</span>'
+        f'<span class="est-count-pill"><b>{status_counts.get("Achetée", 0)}</b> achetées</span>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     filtered = []
     query = normalize_name_func(search) if search else ""
@@ -5024,42 +5437,17 @@ def render_estimations_page(
 
     active_uid = st.session_state.get("active_estimation_uid", "")
 
-    for item in filtered:
-        estimate = item["estimate"]
-        totals = item["totals"]
-        uid = estimate.get("uid")
-        is_active = active_uid == uid
-        st.markdown(_estimate_box_html(item, fp_func, proxy_img_func, active=is_active), unsafe_allow_html=True)
-        st.markdown(f'<span class="est-toggle-marker" data-est-toggle-marker="{html.escape(str(uid), quote=True)}"></span>', unsafe_allow_html=True)
-        if st.button("\u200b", key=f"toggle_est_box_{uid}"):
-            st.session_state["active_estimation_uid"] = "" if is_active else uid
-            st.rerun()
-
-        if is_active:
-            _render_open_estimation(
-                estimate=estimate,
-                totals=totals,
-                settings=settings,
-                edata=edata,
-                uid=uid,
-                save_estimations_func=save_estimations_func,
-                add_estimation_card_func=add_estimation_card_func,
-                ld_func=ld_func,
-                sd_func=sd_func,
-                fetch_listing_preview_image_func=fetch_listing_preview_image_func,
-                cardmarket_search_url_func=cardmarket_search_url_func,
-                search_in_cache_func=search_in_cache_func,
-                img_with_fallback_func=img_with_fallback_func,
-                fp_func=fp_func,
-                normalize_name_func=normalize_name_func,
-                parse_float_input_func=parse_float_input_func,
-                new_uid_func=new_uid_func,
-                is_mobile_mode_func=is_mobile_mode_func,
-                ecd_func=ecd_func,
-                proxy_img_func=proxy_img_func,
-                cache_enrichment_func=cache_enrichment_func,
-                market_cache=market_cache,
-            )
+    with st.container(key="est_list_grid", horizontal=True, gap="small"):
+        for item in filtered:
+            estimate = item["estimate"]
+            uid = estimate.get("uid")
+            is_active = active_uid == uid
+            with st.container(key=f"est_list_card_{uid}"):
+                st.markdown(_estimate_grid_card_html(item, fp_func, proxy_img_func), unsafe_allow_html=True)
+                st.markdown(f'<span class="est-toggle-marker" data-est-toggle-marker="{html.escape(str(uid), quote=True)}"></span>', unsafe_allow_html=True)
+                if st.button("\u200b", key=f"toggle_est_box_{uid}"):
+                    st.session_state["active_estimation_uid"] = "" if is_active else uid
+                    st.rerun()
 
     _bind_estimation_box_clicks(run_html_func)
 
@@ -5067,26 +5455,7 @@ def render_estimations_page(
     _render_market_cache_tools(market_cache, edata)
     _render_market_alerts(market_cache, edata, fp_func)
 
-    with st.expander("Réglages de rachat", expanded=False):
-        st.caption("Ces pourcentages servent à calculer le prix maximum conseillé.")
-        with st.form("estimation_settings_form_box"):
-            new_sources = {}
-            cols = st.columns(3)
-            for col, (source_name, pct) in zip(cols, settings.get("sources", {}).items()):
-                raw = col.text_input(f"{source_name} (%)", value=f"{float(pct):.0f}".replace(".", ","), key=f"est_setting_box_{source_name}")
-                new_sources[source_name] = min(max(parse_float_input_func(raw, pct), 0.0), 100.0)
-            source_names = list(new_sources.keys()) or ["Vinted"]
-            default_source = st.selectbox(
-                "Type par défaut",
-                source_names,
-                index=source_names.index(settings.get("default_source")) if settings.get("default_source") in source_names else 0,
-                key="est_default_source_box",
-            )
-            if st.form_submit_button("Sauvegarder les règles"):
-                edata["settings"]["sources"] = new_sources
-                edata["settings"]["default_source"] = default_source
-                save_estimations_func(edata)
-                st.rerun()
+    _render_buyback_settings(edata, settings, save_estimations_func, parse_float_input_func)
 
 
 def _render_open_estimation(
@@ -5124,749 +5493,717 @@ def _render_open_estimation(
     card_count = sum(_safe_int(card.get("quantity")) for card in estimate.get("cards", []) or [])
     margin_accent = "margin-good" if margin > 0 else "margin-bad" if margin < 0 else "margin-neutral"
 
+    est_tracking_status = _estimation_tracking_status(estimate)
+    if st.button("← Toutes les estimations", key=f"est_back_to_list_{uid}", type="tertiary"):
+        st.session_state["active_estimation_uid"] = ""
+        st.rerun()
+    head_cols = st.columns([2.2, 3.4, 1.1], vertical_alignment="center")
+    with head_cols[0]:
+        st.markdown(
+            '<div class="est-detail-head">'
+            f"<h3>{html.escape(str(estimate.get('name') or 'Estimation'))}</h3>"
+            '<div class="est-detail-pills">'
+            f'<span class="est-badge {tone}">{html.escape(label)}</span>'
+            f'<span class="est-badge check">{html.escape(str(est_tracking_status))}</span>'
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+    with head_cols[1]:
+        with st.form(f"est_workflow_status_form_{uid}", border=False):
+            s1, s2 = st.columns([2, 1.15], vertical_alignment="center")
+            current_status = _estimation_tracking_status(estimate)
+            new_status = s1.selectbox(
+                "Statut de suivi",
+                _ESTIMATION_STATUS_OPTIONS,
+                index=_ESTIMATION_STATUS_OPTIONS.index(current_status) if current_status in _ESTIMATION_STATUS_OPTIONS else 0,
+                key=f"est_workflow_status_{uid}",
+                label_visibility="collapsed",
+            )
+            saved = s2.form_submit_button("Mettre à jour le statut", width="stretch")
+            if saved and new_status != current_status:
+                estimate["workflow_status"] = new_status
+                estimate["status"] = new_status
+                save_estimations_func(edata)
+                print(f'[Estimations Status] estimate="{estimate.get("name", "Estimation")}" status="{new_status}"', flush=True)
+                st.rerun()
+    with head_cols[2]:
+        if st.button("Finir l’estimation", key=f"est_finish_open_{uid}", type="primary", width="stretch"):
+            st.session_state[f"est_finish_panel_{uid}"] = True
+
     st.markdown(
-        f"""
-        <div class="est-detail-shell">
-        <div class="est-detail-title">
-            <div>
-                <span class="est-badge {tone}">{html.escape(label)}</span>
-                <h3>{html.escape(str(estimate.get("name") or "Estimation"))}</h3>
-            </div>
-        </div>
-        <div class="est-detail-kpis">
-            {_kpi("Type d'achat", estimate.get("source") or "Vinted", accent="type")}
-            {_kpi("Prix demandé", _seller_price_label(estimate, fp_func), accent="price")}
-            {_kpi("Cote totale", fp_func(total_cote), accent="value")}
-            {_kpi("% cote", f"{real_pct:.1f}%" if real_pct else "À vérifier", accent="percent")}
-            {_kpi("Écart à la cote", fp_func(margin) if total_cote else "À vérifier", accent=margin_accent)}
-            {_kpi("Cartes", card_count, accent="count")}
-            {_kpi("Rachat max", fp_func(totals.get("max_buy", 0.0)), accent="buy")}
-            {_kpi("Collection", totals.get("collection_cards", 0), accent="count")}
-        </div>
-        </div>
-        """,
+        '<div class="est-detail-shell est-band"><div class="est-detail-kpis">'
+        + _kpi("Type d'achat", estimate.get("source") or "Vinted", accent="type")
+        + _kpi("Prix demandé", _seller_price_label(estimate, fp_func), accent="price")
+        + _kpi("Cote totale", fp_func(total_cote), accent="value")
+        + _kpi("% cote", f"{real_pct:.1f}%" if real_pct else "À vérifier", accent="percent")
+        + _kpi("Écart à la cote", fp_func(margin) if total_cote else "À vérifier", accent=margin_accent)
+        + _kpi("Rachat max", fp_func(totals.get("max_buy", 0.0)), accent="buy")
+        + _kpi("Cartes", card_count, accent="count")
+        + "</div></div>",
         unsafe_allow_html=True,
     )
 
-    with st.form(f"est_workflow_status_form_{uid}"):
-        s1, s2 = st.columns([2, 1])
-        current_status = _estimation_tracking_status(estimate)
-        new_status = s1.selectbox(
-            "Statut de suivi",
-            _ESTIMATION_STATUS_OPTIONS,
-            index=_ESTIMATION_STATUS_OPTIONS.index(current_status) if current_status in _ESTIMATION_STATUS_OPTIONS else 0,
-            key=f"est_workflow_status_{uid}",
-        )
-        saved = s2.form_submit_button("Mettre à jour le statut", width="stretch")
-        if saved and new_status != current_status:
-            estimate["workflow_status"] = new_status
-            estimate["status"] = new_status
-            save_estimations_func(edata)
-            print(f'[Estimations Status] estimate="{estimate.get("name", "Estimation")}" status="{new_status}"', flush=True)
-            st.rerun()
-
-    if st.button("Actualiser les cotes de cette estimation", key=f"refresh_market_prices_{uid}", width="stretch"):
-        updated_cache, refresh_summary = refresh_estimation_prices(market_cache, estimate, only_due=True)
-        save_market_price_cache(updated_cache)
-        st.session_state["market_price_cache"] = updated_cache
-        save_estimations_func(edata)
-        print(
-            "[Market Price Cache] "
-            f'refresh requested estimate="{estimate.get("name", "Estimation")}" '
-            f"refreshed={refresh_summary.get('refreshed', 0)} "
-            f"recent_kept={refresh_summary.get('recent_kept', 0)} "
-            f"review={refresh_summary.get('review', 0)} "
-            f"unavailable={refresh_summary.get('unavailable', 0)} "
-            f"manual_preserved={refresh_summary.get('manual_preserved', 0)}",
-            flush=True,
-        )
-        st.success(
-            "Cotes actualisées : "
-            f"{refresh_summary.get('refreshed', 0)} · "
-            f"récentes conservées : {refresh_summary.get('recent_kept', 0)} · "
-            f"à vérifier : {refresh_summary.get('review', 0)} · "
-            f"sans cote fiable : {refresh_summary.get('unavailable', 0)} · "
-            f"manuelles conservées : {refresh_summary.get('manual_preserved', 0)}"
-        )
-        st.rerun()
-
-    with st.expander("Ajouter une carte dans cette estimation", expanded=not estimate.get("cards")):
-        name_key = f"est_add_name_keyup_{uid}"
-        number_key = f"est_add_number_box_{uid}"
-        qty_key = f"est_add_qty_box_{uid}"
-        condition_key = f"est_add_condition_box_{uid}"
-        special_key = f"est_add_special_box_{uid}"
-        note_key = f"est_add_note_box_{uid}"
-        lang_key = f"est_add_japanese_mode_{uid}"
-        pending_reset_key = f"est_pending_add_reset_{uid}"
-        name_placeholder = "Ex: Marisson AR, Groudon EX magma"
-        name_component_state_key = _st_keyup_component_state_key(
-            name_key,
-            debounce=_ESTIMATION_KEYUP_DEBOUNCE_MS,
-            placeholder=name_placeholder,
-        )
-        if st.session_state.pop(pending_reset_key, False):
-            old_dynamic_prefix = f"est_add_name_keyup_{uid}_"
-            for stale_key in [key for key in st.session_state.keys() if str(key).startswith(old_dynamic_prefix)]:
-                st.session_state.pop(stale_key, None)
-            st.session_state.pop(name_key, None)
-            st.session_state.pop(name_component_state_key, None)
-            previous_values = st.session_state.get("__previous_values__")
-            if isinstance(previous_values, dict):
-                previous_values.pop(name_key, None)
-                previous_values.pop(name_component_state_key, None)
-            st.session_state.pop(f"est_add_name_fallback_{uid}", None)
-            st.session_state[number_key] = ""
-            st.session_state[qty_key] = "1"
-            st.session_state[condition_key] = "NM"
-            st.session_state[special_key] = []
-            st.session_state[note_key] = ""
-            st.session_state.pop(f"est_selected_match_{uid}", None)
-            st.session_state.pop(f"est_selected_details_{uid}", None)
-            _log_once(
-                "form_reset",
-                f'{uid}|{estimate.get("name", "Estimation")}',
-                f'[Estimations Form Reset] estimate="{estimate.get("name", "Estimation")}" applied=yes',
-            )
-        if qty_key not in st.session_state:
-            st.session_state[qty_key] = "1"
-        if lang_key not in st.session_state:
-            st.session_state[lang_key] = False
-        _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key)
-        try:
-            card_name = st_keyup(
-                "Nom / Rechercher une carte",
-                value=st.session_state.get(name_key, "") or "",
-                key=name_key,
-                placeholder=name_placeholder,
+    main_col, side_col = st.columns([3.6, 1.0], gap="medium")
+    with main_col:
+        with st.container(key=f"est_add_bar_{uid}"):
+            st.markdown('<div class="est-section-title">Ajouter une carte</div>', unsafe_allow_html=True)
+            name_key = f"est_add_name_keyup_{uid}"
+            number_key = f"est_add_number_box_{uid}"
+            qty_key = f"est_add_qty_box_{uid}"
+            condition_key = f"est_add_condition_box_{uid}"
+            special_key = f"est_add_special_box_{uid}"
+            note_key = f"est_add_note_box_{uid}"
+            lang_key = f"est_add_japanese_mode_{uid}"
+            pending_reset_key = f"est_pending_add_reset_{uid}"
+            name_placeholder = "Ex: Marisson AR, Groudon EX magma"
+            name_component_state_key = _st_keyup_component_state_key(
+                name_key,
                 debounce=_ESTIMATION_KEYUP_DEBOUNCE_MS,
-            ) or ""
-        except Exception as exc:
-            _log_once(
-                "add_form_name_field",
-                f"{uid}|{type(exc).__name__}",
-                f'[Estimations Add Form] name_field_rendered=no reason="{type(exc).__name__}: {exc}"',
+                placeholder=name_placeholder,
+                label_visibility="collapsed",
             )
-            card_name = st.text_input("Nom / Rechercher une carte", value="", key=f"est_add_name_fallback_{uid}", placeholder=name_placeholder)
-        jp_mode = st.checkbox(
-            "Cartes japonaises",
-            key=lang_key,
-            help="Cherche dans les cartes japonaises du cache, avec images et liens Cardmarket japonais quand les données existent.",
-        )
-        search_language = "ja" if jp_mode else "fr"
-        if jp_mode:
-            jp_cache = _ensure_japanese_cards_cache(normalize_name_func)
-            if jp_cache.get("loaded"):
-                st.caption(f"Mode japonais : {jp_cache.get('count', 0)} cartes JP indexées, sans mélange avec les résultats FR.")
-            else:
-                st.caption("Mode japonais : cache JP indisponible pour le moment, aucune bascule automatique vers les cartes FR.")
-        a2, a4 = st.columns([1, 0.7])
-        card_number = a2.text_input("Numéro", placeholder="199/165", key=number_key)
-        card_qty = a4.text_input("Qté", key=qty_key)
+            if st.session_state.pop(pending_reset_key, False):
+                old_dynamic_prefix = f"est_add_name_keyup_{uid}_"
+                for stale_key in [key for key in st.session_state.keys() if str(key).startswith(old_dynamic_prefix)]:
+                    st.session_state.pop(stale_key, None)
+                st.session_state.pop(name_key, None)
+                st.session_state.pop(name_component_state_key, None)
+                previous_values = st.session_state.get("__previous_values__")
+                if isinstance(previous_values, dict):
+                    previous_values.pop(name_key, None)
+                    previous_values.pop(name_component_state_key, None)
+                st.session_state.pop(f"est_add_name_fallback_{uid}", None)
+                st.session_state[number_key] = ""
+                st.session_state[qty_key] = "1"
+                st.session_state[condition_key] = "NM"
+                st.session_state[special_key] = []
+                st.session_state[note_key] = ""
+                st.session_state.pop(f"est_selected_match_{uid}", None)
+                st.session_state.pop(f"est_selected_details_{uid}", None)
+                _log_once(
+                    "form_reset",
+                    f'{uid}|{estimate.get("name", "Estimation")}',
+                    f'[Estimations Form Reset] estimate="{estimate.get("name", "Estimation")}" applied=yes',
+                )
+            if qty_key not in st.session_state:
+                st.session_state[qty_key] = "1"
+            if lang_key not in st.session_state:
+                st.session_state[lang_key] = False
+            _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key)
+            bar_cols = st.columns([3.0, 1.0, 0.7, 1.1, 1.7, 1.05], vertical_alignment="center")
+            with bar_cols[0]:
+                try:
+                    card_name = st_keyup(
+                        "Nom / Rechercher une carte",
+                        value=st.session_state.get(name_key, "") or "",
+                        key=name_key,
+                        placeholder=name_placeholder,
+                        debounce=_ESTIMATION_KEYUP_DEBOUNCE_MS,
+                        label_visibility="collapsed",
+                    ) or ""
+                except Exception as exc:
+                    _log_once(
+                        "add_form_name_field",
+                        f"{uid}|{type(exc).__name__}",
+                        f'[Estimations Add Form] name_field_rendered=no reason="{type(exc).__name__}: {exc}"',
+                    )
+                    card_name = st.text_input("Nom / Rechercher une carte", value="", key=f"est_add_name_fallback_{uid}", placeholder=name_placeholder, label_visibility="collapsed")
+            card_number = bar_cols[1].text_input("Numéro", placeholder="N° 199/165", key=number_key, label_visibility="collapsed")
+            card_qty = bar_cols[2].text_input("Qté", key=qty_key, placeholder="Qté", help="Quantité", label_visibility="collapsed")
+            card_condition = bar_cols[3].selectbox("État", ["NM", "EX", "GD", "LP", "PL", "POOR"], key=condition_key, label_visibility="collapsed", format_func=lambda value: f"État {value}")
+            card_specials = bar_cols[4].multiselect(
+                "Spécial",
+                ["Reverse", "1ère Éd", "Japonaise", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
+                key=special_key,
+                placeholder="Spécial",
+                label_visibility="collapsed",
+            )
+            add_card_clicked = bar_cols[5].button("+ Ajouter", key=f"add_est_card_box_submit_{uid}", type="primary", width="stretch")
+            opt_cols = st.columns([1.3, 3.7], vertical_alignment="center")
+            with opt_cols[0]:
+                jp_mode = st.checkbox(
+                    "Cartes japonaises",
+                    key=lang_key,
+                    help="Cherche dans les cartes japonaises du cache, avec images et liens Cardmarket japonais quand les données existent.",
+                )
+            card_note = opt_cols[1].text_input("Note rapide", placeholder="Note rapide : photo floue, coin abîmé...", key=note_key, label_visibility="collapsed")
+            search_language = "ja" if jp_mode else "fr"
+            if jp_mode:
+                jp_cache = _ensure_japanese_cards_cache(normalize_name_func)
+                if jp_cache.get("loaded"):
+                    st.caption(f"Mode japonais : {jp_cache.get('count', 0)} cartes JP indexées, sans mélange avec les résultats FR.")
+                else:
+                    st.caption("Mode japonais : cache JP indisponible pour le moment, aucune bascule automatique vers les cartes FR.")
 
-        search_context = _search_context(card_name, normalize_name_func)
-        suggestion_limit = 8 if is_mobile_mode_func() else 12
-        suggestions = _card_suggestions(
-            card_name,
-            card_number,
-            search_in_cache_func,
-            ecd_func,
-            normalize_name_func,
-            limit=suggestion_limit,
-            language=search_language,
-        )
-        enrichment_notice_key = f"est_cache_enrichment_notice_{uid}"
-        if st.session_state.get(enrichment_notice_key):
-            st.caption(st.session_state.pop(enrichment_notice_key))
-        if suggestions:
-            st.caption("Suggestions depuis le cache cartes PokéStock · " + ("Japonais" if search_language == "ja" else "Français"))
-            suggestion_render_started = time.perf_counter()
-            if _suggestions_missing_set_match(card_name, suggestions, normalize_name_func):
-                st.caption("Aucun match exact pour ce tag de série dans le cache. Résultats proches affichés.")
-            if _suggestions_missing_type_match(card_name, suggestions, "ar", normalize_name_func):
-                st.caption("Aucune AR exacte trouvée dans le cache. Résultats proches affichés.")
-            if _suggestions_missing_type_match(card_name, suggestions, "rainbow", normalize_name_func):
-                st.caption("Aucune carte Rainbow exacte trouvée dans le cache. Résultats proches affichés.")
-            exact_suggestions, close_suggestions, strict_types = _strict_suggestion_sections(card_name, suggestions[:suggestion_limit], normalize_name_func)
-            suggestion_sections = []
-            if strict_types and exact_suggestions:
-                suggestion_sections.append(("", exact_suggestions))
-                if close_suggestions:
-                    suggestion_sections.append(("Résultats proches", close_suggestions))
-            else:
-                suggestion_sections.append(("", suggestions[:suggestion_limit]))
-            suggestion_offset = 0
-            for section_title, section_suggestions in suggestion_sections:
-                if section_title:
-                    st.caption(section_title)
-                for cidx, suggestion in enumerate(section_suggestions):
-                    enriched = suggestion["card"]
-                    button_ix = suggestion_offset + cidx
-                    row_cols = st.columns([4, 1])
-                    with row_cols[0]:
-                        _render_compact_suggestion(enriched, language=search_language)
-                    with row_cols[1]:
-                        if st.button("Choisir", key=f"est_suggestion_pick_{uid}_{button_ix}", width="stretch"):
-                                action_started = time.perf_counter()
-                                details = _selected_card_details(enriched)
-                                _perf_log_once(
-                                    "choose",
-                                    f'{uid}|{details.get("id","")}|{details.get("number","")}',
-                                    f'[Estimations Perf] choose card="{details.get("name", "")}" image_ready={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} total_ms={int((time.perf_counter() - action_started) * 1000)}',
-                                )
-                                details["lang"] = search_language
-                                details["language"] = search_language
-                                if search_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
-                                    details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
-                                direct_specials = st.session_state.get(special_key, [])
-                                if not isinstance(direct_specials, list):
-                                    direct_specials = []
-                                direct_clean_specials = [tag for tag in direct_specials if tag != "Collection"]
-                                if search_language == "ja" and "Japonaise" not in direct_clean_specials:
-                                    direct_clean_specials.append("Japonaise")
-                                add_params = {
-                                    "name": details.get("name") or card_name,
-                                    "number": details.get("number") or card_number,
-                                    "cote": "0,00",
-                                    "qty": st.session_state.get(qty_key, "1"),
-                                    "condition": st.session_state.get(condition_key, "NM") or "NM",
-                                    "specials": direct_clean_specials,
-                                    "note": st.session_state.get(note_key, ""),
-                                    "is_collection": "Collection" in direct_specials,
-                                }
-                                candidate = {
-                                    **details,
-                                    "condition": add_params["condition"],
-                                    "special": ", ".join(direct_clean_specials),
-                                }
-                                duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
-                                if duplicate:
-                                    _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": details, "match": suggestion["match"]})
-                                    st.rerun()
-                                before_count = len(estimate.get("cards", []) or [])
-                                _mark_estimation_needs_review(estimate)
-                                _log_once(
-                                    "estimation_pick",
-                                    f'{uid}|{details.get("id","")}|{details.get("number","")}',
-                                    "[Estimations Pick] "
-                                    f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
-                                    f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
-                                    f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
-                                    f'language="{search_language}" '
-                                    f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
-                                )
-                                add_estimation_card_func(
-                                    estimate,
-                                    add_params["name"],
-                                    add_params["number"],
-                                    add_params["cote"],
-                                    add_params["qty"],
-                                    add_params["condition"],
-                                    add_params["specials"],
-                                    add_params["note"],
-                                    add_params["is_collection"],
-                                    suggestion["match"],
-                                )
-                                _apply_selected_card_details(estimate, details)
-                                after_count = len(estimate.get("cards", []) or [])
-                                if after_count > before_count and estimate.get("cards"):
-                                    added_card = estimate["cards"][-1]
-                                    _apply_market_price_suggestion(added_card, market_cache)
-                                    _log_once(
-                                        "estimation_add",
-                                        f'{uid}|{added_card.get("uid","")}|suggestion',
-                                        "[Estimations Add] "
-                                        f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
-                                        f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") or added_card.get("image_url_ja") else "no"} '
-                                        f'language="{_card_language(added_card)}" '
-                                        f'estimate="{estimate.get("name", "")}"',
-                                    )
-                                else:
-                                    _log_once(
-                                        "estimation_add_failed",
-                                        f'{uid}|suggestion|{details.get("name","")}|{details.get("number","")}',
-                                        "[Estimations Add] failed "
-                                        f'reason="suggestion not appended" name="{details.get("name", "")}" '
-                                        f'number="{details.get("number", "")}" estimate="{estimate.get("name", "")}"',
-                                    )
-                                save_started = time.perf_counter()
-                                save_estimations_func(edata)
-                                save_ms = int((time.perf_counter() - save_started) * 1000)
-                                _perf_log_once(
-                                    "add",
-                                    f'{uid}|suggestion|{details.get("id","")}|{details.get("number","")}',
-                                    f'[Estimations Perf] add card="{details.get("name", "")}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
-                                )
-                                st.session_state.pop(f"pending_est_choice_{uid}", None)
-                                st.session_state.pop(f"est_selected_match_{uid}", None)
-                                st.session_state.pop(f"est_selected_details_{uid}", None)
-                                if after_count > before_count:
-                                    st.session_state[pending_reset_key] = True
-                                st.rerun()
-                suggestion_offset += len(section_suggestions)
-            _perf_log_once(
-                "suggestions_render",
-                f'{search_language}|{normalize_name_func(card_name)}|{len(suggestions)}',
-                f'[Estimations Perf] suggestions_render query="{card_name}" lang={search_language} count={min(len(suggestions), suggestion_limit)} render_ms={int((time.perf_counter() - suggestion_render_started) * 1000)} images=0',
+            search_context = _search_context(card_name, normalize_name_func)
+            suggestion_limit = 8 if is_mobile_mode_func() else 12
+            suggestions = _card_suggestions(
+                card_name,
+                card_number,
+                search_in_cache_func,
+                ecd_func,
+                normalize_name_func,
+                limit=suggestion_limit,
+                language=search_language,
             )
-            _est_perf_record(
-                "rendu suggestions",
-                (time.perf_counter() - suggestion_render_started) * 1000,
-                requete=card_name,
-                suggestions=min(len(suggestions), suggestion_limit),
-                images=0,
+            enrichment_notice_key = f"est_cache_enrichment_notice_{uid}"
+            if st.session_state.get(enrichment_notice_key):
+                st.caption(st.session_state.pop(enrichment_notice_key))
+            if suggestions:
+                st.caption("Suggestions depuis le cache cartes PokéStock · " + ("Japonais" if search_language == "ja" else "Français"))
+                suggestion_render_started = time.perf_counter()
+                if _suggestions_missing_set_match(card_name, suggestions, normalize_name_func):
+                    st.caption("Aucun match exact pour ce tag de série dans le cache. Résultats proches affichés.")
+                if _suggestions_missing_type_match(card_name, suggestions, "ar", normalize_name_func):
+                    st.caption("Aucune AR exacte trouvée dans le cache. Résultats proches affichés.")
+                if _suggestions_missing_type_match(card_name, suggestions, "rainbow", normalize_name_func):
+                    st.caption("Aucune carte Rainbow exacte trouvée dans le cache. Résultats proches affichés.")
+                exact_suggestions, close_suggestions, strict_types = _strict_suggestion_sections(card_name, suggestions[:suggestion_limit], normalize_name_func)
+                suggestion_sections = []
+                if strict_types and exact_suggestions:
+                    suggestion_sections.append(("", exact_suggestions))
+                    if close_suggestions:
+                        suggestion_sections.append(("Résultats proches", close_suggestions))
+                else:
+                    suggestion_sections.append(("", suggestions[:suggestion_limit]))
+                suggestion_offset = 0
+                with st.container(key=f"est_sugg_grid_{uid}", horizontal=True, gap="small"):
+                    for section_title, section_suggestions in suggestion_sections:
+                        if section_title:
+                            st.caption(section_title)
+                        for cidx, suggestion in enumerate(section_suggestions):
+                            enriched = suggestion["card"]
+                            button_ix = suggestion_offset + cidx
+                            sugg_tile = st.container(key=f"est_sugg_tile_{uid}_{button_ix}")
+                            with sugg_tile:
+                                _render_compact_suggestion(enriched, language=search_language, proxy_img_func=proxy_img_func)
+                            with sugg_tile:
+                                if st.button("Choisir", key=f"est_suggestion_pick_{uid}_{button_ix}", width="stretch"):
+                                        action_started = time.perf_counter()
+                                        details = _selected_card_details(enriched)
+                                        _perf_log_once(
+                                            "choose",
+                                            f'{uid}|{details.get("id","")}|{details.get("number","")}',
+                                            f'[Estimations Perf] choose card="{details.get("name", "")}" image_ready={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} total_ms={int((time.perf_counter() - action_started) * 1000)}',
+                                        )
+                                        details["lang"] = search_language
+                                        details["language"] = search_language
+                                        if search_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
+                                            details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
+                                        direct_specials = st.session_state.get(special_key, [])
+                                        if not isinstance(direct_specials, list):
+                                            direct_specials = []
+                                        direct_clean_specials = [tag for tag in direct_specials if tag != "Collection"]
+                                        if search_language == "ja" and "Japonaise" not in direct_clean_specials:
+                                            direct_clean_specials.append("Japonaise")
+                                        add_params = {
+                                            "name": details.get("name") or card_name,
+                                            "number": details.get("number") or card_number,
+                                            "cote": "0,00",
+                                            "qty": st.session_state.get(qty_key, "1"),
+                                            "condition": st.session_state.get(condition_key, "NM") or "NM",
+                                            "specials": direct_clean_specials,
+                                            "note": st.session_state.get(note_key, ""),
+                                            "is_collection": "Collection" in direct_specials,
+                                        }
+                                        candidate = {
+                                            **details,
+                                            "condition": add_params["condition"],
+                                            "special": ", ".join(direct_clean_specials),
+                                        }
+                                        duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
+                                        if duplicate:
+                                            _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": details, "match": suggestion["match"]})
+                                            st.rerun()
+                                        before_count = len(estimate.get("cards", []) or [])
+                                        _mark_estimation_needs_review(estimate)
+                                        _log_once(
+                                            "estimation_pick",
+                                            f'{uid}|{details.get("id","")}|{details.get("number","")}',
+                                            "[Estimations Pick] "
+                                            f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
+                                            f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
+                                            f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
+                                            f'language="{search_language}" '
+                                            f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
+                                        )
+                                        add_estimation_card_func(
+                                            estimate,
+                                            add_params["name"],
+                                            add_params["number"],
+                                            add_params["cote"],
+                                            add_params["qty"],
+                                            add_params["condition"],
+                                            add_params["specials"],
+                                            add_params["note"],
+                                            add_params["is_collection"],
+                                            suggestion["match"],
+                                        )
+                                        _apply_selected_card_details(estimate, details)
+                                        after_count = len(estimate.get("cards", []) or [])
+                                        if after_count > before_count and estimate.get("cards"):
+                                            added_card = estimate["cards"][-1]
+                                            _apply_market_price_suggestion(added_card, market_cache)
+                                            _log_once(
+                                                "estimation_add",
+                                                f'{uid}|{added_card.get("uid","")}|suggestion',
+                                                "[Estimations Add] "
+                                                f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
+                                                f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") or added_card.get("image_url_ja") else "no"} '
+                                                f'language="{_card_language(added_card)}" '
+                                                f'estimate="{estimate.get("name", "")}"',
+                                            )
+                                        else:
+                                            _log_once(
+                                                "estimation_add_failed",
+                                                f'{uid}|suggestion|{details.get("name","")}|{details.get("number","")}',
+                                                "[Estimations Add] failed "
+                                                f'reason="suggestion not appended" name="{details.get("name", "")}" '
+                                                f'number="{details.get("number", "")}" estimate="{estimate.get("name", "")}"',
+                                            )
+                                        save_started = time.perf_counter()
+                                        save_estimations_func(edata)
+                                        save_ms = int((time.perf_counter() - save_started) * 1000)
+                                        _perf_log_once(
+                                            "add",
+                                            f'{uid}|suggestion|{details.get("id","")}|{details.get("number","")}',
+                                            f'[Estimations Perf] add card="{details.get("name", "")}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
+                                        )
+                                        st.session_state.pop(f"pending_est_choice_{uid}", None)
+                                        st.session_state.pop(f"est_selected_match_{uid}", None)
+                                        st.session_state.pop(f"est_selected_details_{uid}", None)
+                                        if after_count > before_count:
+                                            st.session_state[pending_reset_key] = True
+                                        st.rerun()
+                        suggestion_offset += len(section_suggestions)
+                _perf_log_once(
+                    "suggestions_render",
+                    f'{search_language}|{normalize_name_func(card_name)}|{len(suggestions)}',
+                    f'[Estimations Perf] suggestions_render query="{card_name}" lang={search_language} count={min(len(suggestions), suggestion_limit)} render_ms={int((time.perf_counter() - suggestion_render_started) * 1000)} images=0',
+                )
+                _est_perf_record(
+                    "rendu suggestions",
+                    (time.perf_counter() - suggestion_render_started) * 1000,
+                    requete=card_name,
+                    suggestions=min(len(suggestions), suggestion_limit),
+                    images=0,
+                )
+            elif str(card_name or "").strip() and len(normalize_name_func(card_name)) < 2 and not str(card_number or "").strip():
+                st.caption("Saisis au moins 2 caractères.")
+            elif str(card_name or "").strip() or str(card_number or "").strip():
+                if _shiny_filter_requested(search_context.get("requested_set_tags")):
+                    st.caption("Aucune carte Shiny / PAF correspondante trouvée dans le cache.")
+                elif len(str(card_name or "").strip()) >= 3:
+                    st.caption("Aucun résultat fiable dans le cache pour cette recherche.")
+            can_enrich_cache = (
+                cache_enrichment_func
+                and search_language == "fr"
+                and str(card_name or "").strip()
+                and search_context.get("requested_set_tags")
+                and not _has_exact_search_match(card_name, suggestions, normalize_name_func)
             )
-        elif str(card_name or "").strip() and len(normalize_name_func(card_name)) < 2 and not str(card_number or "").strip():
-            st.caption("Saisis au moins 2 caractères.")
-        elif str(card_name or "").strip() or str(card_number or "").strip():
-            if _shiny_filter_requested(search_context.get("requested_set_tags")):
-                st.caption("Aucune carte Shiny / PAF correspondante trouvée dans le cache.")
-            elif len(str(card_name or "").strip()) >= 3:
-                st.caption("Aucun résultat fiable dans le cache pour cette recherche.")
-        can_enrich_cache = (
-            cache_enrichment_func
-            and search_language == "fr"
-            and str(card_name or "").strip()
-            and search_context.get("requested_set_tags")
-            and not _has_exact_search_match(card_name, suggestions, normalize_name_func)
-        )
-        if can_enrich_cache:
-            st.caption("Cette serie ou cette carte n'est pas encore dans le cache local.")
-            if st.button("Mettre a jour le cache pour cette recherche", key=f"est_cache_enrich_{uid}", width="stretch"):
-                requested_sets = search_context.get("requested_set_tags", [])
-                print(
-                    "[Estimations Cache Enrichment] "
-                    f'query="{card_name}" requested_set="{",".join(tag.upper() for tag in requested_sets)}"',
-                    flush=True,
-                )
-                result = cache_enrichment_func(st.session_state.get("cards_index", {}), requested_sets, normalize_name_func)
-                st.session_state["cards_index"] = result.get("cards_index", st.session_state.get("cards_index", {}))
-                _reset_estimation_search_memory_cache()
-                refreshed = _card_suggestions(card_name, card_number, search_in_cache_func, ecd_func, normalize_name_func, language=search_language)
-                exact_after = _has_exact_search_match(card_name, refreshed, normalize_name_func)
-                print(
-                    "[Estimations Cache Enrichment] "
-                    f'source="{",".join(result.get("sources", []))}" fetched={result.get("fetched", 0)} '
-                    f'existing={result.get("existing", 0)} pocket_filtered={result.get("pocket_filtered", 0)} '
-                    f'invalid={result.get("invalid", 0)} added={result.get("added", 0)} '
-                    f'updated={result.get("updated", 0)} persisted={"yes" if result.get("persisted") else "no"} '
-                    f'exact_match_after_refresh={"yes" if exact_after else "no"}',
-                    flush=True,
-                )
-                if result.get("errors"):
+            if can_enrich_cache:
+                st.caption("Cette serie ou cette carte n'est pas encore dans le cache local.")
+                if st.button("Mettre a jour le cache pour cette recherche", key=f"est_cache_enrich_{uid}", width="stretch"):
+                    requested_sets = search_context.get("requested_set_tags", [])
                     print(
-                        "[Estimations Cache Enrichment] errors="
-                        + " | ".join(str(err) for err in result.get("errors", [])),
+                        "[Estimations Cache Enrichment] "
+                        f'query="{card_name}" requested_set="{",".join(tag.upper() for tag in requested_sets)}"',
                         flush=True,
                     )
-                if exact_after:
-                    st.session_state[enrichment_notice_key] = "Cache mis a jour : match exact trouve."
-                elif result.get("sources"):
-                    st.session_state[enrichment_notice_key] = "Cache mis a jour, mais aucun match exact pour cette recherche."
-                else:
-                    st.session_state[enrichment_notice_key] = "Mise a jour impossible pour cette recherche."
-                st.rerun()
-
-        b1, b2 = st.columns([1, 2])
-        card_condition = b1.selectbox("État", ["NM", "EX", "GD", "LP", "PL", "POOR"], key=condition_key)
-        card_specials = b2.multiselect(
-            "Spécial",
-            ["Reverse", "1ère Éd", "Japonaise", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
-            key=special_key,
-        )
-        card_note = st.text_input("Note rapide", placeholder="Photo floue, coin abîmé...", key=note_key)
-        keep_collection = "Collection" in card_specials
-        clean_specials = [tag for tag in card_specials if tag != "Collection"]
-        if st.button("Ajouter la carte", key=f"add_est_card_box_submit_{uid}", width="stretch"):
-            action_started = time.perf_counter()
-            if not card_name.strip():
-                st.error("Nom requis.")
-            else:
-                manual_match_status, manual_candidates = _manual_add_exact_match(card_name, card_number, normalize_name_func, language=search_language)
-                if manual_match_status == "ambiguous":
-                    _log_once(
-                        "manual_add",
-                        f'{uid}|ambiguous|{card_name}|{card_number}|{len(manual_candidates)}',
-                        "[Estimations Manual Add] "
-                        f'name="{card_name}" number="{card_number}" match=ambiguous candidates={len(manual_candidates)} image=no',
+                    result = cache_enrichment_func(st.session_state.get("cards_index", {}), requested_sets, normalize_name_func)
+                    st.session_state["cards_index"] = result.get("cards_index", st.session_state.get("cards_index", {}))
+                    _reset_estimation_search_memory_cache()
+                    refreshed = _card_suggestions(card_name, card_number, search_in_cache_func, ecd_func, normalize_name_func, language=search_language)
+                    exact_after = _has_exact_search_match(card_name, refreshed, normalize_name_func)
+                    print(
+                        "[Estimations Cache Enrichment] "
+                        f'source="{",".join(result.get("sources", []))}" fetched={result.get("fetched", 0)} '
+                        f'existing={result.get("existing", 0)} pocket_filtered={result.get("pocket_filtered", 0)} '
+                        f'invalid={result.get("invalid", 0)} added={result.get("added", 0)} '
+                        f'updated={result.get("updated", 0)} persisted={"yes" if result.get("persisted") else "no"} '
+                        f'exact_match_after_refresh={"yes" if exact_after else "no"}',
+                        flush=True,
                     )
-                    st.info("Plusieurs cartes correspondent : utilise Choisir pour sélectionner la bonne.")
-                else:
-                    matches = [manual_candidates[0]["match"]] if manual_match_status == "exact" else []
-                    selected_details = _selected_card_details(manual_candidates[0]["card"]) if manual_match_status == "exact" else None
-                    if selected_details:
-                        selected_details["lang"] = search_language
-                        selected_details["language"] = search_language
-                        if search_language == "ja" and "Japonaise" not in str(selected_details.get("special") or ""):
-                            selected_details["special"] = ", ".join(x for x in [selected_details.get("special", ""), "Japonaise"] if str(x or "").strip())
-                    elif search_language == "ja":
-                        selected_details = {"lang": "ja", "language": "ja", "special": "Japonaise"}
-                    manual_specials = list(clean_specials)
-                    if search_language == "ja" and "Japonaise" not in manual_specials:
-                        manual_specials.append("Japonaise")
-                    add_params = {
-                        "name": selected_details.get("name", card_name) if selected_details else card_name,
-                        "number": selected_details.get("number", card_number) if selected_details else card_number,
-                        "cote": "0,00",
-                        "qty": card_qty,
-                        "condition": card_condition,
-                        "specials": manual_specials,
-                        "note": card_note,
-                        "is_collection": keep_collection,
-                    }
-                    candidate = {
-                        **(selected_details or {}),
-                        "name": add_params["name"],
-                        "number": add_params["number"],
-                        "condition": card_condition,
-                        "special": ", ".join(manual_specials),
-                    }
-                    duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
-                    if duplicate:
-                        _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": selected_details, "match": matches[0] if matches else None})
-                        st.rerun()
-                    before_count = len(estimate.get("cards", []) or [])
-                    _mark_estimation_needs_review(estimate)
-                    add_estimation_card_func(
-                        estimate,
-                        add_params["name"],
-                        add_params["number"],
-                        add_params["cote"],
-                        add_params["qty"],
-                        add_params["condition"],
-                        add_params["specials"],
-                        add_params["note"],
-                        add_params["is_collection"],
-                        None,
-                    )
-                    _apply_selected_card_details(estimate, selected_details)
-                    after_count = len(estimate.get("cards", []) or [])
-                    image_status = "yes" if selected_details and (selected_details.get("image_url") or selected_details.get("image_url_en") or selected_details.get("image_url_ja")) else "no"
-                    _log_once(
-                        "manual_add",
-                        f'{uid}|{manual_match_status}|{card_name}|{card_number}|{image_status}',
-                        "[Estimations Manual Add] "
-                        f'name="{card_name}" number="{card_number}" match={manual_match_status} language="{search_language}" image={image_status}',
-                    )
-                    if after_count > before_count and estimate.get("cards"):
-                        added_card = estimate["cards"][-1]
-                        _apply_market_price_suggestion(added_card, market_cache)
-                        _log_once(
-                            "estimation_add",
-                            f'{uid}|{added_card.get("uid","")}|manual',
-                            "[Estimations Add] "
-                            f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
-                            f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") or added_card.get("image_url_ja") else "no"} '
-                            f'language="{_card_language(added_card)}" '
-                            f'estimate="{estimate.get("name", "")}"',
+                    if result.get("errors"):
+                        print(
+                            "[Estimations Cache Enrichment] errors="
+                            + " | ".join(str(err) for err in result.get("errors", [])),
+                            flush=True,
                         )
+                    if exact_after:
+                        st.session_state[enrichment_notice_key] = "Cache mis a jour : match exact trouve."
+                    elif result.get("sources"):
+                        st.session_state[enrichment_notice_key] = "Cache mis a jour, mais aucun match exact pour cette recherche."
                     else:
-                        _log_once(
-                            "estimation_add_failed",
-                            f'{uid}|manual|{card_name}|{card_number}',
-                            "[Estimations Add] failed "
-                            f'reason="card not appended" name="{card_name}" number="{card_number}" '
-                            f'estimate="{estimate.get("name", "")}"',
-                        )
-                    st.session_state.pop(f"est_selected_match_{uid}", None)
-                    st.session_state.pop(f"est_selected_details_{uid}", None)
-                    if after_count > before_count:
-                        st.session_state[pending_reset_key] = True
-                    save_started = time.perf_counter()
-                    save_estimations_func(edata)
-                    save_ms = int((time.perf_counter() - save_started) * 1000)
-                    _perf_log_once(
-                        "add",
-                        f'{uid}|manual|{card_name}|{card_number}|{manual_match_status}',
-                        f'[Estimations Perf] add card="{card_name}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
-                    )
+                        st.session_state[enrichment_notice_key] = "Mise a jour impossible pour cette recherche."
                     st.rerun()
 
-    with st.expander("EX / V basiques", expanded=False):
-        st.caption("Prix fixes : achat 0,50 € / carte · revente prévue 2,00 € / carte.")
-        ex_key = f"quick_bulk_ex_qty_{uid}"
-        v_key = f"quick_bulk_v_qty_{uid}"
-        reset_key = f"quick_bulk_reset_{uid}"
-        if st.session_state.pop(reset_key, False):
-            st.session_state[ex_key] = 0
-            st.session_state[v_key] = 0
-        if ex_key not in st.session_state:
-            st.session_state[ex_key] = 0
-        if v_key not in st.session_state:
-            st.session_state[v_key] = 0
-        c1, c2 = st.columns(2)
-        ex_qty = c1.number_input("Nombre d’EX basiques", min_value=0, step=1, key=ex_key)
-        v_qty = c2.number_input("Nombre de V basiques", min_value=0, step=1, key=v_key)
-        if st.button("Ajouter les EX / V basiques", key=f"quick_bulk_add_{uid}", width="stretch"):
-            added = 0
-            if int(ex_qty or 0) > 0:
-                _mark_estimation_needs_review(estimate)
-                estimate.setdefault("cards", []).append(_new_quick_bulk_entry("ex", int(ex_qty), new_uid_func))
-                added += 1
-            if int(v_qty or 0) > 0:
-                _mark_estimation_needs_review(estimate)
-                estimate.setdefault("cards", []).append(_new_quick_bulk_entry("v", int(v_qty), new_uid_func))
-                added += 1
-            if added:
-                save_estimations_func(edata)
-                st.session_state[reset_key] = True
-                st.success("Lignes EX / V basiques ajoutées.")
-                st.rerun()
-            else:
-                st.info("Aucune ligne créée : les deux quantités sont à 0.")
-
-    pending = st.session_state.get(f"pending_est_choice_{uid}")
-    if pending:
-        pending_language = "ja" if str(pending.get("language") or pending.get("lang") or "fr").lower() in {"ja", "jp", "jpn"} else "fr"
-        st.warning(f"{len(pending.get('matches', []))} cartes possibles trouvées. Choisis la bonne.")
-        with st.container(key=f"search_results_grid_estimations_choice_{uid}", horizontal=True, gap="small"):
-            for pidx, match in enumerate(pending.get("matches", [])):
-                card_dict, set_name = match
-                enriched = ecd_func(card_dict, set_name, lang=pending_language)
-                enriched["lang"] = pending_language
-                enriched["language"] = pending_language
-                if not enriched.get("image_url"):
-                    rebuilt = _tcgdex_image_from_id(enriched.get("id"), enriched.get("number"), lang=pending_language)
-                    if pending_language == "ja":
-                        enriched["image_url_ja"] = rebuilt
-                    else:
-                        enriched["image_url"] = rebuilt
-                with st.container(key=f"search_result_card_estimations_choice_{uid}_{pidx}"):
-                    pending_image = enriched.get("image_url_ja") or enriched.get("image_url") or ""
-                    if pending_image:
-                        st.markdown(
-                            img_with_fallback_func(pending_image, enriched.get("image_url_en", ""), width="100%", style="border-radius:10px;"),
-                            unsafe_allow_html=True,
-                        )
-                    st.caption(f"{enriched.get('name','Carte')} · {enriched.get('set','')} · #{enriched.get('number','')}")
-                    if st.button("Choisir", key=f"pick_est_box_{uid}_{pidx}"):
-                        details = _selected_card_details(enriched)
-                        details["lang"] = pending_language
-                        details["language"] = pending_language
-                        if pending_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
-                            details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
+            keep_collection = "Collection" in card_specials
+            clean_specials = [tag for tag in card_specials if tag != "Collection"]
+            if add_card_clicked:
+                action_started = time.perf_counter()
+                if not card_name.strip():
+                    st.error("Nom requis.")
+                else:
+                    manual_match_status, manual_candidates = _manual_add_exact_match(card_name, card_number, normalize_name_func, language=search_language)
+                    if manual_match_status == "ambiguous":
                         _log_once(
-                            "estimation_pick",
-                            f'{uid}|pending|{details.get("id","")}|{details.get("number","")}',
-                            "[Estimations Pick] "
-                            f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
-                            f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
-                            f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
-                            f'language="{pending_language}" '
-                            f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
+                            "manual_add",
+                            f'{uid}|ambiguous|{card_name}|{card_number}|{len(manual_candidates)}',
+                            "[Estimations Manual Add] "
+                            f'name="{card_name}" number="{card_number}" match=ambiguous candidates={len(manual_candidates)} image=no',
                         )
+                        st.info("Plusieurs cartes correspondent : utilise Choisir pour sélectionner la bonne.")
+                    else:
+                        matches = [manual_candidates[0]["match"]] if manual_match_status == "exact" else []
+                        selected_details = _selected_card_details(manual_candidates[0]["card"]) if manual_match_status == "exact" else None
+                        if selected_details:
+                            selected_details["lang"] = search_language
+                            selected_details["language"] = search_language
+                            if search_language == "ja" and "Japonaise" not in str(selected_details.get("special") or ""):
+                                selected_details["special"] = ", ".join(x for x in [selected_details.get("special", ""), "Japonaise"] if str(x or "").strip())
+                        elif search_language == "ja":
+                            selected_details = {"lang": "ja", "language": "ja", "special": "Japonaise"}
+                        manual_specials = list(clean_specials)
+                        if search_language == "ja" and "Japonaise" not in manual_specials:
+                            manual_specials.append("Japonaise")
+                        add_params = {
+                            "name": selected_details.get("name", card_name) if selected_details else card_name,
+                            "number": selected_details.get("number", card_number) if selected_details else card_number,
+                            "cote": "0,00",
+                            "qty": card_qty,
+                            "condition": card_condition,
+                            "specials": manual_specials,
+                            "note": card_note,
+                            "is_collection": keep_collection,
+                        }
+                        candidate = {
+                            **(selected_details or {}),
+                            "name": add_params["name"],
+                            "number": add_params["number"],
+                            "condition": card_condition,
+                            "special": ", ".join(manual_specials),
+                        }
+                        duplicate = _find_duplicate_card(estimate, candidate, normalize_name_func)
+                        if duplicate:
+                            _store_duplicate_pending(uid, duplicate, {"params": add_params, "details": selected_details, "match": matches[0] if matches else None})
+                            st.rerun()
                         before_count = len(estimate.get("cards", []) or [])
                         _mark_estimation_needs_review(estimate)
                         add_estimation_card_func(
                             estimate,
-                            pending["name"],
-                            pending["number"],
-                            pending["cote"],
-                            pending["qty"],
-                            pending["condition"],
-                            pending["specials"],
-                            pending["note"],
-                            pending.get("is_collection", False),
-                            match,
+                            add_params["name"],
+                            add_params["number"],
+                            add_params["cote"],
+                            add_params["qty"],
+                            add_params["condition"],
+                            add_params["specials"],
+                            add_params["note"],
+                            add_params["is_collection"],
+                            None,
                         )
-                        _apply_selected_card_details(estimate, details)
+                        _apply_selected_card_details(estimate, selected_details)
                         after_count = len(estimate.get("cards", []) or [])
+                        image_status = "yes" if selected_details and (selected_details.get("image_url") or selected_details.get("image_url_en") or selected_details.get("image_url_ja")) else "no"
+                        _log_once(
+                            "manual_add",
+                            f'{uid}|{manual_match_status}|{card_name}|{card_number}|{image_status}',
+                            "[Estimations Manual Add] "
+                            f'name="{card_name}" number="{card_number}" match={manual_match_status} language="{search_language}" image={image_status}',
+                        )
                         if after_count > before_count and estimate.get("cards"):
                             added_card = estimate["cards"][-1]
                             _apply_market_price_suggestion(added_card, market_cache)
                             _log_once(
                                 "estimation_add",
-                                f'{uid}|{added_card.get("uid","")}|pending',
+                                f'{uid}|{added_card.get("uid","")}|manual',
                                 "[Estimations Add] "
                                 f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
-                                f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
+                                f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") or added_card.get("image_url_ja") else "no"} '
+                                f'language="{_card_language(added_card)}" '
                                 f'estimate="{estimate.get("name", "")}"',
                             )
                         else:
                             _log_once(
                                 "estimation_add_failed",
-                                f'{uid}|pending|{pending.get("name","")}|{pending.get("number","")}',
+                                f'{uid}|manual|{card_name}|{card_number}',
                                 "[Estimations Add] failed "
-                                f'reason="card not appended from choice" name="{pending.get("name", "")}" '
-                                f'number="{pending.get("number", "")}" estimate="{estimate.get("name", "")}"',
+                                f'reason="card not appended" name="{card_name}" number="{card_number}" '
+                                f'estimate="{estimate.get("name", "")}"',
                             )
-                        save_estimations_func(edata)
-                        st.session_state.pop(f"pending_est_choice_{uid}", None)
+                        st.session_state.pop(f"est_selected_match_{uid}", None)
+                        st.session_state.pop(f"est_selected_details_{uid}", None)
                         if after_count > before_count:
                             st.session_state[pending_reset_key] = True
-                        st.rerun()
-        if st.button("Annuler le choix", key=f"cancel_est_choice_box_{uid}"):
-            st.session_state.pop(f"pending_est_choice_{uid}", None)
-            st.rerun()
-
-    st.markdown("#### Cartes suivies")
-    cards = estimate.get("cards", []) or []
-    if not cards:
-        st.info("Aucune carte dans cette estimation pour le moment.")
-    else:
-        filter_key = f"est_internal_card_search_{uid}"
-        internal_query = st_keyup(
-            "Rechercher dans cette estimation",
-            value="",
-            key=filter_key,
-            placeholder="Rechercher une carte dans cette estimation...",
-            debounce=_ESTIMATION_KEYUP_DEBOUNCE_MS,
-        ) or ""
-        visible_cards = _filtered_estimation_cards(cards, internal_query, normalize_name_func)
-        _log_once(
-            "estimation_display_order",
-            f'{uid}|newest_first',
-            f'[Estimations Display] order=newest_first estimate="{estimate.get("name", "")}"',
-        )
-        _log_once(
-            "estimation_filter",
-            f'{uid}|{normalize_name_func(internal_query)}|{len(visible_cards)}|{len(cards)}',
-            f'[Estimations Filter] estimate="{estimate.get("name", "")}" query="{internal_query}" '
-            f"shown={len(visible_cards)} total={len(cards)}",
-        )
-        mobile_mode = is_mobile_mode_func()
-        display_limit_key = f"est_visible_card_limit_{uid}"
-        default_limit = 12 if mobile_mode else 16
-        if display_limit_key not in st.session_state:
-            st.session_state[display_limit_key] = default_limit
-        if internal_query:
-            render_cards = visible_cards[: max(st.session_state.get(display_limit_key, default_limit), default_limit)]
-        else:
-            render_cards = visible_cards[: max(st.session_state.get(display_limit_key, default_limit), default_limit)]
-        st.caption(f"{len(render_cards)} cartes affichées sur {len(visible_cards)} résultat(s) · {len(cards)} carte(s) dans l’estimation")
-        missing_image_cards = _cards_missing_estimation_image(render_cards)
-        repair_notice_key = f"est_image_repair_notice_{uid}"
-        if st.session_state.get(repair_notice_key):
-            st.caption(st.session_state.pop(repair_notice_key))
-        if missing_image_cards:
-            if st.button("Réparer les images manquantes", key=f"est_repair_missing_images_{uid}", width="stretch"):
-                repair_result = _repair_missing_estimation_images(estimate, normalize_name_func, cache_enrichment_func)
-                if repair_result.get("repaired", 0) > 0 or repair_result.get("invalid_refs", 0) > 0:
-                    save_estimations_func(edata)
-                st.session_state[repair_notice_key] = (
-                    f"Images réparées : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
-                )
-                st.rerun()
-        tracked_render_started = time.perf_counter()
-        with st.container(key=f"est_tracked_grid_{uid}", horizontal=True, gap="small"):
-            for cidx, card in enumerate(render_cards):
-                with st.container(key=f"search_result_card_estimations_{uid}_{card.get('uid') or cidx}"):
-                        if _is_quick_bulk_entry(card):
-                            card_uid = card.get("uid") or f"bulk_{cidx}"
-                            _render_quick_bulk_card(card, fp_func)
-                            if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
-                                _mark_estimation_needs_review(estimate)
-                                estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
-                                save_estimations_func(edata)
-                                st.rerun()
-                            continue
-                        card_meta = _render_tracked_card(
-                            card,
-                            estimate,
-                            fp_func,
-                            img_with_fallback_func,
-                            cardmarket_search_url_func,
-                            normalize_name_func,
-                            proxy_img_func=proxy_img_func,
-                            market_cache=market_cache,
+                        save_started = time.perf_counter()
+                        save_estimations_func(edata)
+                        save_ms = int((time.perf_counter() - save_started) * 1000)
+                        _perf_log_once(
+                            "add",
+                            f'{uid}|manual|{card_name}|{card_number}|{manual_match_status}',
+                            f'[Estimations Perf] add card="{card_name}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
                         )
-                        card_uid = card.get("uid") or f"{cidx}"
-                        cote_key = f"est_card_cote_{uid}_{card_uid}"
-                        qty_edit_key = f"est_card_qty_{uid}_{card_uid}"
-                        current_cote = _safe_float(card.get("cote"))
-                        if cote_key not in st.session_state:
-                            st.session_state[cote_key] = f"{current_cote:.2f}".replace(".", ",") if current_cote > 0 else ""
-                        st.markdown('<span class="est-tracked-bubble-marker"></span>', unsafe_allow_html=True)
-                        with st.container(border=True):
-                            st.markdown(f"**{str(card.get('name') or 'Carte')}**")
-                            if card_meta.get("tags"):
-                                st.caption(card_meta["tags"])
-                            badge_parts = list(card_meta.get("badges", []) or [])
-                            if badge_parts:
-                                st.caption(" · ".join(str(part) for part in badge_parts if part))
-                            current_qty = _safe_int(card.get("quantity"))
-                            with st.form(f"est_card_values_{uid}_{card_uid}"):
-                                edited_qty = st.number_input("Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key)
-                                cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
-                                st.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
-                                cote_text = st.text_input("Cote (€)", key=cote_key, placeholder="0,00")
-                                save_card_values = st.form_submit_button("Enregistrer", width="stretch")
-                            new_cote = 0.0 if not str(cote_text or "").strip() else max(parse_float_input_func(cote_text, current_cote), 0.0)
-                            if save_card_values and (
-                                int(edited_qty) != current_qty or abs(new_cote - current_cote) > 0.009
-                            ):
-                                _mark_estimation_needs_review(estimate)
-                                card["quantity"] = int(edited_qty)
-                                card["cote"] = new_cote
-                                mark_manual_price(card, new_cote)
-                                if new_cote > 0:
-                                    upsert_market_price(
-                                        market_cache,
-                                        card,
-                                        new_cote,
-                                        origin="manual_estimation",
-                                        source=f"Estimation · {estimate.get('name', 'sans nom')}",
-                                        confidence="saisie manuelle",
-                                    )
-                                    save_market_price_cache(market_cache)
-                                    st.session_state["market_price_cache"] = market_cache
-                                save_estimations_func(edata)
-                                st.rerun()
-                            auto_price = _safe_float(card.get("auto_price"))
-                            if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
-                                if st.button("Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch"):
-                                    _mark_estimation_needs_review(estimate)
-                                    card["cote"] = auto_price
-                                    card["market_price_origin"] = "auto"
-                                    card.pop("manual_price", None)
-                                    st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
-                                    save_estimations_func(edata)
-                                    st.rerun()
-                            if st.button("Actualiser la cote", key=f"refresh_market_card_{uid}_{card_uid}", width="stretch"):
-                                result = apply_market_price_to_card(card, market_cache)
-                                if result.get("applied"):
-                                    st.session_state[cote_key] = f"{_safe_float(card.get('cote')):.2f}".replace(".", ",")
-                                    save_estimations_func(edata)
-                                    st.success("Cote actualisée depuis la mémoire.")
-                                elif result.get("reason") == "manual_preserved":
-                                    save_estimations_func(edata)
-                                    st.info("Cote manuelle conservée. Utilise le bouton dédié pour appliquer la cote auto.")
-                                else:
-                                    st.info("Aucune cote automatique suffisamment fiable.")
-                                st.rerun()
+                        st.rerun()
+
+        pending = st.session_state.get(f"pending_est_choice_{uid}")
+        if pending:
+            pending_language = "ja" if str(pending.get("language") or pending.get("lang") or "fr").lower() in {"ja", "jp", "jpn"} else "fr"
+            st.warning(f"{len(pending.get('matches', []))} cartes possibles trouvées. Choisis la bonne.")
+            with st.container(key=f"search_results_grid_estimations_choice_{uid}", horizontal=True, gap="small"):
+                for pidx, match in enumerate(pending.get("matches", [])):
+                    card_dict, set_name = match
+                    enriched = ecd_func(card_dict, set_name, lang=pending_language)
+                    enriched["lang"] = pending_language
+                    enriched["language"] = pending_language
+                    if not enriched.get("image_url"):
+                        rebuilt = _tcgdex_image_from_id(enriched.get("id"), enriched.get("number"), lang=pending_language)
+                        if pending_language == "ja":
+                            enriched["image_url_ja"] = rebuilt
+                        else:
+                            enriched["image_url"] = rebuilt
+                    with st.container(key=f"search_result_card_estimations_choice_{uid}_{pidx}"):
+                        pending_image = enriched.get("image_url_ja") or enriched.get("image_url") or ""
+                        if pending_image:
                             st.markdown(
-                                f"""
-                                <div class="est-card-mini-grid">
-                                    <div><span>Payé estimé</span><strong>{html.escape(card_meta["paid_label"])}</strong></div>
-                                    <div class="{html.escape(card_meta["margin_class"])}"><span>Écart à la cote</span><strong>{html.escape(card_meta["margin_label"])}</strong></div>
-                                </div>
-                                <a class="est-cardmarket-link" href="{card_meta["cm_url"]}" target="_blank">Chercher la cote sur Cardmarket</a>
-                                """,
+                                img_with_fallback_func(pending_image, enriched.get("image_url_en", ""), width="100%", style="border-radius:10px;"),
                                 unsafe_allow_html=True,
                             )
-                            if not card_meta.get("has_image"):
-                                if st.button("Actualiser l'image", key=f"est_refresh_img_{uid}_{card_uid}", width="stretch"):
-                                    if _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func):
-                                        _mark_estimation_needs_review(estimate)
-                                        save_estimations_func(edata)
-                                    st.rerun()
-                            upload_label = "Modifier l’image" if card_meta.get("has_image") else "Ajouter une image"
-                            with st.expander(upload_label, expanded=False):
-                                uploaded = st.file_uploader(
-                                    upload_label,
-                                    type=["png", "jpg", "jpeg", "webp"],
-                                    key=f"est_manual_img_upload_{uid}_{card_uid}",
+                        st.caption(f"{enriched.get('name','Carte')} · {enriched.get('set','')} · #{enriched.get('number','')}")
+                        if st.button("Choisir", key=f"pick_est_box_{uid}_{pidx}"):
+                            details = _selected_card_details(enriched)
+                            details["lang"] = pending_language
+                            details["language"] = pending_language
+                            if pending_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
+                                details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
+                            _log_once(
+                                "estimation_pick",
+                                f'{uid}|pending|{details.get("id","")}|{details.get("number","")}',
+                                "[Estimations Pick] "
+                                f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
+                                f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
+                                f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
+                                f'language="{pending_language}" '
+                                f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
+                            )
+                            before_count = len(estimate.get("cards", []) or [])
+                            _mark_estimation_needs_review(estimate)
+                            add_estimation_card_func(
+                                estimate,
+                                pending["name"],
+                                pending["number"],
+                                pending["cote"],
+                                pending["qty"],
+                                pending["condition"],
+                                pending["specials"],
+                                pending["note"],
+                                pending.get("is_collection", False),
+                                match,
+                            )
+                            _apply_selected_card_details(estimate, details)
+                            after_count = len(estimate.get("cards", []) or [])
+                            if after_count > before_count and estimate.get("cards"):
+                                added_card = estimate["cards"][-1]
+                                _apply_market_price_suggestion(added_card, market_cache)
+                                _log_once(
+                                    "estimation_add",
+                                    f'{uid}|{added_card.get("uid","")}|pending',
+                                    "[Estimations Add] "
+                                    f'added="{added_card.get("name", "")}" number="{added_card.get("number", "")}" '
+                                    f'image={"yes" if added_card.get("image_url") or added_card.get("image_url_en") else "no"} '
+                                    f'estimate="{estimate.get("name", "")}"',
                                 )
-                                if uploaded:
-                                    st.image(uploaded, width=110)
-                                    if st.button("Enregistrer l’image", key=f"est_manual_img_save_{uid}_{card_uid}", width="stretch"):
-                                        saved_path = _save_estimation_manual_image(card, uploaded)
-                                        if saved_path:
+                            else:
+                                _log_once(
+                                    "estimation_add_failed",
+                                    f'{uid}|pending|{pending.get("name","")}|{pending.get("number","")}',
+                                    "[Estimations Add] failed "
+                                    f'reason="card not appended from choice" name="{pending.get("name", "")}" '
+                                    f'number="{pending.get("number", "")}" estimate="{estimate.get("name", "")}"',
+                                )
+                            save_estimations_func(edata)
+                            st.session_state.pop(f"pending_est_choice_{uid}", None)
+                            if after_count > before_count:
+                                st.session_state[pending_reset_key] = True
+                            st.rerun()
+            if st.button("Annuler le choix", key=f"cancel_est_choice_box_{uid}"):
+                st.session_state.pop(f"pending_est_choice_{uid}", None)
+                st.rerun()
+
+        st.markdown("#### Cartes suivies")
+        cards = estimate.get("cards", []) or []
+        if not cards:
+            st.info("Aucune carte dans cette estimation pour le moment.")
+        else:
+            filter_key = f"est_internal_card_search_{uid}"
+            filter_col, _filter_spacer = st.columns([1, 1.6])
+            with filter_col:
+                internal_query = st_keyup(
+                    "Rechercher dans cette estimation",
+                    value="",
+                    key=filter_key,
+                    placeholder="Rechercher une carte dans cette estimation...",
+                    debounce=_ESTIMATION_KEYUP_DEBOUNCE_MS,
+                ) or ""
+            visible_cards = _filtered_estimation_cards(cards, internal_query, normalize_name_func)
+            _log_once(
+                "estimation_display_order",
+                f'{uid}|newest_first',
+                f'[Estimations Display] order=newest_first estimate="{estimate.get("name", "")}"',
+            )
+            _log_once(
+                "estimation_filter",
+                f'{uid}|{normalize_name_func(internal_query)}|{len(visible_cards)}|{len(cards)}',
+                f'[Estimations Filter] estimate="{estimate.get("name", "")}" query="{internal_query}" '
+                f"shown={len(visible_cards)} total={len(cards)}",
+            )
+            mobile_mode = is_mobile_mode_func()
+            display_limit_key = f"est_visible_card_limit_{uid}"
+            default_limit = 12 if mobile_mode else 16
+            if display_limit_key not in st.session_state:
+                st.session_state[display_limit_key] = default_limit
+            if internal_query:
+                render_cards = visible_cards[: max(st.session_state.get(display_limit_key, default_limit), default_limit)]
+            else:
+                render_cards = visible_cards[: max(st.session_state.get(display_limit_key, default_limit), default_limit)]
+            st.caption(f"{len(render_cards)} cartes affichées sur {len(visible_cards)} résultat(s) · {len(cards)} carte(s) dans l’estimation")
+            missing_image_cards = _cards_missing_estimation_image(render_cards)
+            repair_notice_key = f"est_image_repair_notice_{uid}"
+            if st.session_state.get(repair_notice_key):
+                st.caption(st.session_state.pop(repair_notice_key))
+            if missing_image_cards:
+                if st.button("Réparer les images manquantes", key=f"est_repair_missing_images_{uid}", width="stretch"):
+                    repair_result = _repair_missing_estimation_images(estimate, normalize_name_func, cache_enrichment_func)
+                    if repair_result.get("repaired", 0) > 0 or repair_result.get("invalid_refs", 0) > 0:
+                        save_estimations_func(edata)
+                    st.session_state[repair_notice_key] = (
+                        f"Images réparées : {repair_result.get('repaired', 0)} / {repair_result.get('missing', 0)}."
+                    )
+                    st.rerun()
+            # Bouton image compact : même pont d'upload que les cartes des lots (un clic ouvre l'explorateur).
+            estimate_position = next((i for i, item in enumerate(edata.get("estimations", []) or []) if item is estimate), -1)
+            upload_event = render_lot_image_upload_bridge(key=str(uid).replace(" ", "_").replace("/", "_"))
+            if isinstance(upload_event, dict):
+                upload_id = str(upload_event.get("id") or "")
+                if upload_id and st.session_state.get("est_direct_image_upload_last_id") != upload_id:
+                    st.session_state["est_direct_image_upload_last_id"] = upload_id
+                    try:
+                        event_estimate_idx = int(upload_event.get("lot_idx"))
+                        event_card_idx = int(upload_event.get("card_idx"))
+                    except Exception:
+                        event_estimate_idx = event_card_idx = -1
+                    if event_estimate_idx == estimate_position and 0 <= event_card_idx < len(cards):
+                        upload_target = cards[event_card_idx]
+                        upload_ok, upload_msg, upload_path = _save_direct_card_image_upload(
+                            upload_target,
+                            upload_event.get("filename", ""),
+                            upload_event.get("mime", ""),
+                            upload_event.get("data_url", ""),
+                        )
+                        if upload_ok:
+                            _mark_estimation_needs_review(estimate)
+                            upload_target["manual_image_path"] = upload_path
+                            upload_target.pop("manual_image_url", None)
+                            save_estimations_func(edata)
+                            st.rerun()
+                        else:
+                            st.error(upload_msg)
+            tracked_render_started = time.perf_counter()
+            with st.container(key=f"est_tracked_grid_{uid}", horizontal=True, gap="small"):
+                for cidx, card in enumerate(render_cards):
+                    with st.container(key=f"search_result_card_estimations_{uid}_{card.get('uid') or cidx}"):
+                            if _is_quick_bulk_entry(card):
+                                card_uid = card.get("uid") or f"bulk_{cidx}"
+                                _render_quick_bulk_card(card, fp_func)
+                                if st.button("Retirer", key=f"del_est_quick_bulk_{uid}_{card_uid}", width="stretch"):
+                                    _mark_estimation_needs_review(estimate)
+                                    estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
+                                    save_estimations_func(edata)
+                                    st.rerun()
+                                continue
+                            card_uid = card.get("uid") or f"{cidx}"
+                            cote_key = f"est_card_cote_{uid}_{card_uid}"
+                            # Cote automatique : seulement si l'identité, l'état ou la quantité ont changé.
+                            refresh_result = _auto_refresh_card_market_price(card, market_cache, f"est_cote_signature_{uid}_{card_uid}")
+                            if refresh_result and refresh_result.get("changed"):
+                                if refresh_result.get("applied"):
+                                    st.session_state[cote_key] = f"{_safe_float(card.get('cote')):.2f}".replace(".", ",")
+                                save_estimations_func(edata)
+                                st.rerun()
+                            card_meta = _render_tracked_card(
+                                card,
+                                estimate,
+                                fp_func,
+                                img_with_fallback_func,
+                                cardmarket_search_url_func,
+                                normalize_name_func,
+                                proxy_img_func=proxy_img_func,
+                                market_cache=market_cache,
+                            )
+                            qty_edit_key = f"est_card_qty_{uid}_{card_uid}"
+                            current_cote = _safe_float(card.get("cote"))
+                            if cote_key not in st.session_state:
+                                st.session_state[cote_key] = f"{current_cote:.2f}".replace(".", ",") if current_cote > 0 else ""
+                            st.markdown('<span class="est-tracked-bubble-marker"></span>', unsafe_allow_html=True)
+                            with st.container():
+                                real_card_index = next((i for i, item in enumerate(cards) if item is card), -1)
+                                image_title = "Modifier l’image" if card_meta.get("has_image") else "Ajouter une image"
+                                st.markdown(
+                                    '<div class="est-tracked-name-row">'
+                                    f'<span class="est-tracked-name-text">{html.escape(str(card.get("name") or "Carte"))}</span>'
+                                    f'<button type="button" class="ps-lot-inline-image-btn" data-lot-idx="{estimate_position}" '
+                                    f'data-card-idx="{real_card_index}" title="{image_title}" aria-label="{image_title}">🖼️</button>'
+                                    '</div>',
+                                    unsafe_allow_html=True,
+                                )
+                                badge_parts = [str(part) for part in (card_meta.get("badges", []) or []) if part]
+                                if card_meta.get("tags") or badge_parts:
+                                    st.markdown(
+                                        '<div class="est-tracked-meta">'
+                                        f'<span>{html.escape(str(card_meta.get("tags") or ""))}</span>'
+                                        + "".join(f'<span class="est-pill">{html.escape(part)}</span>' for part in badge_parts)
+                                        + "</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                current_qty = _safe_int(card.get("quantity"))
+                                autosave_kwargs = {
+                                    "card": card,
+                                    "estimate": estimate,
+                                    "edata": edata,
+                                    "market_cache": market_cache,
+                                    "save_estimations_func": save_estimations_func,
+                                    "parse_float_input_func": parse_float_input_func,
+                                    "qty_key": qty_edit_key,
+                                    "cote_key": cote_key,
+                                }
+                                field_qty_col, field_cote_col = st.columns([1, 1.25])
+                                field_qty_col.number_input(
+                                    "Qté", min_value=1, value=current_qty, step=1, key=qty_edit_key,
+                                    on_change=_autosave_estimation_card_field, args=("qty",), kwargs=autosave_kwargs,
+                                )
+                                cote_state_class = html.escape(str(card_meta.get("market_badge_css") or "none"), quote=True)
+                                field_cote_col.markdown(f'<span class="est-card-cote-marker cote-{cote_state_class}"></span>', unsafe_allow_html=True)
+                                field_cote_col.text_input(
+                                    "Cote (€)", key=cote_key, placeholder="0,00",
+                                    on_change=_autosave_estimation_card_field, args=("cote",), kwargs=autosave_kwargs,
+                                )
+                                auto_price = _safe_float(card.get("auto_price"))
+                                if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
+                                    st.button(
+                                        "Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch",
+                                        on_click=_use_auto_price_on_card,
+                                        kwargs={
+                                            "card": card, "estimate": estimate, "edata": edata,
+                                            "save_estimations_func": save_estimations_func,
+                                            "cote_key": cote_key, "auto_price": auto_price,
+                                        },
+                                    )
+                                if not card_meta.get("has_image"):
+                                    if st.button("Actualiser l'image", key=f"est_refresh_img_{uid}_{card_uid}", width="stretch"):
+                                        if _refresh_estimation_card_image(card, normalize_name_func, cache_enrichment_func):
                                             _mark_estimation_needs_review(estimate)
-                                            card["manual_image_path"] = saved_path
-                                            card.pop("manual_image_url", None)
                                             save_estimations_func(edata)
-                                            st.rerun()
+                                        st.rerun()
                                 if card_meta.get("has_manual_image"):
                                     if st.button("Revenir à l’image officielle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
                                         _mark_estimation_needs_review(estimate)
@@ -5876,165 +6213,244 @@ def _render_open_estimation(
                                         _ESTIMATION_IMAGE_RESOLUTION_CACHE.clear()
                                         save_estimations_func(edata)
                                         st.rerun()
-                            st.markdown('<span class="est-retirer-marker"></span>', unsafe_allow_html=True)
-                            if st.button("Retirer", key=f"del_est_card_box_{uid}_{card_uid}"):
-                                _mark_estimation_needs_review(estimate)
-                                estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
-                                save_estimations_func(edata)
-                                st.rerun()
-        _perf_log_once(
-            "tracked_cards",
-            f'{uid}|{len(render_cards)}|{len(visible_cards)}|{normalize_name_func(internal_query)}',
-            f'[Estimations Perf] tracked_cards count={len(render_cards)} total={len(visible_cards)} render_ms={int((time.perf_counter() - tracked_render_started) * 1000)}',
-        )
-        _est_perf_record(
-            "rendu cartes estimation",
-            (time.perf_counter() - tracked_render_started) * 1000,
-            affichées=len(render_cards),
-            total=len(visible_cards),
-        )
-        if len(render_cards) < len(visible_cards):
-            more_step = 12 if mobile_mode else 16
-            if st.button(
-                f"Afficher plus ({len(visible_cards) - len(render_cards)} restantes)",
-                key=f"est_show_more_cards_{uid}",
-                width="stretch",
-            ):
-                st.session_state[display_limit_key] = len(render_cards) + more_step
-                st.rerun()
-
-    _render_finish_estimation_panel(
-        estimate,
-        totals,
-        settings,
-        uid,
-        edata,
-        save_estimations_func,
-        fp_func,
-        normalize_name_func,
-        parse_float_input_func,
-    )
-
-    with st.expander("Détails avancés et actions", expanded=False):
-        if estimate.get("listing_url"):
-            safe_url = html.escape(estimate.get("listing_url", ""), quote=True)
-            st.markdown(f'<a href="{safe_url}" target="_blank">Ouvrir l’annonce</a>', unsafe_allow_html=True)
-        with st.form(f"estimate_meta_box_{uid}"):
-            m1, m2, m3 = st.columns([2, 1, 1])
-            edit_name = m1.text_input("Nom", value=estimate.get("name", ""), key=f"est_name_box_{uid}")
-            source_names = list(settings.get("sources", {}).keys()) or ["Vinted"]
-            edit_source = m2.selectbox("Type", source_names, index=source_names.index(estimate.get("source")) if estimate.get("source") in source_names else 0, key=f"est_source_box_{uid}")
-            status_options = _ESTIMATION_STATUS_OPTIONS
-            current_edit_status = _estimation_tracking_status(estimate)
-            edit_status = m3.selectbox("Statut", status_options, index=status_options.index(current_edit_status) if current_edit_status in status_options else 0, key=f"est_status_box_{uid}")
-            n1, n2, n3 = st.columns([1, 1, 2])
-            current_seller_price = _explicit_seller_price(estimate)
-            edit_seller_price = n1.text_input(
-                "Prix demandé (€)",
-                value=f"{current_seller_price:.2f}".replace(".", ",") if current_seller_price > 0 else "",
-                placeholder="Non renseigné",
-                key=f"est_seller_box_{uid}",
+                                st.markdown('<span class="est-retirer-marker"></span>', unsafe_allow_html=True)
+                                foot_cols = st.columns([1, 1], vertical_alignment="center")
+                                foot_cols[0].markdown(
+                                    f'<a class="est-cardmarket-link" href="{card_meta["cm_url"]}" target="_blank" title="Chercher la cote sur Cardmarket">Cardmarket</a>',
+                                    unsafe_allow_html=True,
+                                )
+                                if foot_cols[1].button("Retirer", key=f"del_est_card_box_{uid}_{card_uid}", width="stretch"):
+                                    _mark_estimation_needs_review(estimate)
+                                    estimate["cards"] = [c for c in estimate.get("cards", []) if c.get("uid") != card.get("uid")]
+                                    save_estimations_func(edata)
+                                    st.rerun()
+            _perf_log_once(
+                "tracked_cards",
+                f'{uid}|{len(render_cards)}|{len(visible_cards)}|{normalize_name_func(internal_query)}',
+                f'[Estimations Perf] tracked_cards count={len(render_cards)} total={len(visible_cards)} render_ms={int((time.perf_counter() - tracked_render_started) * 1000)}',
             )
-            edit_safety = n2.text_input("Marge sécurité (€)", value=f"{float(estimate.get('safety_eur', 0.0) or 0.0):.2f}".replace(".", ","), key=f"est_safety_box_{uid}")
-            edit_url = n3.text_input("URL annonce", value=estimate.get("listing_url", ""), key=f"est_url_box_{uid}")
-            if st.form_submit_button("Sauvegarder les détails"):
-                old_url = estimate.get("listing_url", "")
-                estimate["name"] = edit_name.strip() or estimate.get("name", "Estimation")
-                estimate["source"] = edit_source
-                estimate["status"] = edit_status
-                estimate["workflow_status"] = edit_status
-                parsed_seller_price = parse_float_input_func(edit_seller_price, 0.0) if str(edit_seller_price or "").strip() else 0.0
-                estimate["seller_price"] = parsed_seller_price if parsed_seller_price > 0 else 0.0
-                estimate["fees"] = 0.0
-                estimate["safety_eur"] = parse_float_input_func(edit_safety, 0.0)
-                estimate["listing_url"] = edit_url.strip()
-                if estimate["listing_url"] and (estimate["listing_url"] != old_url or not estimate.get("listing_image_url")):
-                    estimate["listing_image_url"] = fetch_listing_preview_image_func(estimate["listing_url"])
-                save_estimations_func(edata)
-                st.rerun()
-            if current_seller_price > 0:
-                clear_seller_price = st.checkbox("Confirmer l’effacement du prix demandé", key=f"est_clear_seller_confirm_{uid}")
-                if st.form_submit_button("Effacer le prix demandé", disabled=not clear_seller_price):
-                    estimate["seller_price"] = 0.0
-                    save_estimations_func(edata)
+            _est_perf_record(
+                "rendu cartes estimation",
+                (time.perf_counter() - tracked_render_started) * 1000,
+                affichées=len(render_cards),
+                total=len(visible_cards),
+            )
+            if len(render_cards) < len(visible_cards):
+                more_step = 12 if mobile_mode else 16
+                if st.button(
+                    f"Afficher plus ({len(visible_cards) - len(render_cards)} restantes)",
+                    key=f"est_show_more_cards_{uid}",
+                    width="stretch",
+                ):
+                    st.session_state[display_limit_key] = len(render_cards) + more_step
                     st.rerun()
 
-        st.write(
-            {
-                "cote_revente": fp_func(totals["total_cote"]),
-                "cartes_collection": totals["collection_cards"],
-                "rachat_max": fp_func(totals["max_buy"]),
-                "source": estimate.get("source"),
-                "date": estimate.get("created_at"),
-            }
+        _render_finish_estimation_panel(
+            estimate,
+            totals,
+            settings,
+            uid,
+            edata,
+            save_estimations_func,
+            fp_func,
+            normalize_name_func,
+            parse_float_input_func,
+            show_open_button=False,
         )
 
-        action_cols = st.columns(3)
-        real_lot_cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
-        if action_cols[0].button("Créer un vrai lot", width="stretch", disabled=not real_lot_cards or bool(estimate.get("created_lot_uid")), key=f"create_real_lot_box_{uid}"):
-            purchase_price = float(estimate.get("seller_price", 0.0) or 0.0) or totals["max_buy"]
-            cd_real = ld_func()
-            lot_uid = new_uid_func("lot")
-            new_lot = {
-                "lot_uid": lot_uid,
-                "nom": estimate.get("name", "Lot estimé"),
-                "prix_achat": purchase_price,
-                "cards": [],
-                "ventes": [],
-                "created": datetime.now().isoformat(),
-                "from_estimation_uid": estimate.get("uid"),
-                "estimation_listing_url": estimate.get("listing_url", ""),
-                "estimation_source": estimate.get("source"),
-                "estimation_value": totals["total_cote"],
-                "estimation_target_pct": totals["pct"],
-            }
-            for card in real_lot_cards:
-                specials = [s.strip() for s in str(card.get("special", "")).split(",") if s.strip()]
-                special_tag = ", ".join([s for s in specials if s not in ("Reverse", "1ère Éd", "Japonaise")])
-                new_lot["cards"].append(
-                    {
-                        "card_uid": new_uid_func("card"),
-                        "id": "",
-                        "name": card.get("name", "Carte"),
-                        "set": card.get("set", ""),
-                        "number": card.get("number", ""),
-                        "rarity": card.get("rarity", ""),
-                        "image_url": card.get("image_url", ""),
-                        "image_url_en": card.get("image_url_en", ""),
-                        "quantity": int(card.get("quantity", 1) or 1),
-                        "sold_quantity": 0,
-                        "condition": card.get("condition", "NM"),
-                        "suggested_price": float(card.get("cote", 0.0) or 0.0),
-                        "is_reverse": "Reverse" in specials,
-                        "is_ed1": "1ère Éd" in specials,
-                        "special_tag": special_tag,
-                        "is_collection_keep": bool(card.get("is_collection")),
-                        "sold_entries": [],
-                    }
+    with side_col:
+        with st.container(key=f"est_side_{uid}"):
+            bulk_declared = sum(_safe_int(c.get("quantity")) for c in estimate.get("cards", []) or [] if _is_quick_bulk_entry(c))
+            with st.container(key=f"est_exv_{uid}"):
+                st.markdown(
+                    '<div class="est-section-title">EX / V basiques</div>'
+                    f'<div class="est-exv-qty"><strong>{bulk_declared}</strong> carte{"s" if bulk_declared > 1 else ""}</div>',
+                    unsafe_allow_html=True,
                 )
-            cd_real.setdefault("lots", []).append(new_lot)
-            sd_func(cd_real)
-            estimate["status"] = "Achetée"
-            estimate["workflow_status"] = "Achetée"
-            estimate["created_lot_uid"] = lot_uid
-            save_estimations_func(edata)
-            st.success("Lot créé dans le menu Lots.")
-            st.rerun()
-        if action_cols[1].button("Dupliquer", width="stretch", key=f"duplicate_est_box_{uid}"):
-            copy_est = json.loads(json.dumps(estimate, ensure_ascii=False))
-            copy_est["uid"] = new_uid_func("estimate")
-            copy_est["name"] = f"Copie - {copy_est.get('name','Estimation')}"
-            copy_est.pop("created_lot_uid", None)
-            copy_est["created_at"] = datetime.now().isoformat()[:10]
-            for card in copy_est.get("cards", []):
-                card["uid"] = new_uid_func("estcard")
-            edata["estimations"].append(copy_est)
-            save_estimations_func(edata)
-            st.session_state["active_estimation_uid"] = copy_est["uid"]
-            st.rerun()
-        if action_cols[2].button("Supprimer", width="stretch", key=f"delete_est_box_{uid}"):
-            edata["estimations"] = [e for e in edata["estimations"] if e.get("uid") != uid]
-            save_estimations_func(edata)
-            st.session_state["active_estimation_uid"] = ""
-            st.rerun()
+                with st.expander("Modifier la quantité", expanded=False):
+                    st.caption("Prix fixes : achat 0,50 € / carte · revente prévue 2,00 € / carte.")
+                    ex_key = f"quick_bulk_ex_qty_{uid}"
+                    v_key = f"quick_bulk_v_qty_{uid}"
+                    reset_key = f"quick_bulk_reset_{uid}"
+                    if st.session_state.pop(reset_key, False):
+                        st.session_state[ex_key] = 0
+                        st.session_state[v_key] = 0
+                    if ex_key not in st.session_state:
+                        st.session_state[ex_key] = 0
+                    if v_key not in st.session_state:
+                        st.session_state[v_key] = 0
+                    c1, c2 = st.columns(2)
+                    ex_qty = c1.number_input("Nombre d’EX basiques", min_value=0, step=1, key=ex_key)
+                    v_qty = c2.number_input("Nombre de V basiques", min_value=0, step=1, key=v_key)
+                    if st.button("Ajouter les EX / V basiques", key=f"quick_bulk_add_{uid}", width="stretch"):
+                        added = 0
+                        if int(ex_qty or 0) > 0:
+                            _mark_estimation_needs_review(estimate)
+                            estimate.setdefault("cards", []).append(_new_quick_bulk_entry("ex", int(ex_qty), new_uid_func))
+                            added += 1
+                        if int(v_qty or 0) > 0:
+                            _mark_estimation_needs_review(estimate)
+                            estimate.setdefault("cards", []).append(_new_quick_bulk_entry("v", int(v_qty), new_uid_func))
+                            added += 1
+                        if added:
+                            save_estimations_func(edata)
+                            st.session_state[reset_key] = True
+                            st.success("Lignes EX / V basiques ajoutées.")
+                            st.rerun()
+                        else:
+                            st.info("Aucune ligne créée : les deux quantités sont à 0.")
+
+            with st.container(key=f"est_settings_menu_{uid}"):
+                st.markdown('<div class="est-section-title">Réglages</div>', unsafe_allow_html=True)
+                _render_market_cache_tools(market_cache, edata)
+                _render_buyback_settings(edata, settings, save_estimations_func, parse_float_input_func)
+                with st.expander("Collection", expanded=False):
+                    st.caption(f"{totals.get('collection_cards', 0)} carte(s) gardée(s) en collection dans cette estimation.")
+                with st.expander("Détails avancés et actions", expanded=False):
+                    if estimate.get("listing_url"):
+                        safe_url = html.escape(estimate.get("listing_url", ""), quote=True)
+                        st.markdown(f'<a href="{safe_url}" target="_blank">Ouvrir l’annonce</a>', unsafe_allow_html=True)
+                    with st.form(f"estimate_meta_box_{uid}"):
+                        m1, m2, m3 = st.columns([2, 1, 1])
+                        edit_name = m1.text_input("Nom", value=estimate.get("name", ""), key=f"est_name_box_{uid}")
+                        source_names = list(settings.get("sources", {}).keys()) or ["Vinted"]
+                        edit_source = m2.selectbox("Type", source_names, index=source_names.index(estimate.get("source")) if estimate.get("source") in source_names else 0, key=f"est_source_box_{uid}")
+                        status_options = _ESTIMATION_STATUS_OPTIONS
+                        current_edit_status = _estimation_tracking_status(estimate)
+                        edit_status = m3.selectbox("Statut", status_options, index=status_options.index(current_edit_status) if current_edit_status in status_options else 0, key=f"est_status_box_{uid}")
+                        n1, n2, n3 = st.columns([1, 1, 2])
+                        current_seller_price = _explicit_seller_price(estimate)
+                        edit_seller_price = n1.text_input(
+                            "Prix demandé (€)",
+                            value=f"{current_seller_price:.2f}".replace(".", ",") if current_seller_price > 0 else "",
+                            placeholder="Non renseigné",
+                            key=f"est_seller_box_{uid}",
+                        )
+                        edit_safety = n2.text_input("Marge sécurité (€)", value=f"{float(estimate.get('safety_eur', 0.0) or 0.0):.2f}".replace(".", ","), key=f"est_safety_box_{uid}")
+                        edit_url = n3.text_input("URL annonce", value=estimate.get("listing_url", ""), key=f"est_url_box_{uid}")
+                        if st.form_submit_button("Sauvegarder les détails"):
+                            old_url = estimate.get("listing_url", "")
+                            estimate["name"] = edit_name.strip() or estimate.get("name", "Estimation")
+                            estimate["source"] = edit_source
+                            estimate["status"] = edit_status
+                            estimate["workflow_status"] = edit_status
+                            parsed_seller_price = parse_float_input_func(edit_seller_price, 0.0) if str(edit_seller_price or "").strip() else 0.0
+                            estimate["seller_price"] = parsed_seller_price if parsed_seller_price > 0 else 0.0
+                            estimate["fees"] = 0.0
+                            estimate["safety_eur"] = parse_float_input_func(edit_safety, 0.0)
+                            estimate["listing_url"] = edit_url.strip()
+                            if estimate["listing_url"] and (estimate["listing_url"] != old_url or not estimate.get("listing_image_url")):
+                                estimate["listing_image_url"] = fetch_listing_preview_image_func(estimate["listing_url"])
+                            save_estimations_func(edata)
+                            st.rerun()
+                        if current_seller_price > 0:
+                            clear_seller_price = st.checkbox("Confirmer l’effacement du prix demandé", key=f"est_clear_seller_confirm_{uid}")
+                            if st.form_submit_button("Effacer le prix demandé", disabled=not clear_seller_price):
+                                estimate["seller_price"] = 0.0
+                                save_estimations_func(edata)
+                                st.rerun()
+
+                    st.write(
+                        {
+                            "cote_revente": fp_func(totals["total_cote"]),
+                            "cartes_collection": totals["collection_cards"],
+                            "rachat_max": fp_func(totals["max_buy"]),
+                            "source": estimate.get("source"),
+                            "date": estimate.get("created_at"),
+                        }
+                    )
+
+                    action_cols = st.columns(3)
+                    real_lot_cards = [card for card in estimate.get("cards", []) or [] if not _is_quick_bulk_entry(card)]
+                    if action_cols[0].button("Créer un vrai lot", width="stretch", disabled=not real_lot_cards or bool(estimate.get("created_lot_uid")), key=f"create_real_lot_box_{uid}"):
+                        purchase_price = float(estimate.get("seller_price", 0.0) or 0.0) or totals["max_buy"]
+                        cd_real = ld_func()
+                        lot_uid = new_uid_func("lot")
+                        new_lot = {
+                            "lot_uid": lot_uid,
+                            "nom": estimate.get("name", "Lot estimé"),
+                            "prix_achat": purchase_price,
+                            "cards": [],
+                            "ventes": [],
+                            "created": datetime.now().isoformat(),
+                            "from_estimation_uid": estimate.get("uid"),
+                            "estimation_listing_url": estimate.get("listing_url", ""),
+                            "estimation_source": estimate.get("source"),
+                            "estimation_value": totals["total_cote"],
+                            "estimation_target_pct": totals["pct"],
+                        }
+                        for card in real_lot_cards:
+                            specials = [s.strip() for s in str(card.get("special", "")).split(",") if s.strip()]
+                            special_tag = ", ".join([s for s in specials if s not in ("Reverse", "1ère Éd", "Japonaise")])
+                            new_lot["cards"].append(
+                                {
+                                    "card_uid": new_uid_func("card"),
+                                    "id": "",
+                                    "name": card.get("name", "Carte"),
+                                    "set": card.get("set", ""),
+                                    "number": card.get("number", ""),
+                                    "rarity": card.get("rarity", ""),
+                                    "image_url": card.get("image_url", ""),
+                                    "image_url_en": card.get("image_url_en", ""),
+                                    "quantity": int(card.get("quantity", 1) or 1),
+                                    "sold_quantity": 0,
+                                    "condition": card.get("condition", "NM"),
+                                    "suggested_price": float(card.get("cote", 0.0) or 0.0),
+                                    "is_reverse": "Reverse" in specials,
+                                    "is_ed1": "1ère Éd" in specials,
+                                    "special_tag": special_tag,
+                                    "is_collection_keep": bool(card.get("is_collection")),
+                                    "sold_entries": [],
+                                }
+                            )
+                        cd_real.setdefault("lots", []).append(new_lot)
+                        sd_func(cd_real)
+                        estimate["status"] = "Achetée"
+                        estimate["workflow_status"] = "Achetée"
+                        estimate["created_lot_uid"] = lot_uid
+                        save_estimations_func(edata)
+                        st.success("Lot créé dans le menu Lots.")
+                        st.rerun()
+                    if action_cols[1].button("Dupliquer", width="stretch", key=f"duplicate_est_box_{uid}"):
+                        copy_est = json.loads(json.dumps(estimate, ensure_ascii=False))
+                        copy_est["uid"] = new_uid_func("estimate")
+                        copy_est["name"] = f"Copie - {copy_est.get('name','Estimation')}"
+                        copy_est.pop("created_lot_uid", None)
+                        copy_est["created_at"] = datetime.now().isoformat()[:10]
+                        for card in copy_est.get("cards", []):
+                            card["uid"] = new_uid_func("estcard")
+                        edata["estimations"].append(copy_est)
+                        save_estimations_func(edata)
+                        st.session_state["active_estimation_uid"] = copy_est["uid"]
+                        st.rerun()
+                    if action_cols[2].button("Supprimer", width="stretch", key=f"delete_est_box_{uid}"):
+                        edata["estimations"] = [e for e in edata["estimations"] if e.get("uid") != uid]
+                        save_estimations_func(edata)
+                        st.session_state["active_estimation_uid"] = ""
+                        st.rerun()
+
+            if st.button("Actualiser les cotes de cette estimation", key=f"refresh_market_prices_{uid}", width="stretch"):
+                updated_cache, refresh_summary = refresh_estimation_prices(market_cache, estimate, only_due=True)
+                save_market_price_cache(updated_cache)
+                st.session_state["market_price_cache"] = updated_cache
+                save_estimations_func(edata)
+                print(
+                    "[Market Price Cache] "
+                    f'refresh requested estimate="{estimate.get("name", "Estimation")}" '
+                    f"refreshed={refresh_summary.get('refreshed', 0)} "
+                    f"recent_kept={refresh_summary.get('recent_kept', 0)} "
+                    f"review={refresh_summary.get('review', 0)} "
+                    f"unavailable={refresh_summary.get('unavailable', 0)} "
+                    f"manual_preserved={refresh_summary.get('manual_preserved', 0)}",
+                    flush=True,
+                )
+                st.success(
+                    "Cotes actualisées : "
+                    f"{refresh_summary.get('refreshed', 0)} · "
+                    f"récentes conservées : {refresh_summary.get('recent_kept', 0)} · "
+                    f"à vérifier : {refresh_summary.get('review', 0)} · "
+                    f"sans cote fiable : {refresh_summary.get('unavailable', 0)} · "
+                    f"manuelles conservées : {refresh_summary.get('manual_preserved', 0)}"
+                )
+                st.rerun()
 

@@ -81,6 +81,76 @@
           "cached_image_path": "images/estimation_cache/me02-105_me02-105_Grodoudou_105_me02.webp",
           "manual_price": 5.0,
           "market_price_origin": "manual"
+        },
+        {
+          "uid": "estcard_1bb0c65686c0436ea8f0a3b1ab48ed08",
+          "name": "Bruyverne-ex",
+          "number": "220",
+          "set": "Destinées de Paldea",
+          "quantity": 1,
+          "cote": 3.0,
+          "condition": "NM",
+          "special": "",
+          "note": "",
+          "image_url": "https://assets.tcgdex.net/fr/sv/sv04.5/220/high.webp",
+          "image_url_en": "",
+          "rarity": "",
+          "is_collection": false,
+          "set_id": "sv04.5",
+          "set_tags": [
+            "paf",
+            "shiny",
+            "sv",
+            "sv04.5",
+            "sv045"
+          ],
+          "id": "sv04.5-220",
+          "card_id": "sv04.5-220",
+          "lang": "fr",
+          "language": "fr",
+          "metadata_tags": [
+            "EX"
+          ],
+          "cached_image_path": "images/estimation_cache/sv04.5-220_sv04.5-220_Bruyverne-ex_220_sv04.5.webp",
+          "auto_price": 3.0,
+          "market_price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
+          "market_price_confidence": "saisie manuelle",
+          "auto_price_updated_at": "2026-07-04T19:08:42.424106+00:00",
+          "market_price_origin": "auto"
+        },
+        {
+          "uid": "estcard_40ebb64a0b0649c1aec93837000ae8f8",
+          "name": "Pondralugon-ex",
+          "number": "224",
+          "set": "Étincelles Déferlantes",
+          "quantity": 1,
+          "cote": 3.0,
+          "condition": "NM",
+          "special": "",
+          "note": "",
+          "image_url": "https://assets.tcgdex.net/fr/sv/sv08/224/high.webp",
+          "image_url_en": "",
+          "rarity": "",
+          "is_collection": false,
+          "set_id": "sv08",
+          "set_tags": [
+            "ssp",
+            "sv",
+            "sv08"
+          ],
+          "id": "sv08-224",
+          "card_id": "sv08-224",
+          "lang": "fr",
+          "language": "fr",
+          "metadata_tags": [
+            "EX"
+          ],
+          "cached_image_path": "images/estimation_cache/sv08-224_sv08-224_Pondralugon-ex_224_sv08.webp",
+          "market_price_origin": "auto",
+          "auto_price": 3.0,
+          "market_price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "market_price_confidence": "saisie manuelle",
+          "auto_price_updated_at": "2026-10-12T16:29:49.443063+00:00"
         }
       ]
     }

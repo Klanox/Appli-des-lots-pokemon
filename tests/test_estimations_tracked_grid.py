@@ -15,15 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TrackedGridCssTest(unittest.TestCase):
-    def test_css_is_balanced_and_fixed_width_wrapping_8_per_row(self):
+    def test_css_is_balanced_and_fixed_width_wrapping_6_per_row(self):
         css = estimations._TRACKED_GRID_CSS
         # Accolades équilibrées : un @media non fermé avait avalé les règles de la grille partagée.
         self.assertEqual(css.count("{"), css.count("}"))
         self.assertIn("flex-wrap:wrap", css)
         self.assertNotIn("auto-fit", css)
         self.assertNotIn("1fr", css)
-        # Colonne = part fixe de la ligne (flex 0 0, jamais 1 1) : 8 par rangée par défaut.
-        self.assertRegex(css, r"flex:0 0 calc\(\(100% - 7 \* [^)]+\) / 8\)")
+        # Colonne = part fixe de la ligne (flex 0 0, jamais 1 1) : 6 par rangée par défaut.
+        self.assertRegex(css, r"flex:0 0 calc\(\(100% - 5 \* [^)]+\) / 6\)")
         self.assertNotRegex(css, r"flex:\s*1\b")
         # Mobile : 2 par rangée.
         mobile = css[css.index("@media (max-width:768px)"):]

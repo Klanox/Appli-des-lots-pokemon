@@ -131,10 +131,11 @@ class EstimationsV2Tests(unittest.TestCase):
             self.assertEqual(_sale_image_candidates(card)[0], custom)
             self.assertEqual(_card_image(card), custom)
 
-    def test_card_value_edits_are_deferred_to_an_explicit_form_submit(self):
+    def test_card_value_edits_autosave_on_change_without_form_submit(self):
         source = inspect.getsource(estimations._render_open_estimation)
-        self.assertIn('with st.form(f"est_card_values_', source)
-        self.assertIn('st.form_submit_button("Enregistrer"', source)
+        self.assertNotIn('with st.form(f"est_card_values_', source)
+        self.assertNotIn('st.form_submit_button("Enregistrer"', source)
+        self.assertEqual(source.count("on_change=_autosave_estimation_card_field"), 2)
         self.assertNotIn("previous_qty_seen", source)
         self.assertNotIn("previous_cote_seen", source)
 
