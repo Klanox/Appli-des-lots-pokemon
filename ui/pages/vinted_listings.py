@@ -14,15 +14,27 @@ from PIL import Image, ImageOps
 from services.vinted_drops_service import (
     DROP_ITEM_STATUSES,
     add_card_to_drop,
+    active_drops,
     add_cards_to_drop,
+    archive_drop,
     card_is_in_drop,
     create_drop,
     delete_drop,
+    drop_has_restock_scope,
+    drop_is_archived,
+    drop_is_launched,
     drop_item_status,
     drop_item_status_label,
+    DROP_UNPROCESSED_STATUSES,
+    drop_ref_is_restock_draft,
+    drop_ref_is_unprocessed,
+    drop_restock_refs,
     drop_card_key,
+    drop_ref_key,
+    drop_remaining_quantity,
     filter_drop_cards,
     find_drop,
+    find_drop_ref,
     launch_drop,
     load_vinted_drops,
     remove_card_from_drop,
@@ -1439,7 +1451,7 @@ def _select_cards(cards):
 
 
 def _active_drop_id(drops_data):
-    drops = drops_data.get("drops", [])
+    drops = active_drops(drops_data)
     current = st.session_state.get("vinted_active_drop_id")
     if current and any(drop.get("id") == current for drop in drops):
         return current
@@ -1480,7 +1492,7 @@ def _card_details_text(card, fp_func):
 
 
 def _drop_choice_options(drops_data):
-    return {drop.get("name", "Drop sans nom"): drop.get("id") for drop in drops_data.get("drops", [])}
+    return {drop.get("name", "Drop sans nom"): drop.get("id") for drop in active_drops(drops_data)}
 
 
 def _card_with_drop_quantity(card, quantity):
@@ -1496,6 +1508,8 @@ def _card_identity(card):
 def _drop_identity_counts(drop):
     counts = Counter()
     for ref in (drop or {}).get("cards", []) or []:
+        if drop_item_status(ref) == "sold":
+            continue
         fingerprint = _card_identity(ref)
         if fingerprint:
             counts[fingerprint] += 1
@@ -1594,7 +1608,8 @@ def _process_drop_selection_batch(drops_data, active_drop, available_cards, batc
             quantity = int(selection.get("quantity", 1) or 1)
         except Exception:
             quantity = 1
-        max_qty = max(1, int(card.get("available_qty", 1) or 1))
+        remaining = drop_remaining_quantity(active_drop, card)
+        max_qty = max(1, int(remaining if remaining is not None else (card.get("available_qty", 1) or 1)))
         quantity = min(max(1, quantity), max_qty)
         cards_to_add.append(_card_with_drop_quantity(card, quantity))
 
@@ -1754,7 +1769,16 @@ def _drop_total_value(drop, available_cards=None):
     return total
 
 
-def _drop_grid_groups(cards, proxy_img_func, fp_func):
+def _drop_grid_stock(active_drop, card):
+    """Copies that can still be added: stock minus copies reserved by active refs."""
+    available = int(card.get("available_qty", 0) or 0)
+    if not active_drop:
+        return available
+    remaining = drop_remaining_quantity(active_drop, card)
+    return available if remaining is None else max(0, int(remaining))
+
+
+def _drop_grid_groups(cards, proxy_img_func, fp_func, active_drop=None):
     groups = []
     for group in _group_cards_by_lot(cards):
         payload_cards = []
@@ -1773,7 +1797,7 @@ def _drop_grid_groups(cards, proxy_img_func, fp_func):
                     "number": _card_number(card),
                     "price": price,
                     "price_label": fp_func(price) if price else "Prix à définir",
-                    "stock": int(card.get("available_qty", 0) or 0),
+                    "stock": _drop_grid_stock(active_drop, card),
                     "image_url": img,
                     "stamp_label": card_stamp_label(card),
                     "duplicate_fingerprint": _card_identity(card),
@@ -2008,7 +2032,7 @@ def _render_listing_preview(selected_cards, proxy_img_func, run_html_func=None, 
 
 
 def _render_selected_add_to_drop(drops_data, selected_cards, scope="classic"):
-    if not selected_cards or not drops_data.get("drops"):
+    if not selected_cards or not active_drops(drops_data):
         return
     options = _drop_choice_options(drops_data)
     if not options:
@@ -2067,7 +2091,7 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
         return
 
     st.caption(f"{len(candidates_all)} carte(s) disponible(s).")
-    groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func)
+    groups = _drop_grid_groups(candidates_all, proxy_img_func, fp_func, active_drop)
     duplicate_counts = dict(_drop_identity_counts(active_drop))
     result = render_vinted_drop_virtual_grid(
         groups,
@@ -2110,6 +2134,11 @@ def _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_
 
 def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile):
     resolved_cards, missing_cards = resolve_drop_cards_from_data(active_drop, available_cards)
+    # Les références vendues restent dans vinted_drops.json (stats/historique) :
+    # seule cette liste d'affichage les masque.
+    sold_hidden = sum(1 for card in list(resolved_cards) + list(missing_cards) if drop_item_status(card) == "sold")
+    resolved_cards = [card for card in resolved_cards if drop_item_status(card) != "sold"]
+    missing_cards = [card for card in missing_cards if drop_item_status(card) != "sold"]
     drop_query = st.text_input(
         "Rechercher dans ce drop",
         key="vinted_drop_filter_query",
@@ -2117,8 +2146,13 @@ def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, 
     )
     filtered_cards = filter_drop_cards(resolved_cards, drop_query)
     filtered_missing = filter_drop_cards(missing_cards, drop_query)
+    if sold_hidden:
+        st.caption(f"{sold_hidden} carte(s) vendue(s) masquée(s) de cette liste (toujours comptées dans l'historique et les statistiques).")
     if not filtered_cards and not filtered_missing:
-        st.caption("Aucune carte dans ce drop." if not resolved_cards and not missing_cards else "Aucune carte ne correspond à cette recherche.")
+        if not resolved_cards and not missing_cards:
+            st.caption("Aucune carte en cours dans ce drop." if sold_hidden else "Aucune carte dans ce drop.")
+        else:
+            st.caption("Aucune carte ne correspond à cette recherche.")
         return
 
     if missing_cards:
@@ -2142,6 +2176,31 @@ def _render_drop_grid(drops_data, active_drop, available_cards, proxy_img_func, 
         with st.container(horizontal=True, key=f"vinted_grid_drop_cards_{active_drop.get('id')}_{row_index}"):
             for card in row:
                 _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func)
+
+
+_DROP_REMOVAL_QUEUE_KEY = "vinted_drop_pending_removals"
+
+
+def _queue_drop_removal(drop_id, ref_key):
+    """Callback de « Retirer du drop » : exécuté par Streamlit AVANT le rerun.
+
+    Tous les clics reçus dans le même rerun déclenchent leur callback ; le retrait
+    réel est appliqué une seule fois par _apply_pending_drop_removals (un seul
+    enregistrement, aucun st.rerun() supplémentaire).
+    """
+    st.session_state.setdefault(_DROP_REMOVAL_QUEUE_KEY, []).append((drop_id, ref_key))
+
+
+def _apply_pending_drop_removals(drops_data):
+    pending = st.session_state.pop(_DROP_REMOVAL_QUEUE_KEY, None) or []
+    removed = 0
+    for drop_id, ref_key in pending:
+        if remove_card_from_drop(drops_data, drop_id, ref_key):
+            removed += 1
+    if removed:
+        save_vinted_drops(drops_data)
+        st.toast(f"{removed} carte(s) retirée(s) du drop.")
+    return removed
 
 
 def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
@@ -2182,11 +2241,13 @@ def _render_drop_card(active_drop, drops_data, card, proxy_img_func, fp_func):
         )
         if not unavailable:
             st.caption(f"Statut : {drop_item_status_label(status)}")
-        if st.button("Retirer du drop", key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}", width="stretch"):
-            if remove_card_from_drop(drops_data, active_drop.get("id"), card_ref_key):
-                save_vinted_drops(drops_data)
-                st.success("Carte retirée du drop.")
-                st.rerun()
+        st.button(
+            "Retirer du drop",
+            key=f"remove_drop_card_{active_drop.get('id')}_{card_ref_key}",
+            width="stretch",
+            on_click=_queue_drop_removal,
+            args=(active_drop.get("id"), card_ref_key),
+        )
 
 
 def _drop_status_counts(drop):
@@ -2540,8 +2601,17 @@ def _render_photo_source_controls(active_drop, folder, *, show_analysis_action, 
         allowed = browser_photo_upload_allowed(active_drop)
         if not allowed:
             st.info(
-                "Ce Drop est déjà lancé. Son import photo est protégé ; les photos existantes restent consultables."
+                "Ce Drop est déjà lancé et ne contient aucune carte de réassort à traiter. "
+                "Son import photo est protégé ; les photos existantes restent consultables."
             )
+        elif drop_is_launched(active_drop):
+            restock_refs = drop_restock_refs(active_drop)
+            names = [str(ref.get("name") or "Carte") + (f" {ref.get('display_number') or ref.get('number')}" if (ref.get("display_number") or ref.get("number")) else "") for ref in restock_refs]
+            st.info(
+                f"Réassort : {len(restock_refs)} carte(s) à photographier. Seules ces cartes sont proposées à la "
+                "reconnaissance ; les cartes déjà en ligne ou vendues ne sont pas concernées."
+            )
+            st.caption("À photographier : " + ", ".join(names[:15]) + (f" … (+{len(names) - 15})" if len(names) > 15 else ""))
         elif not browser_upload_component_available():
             st.error("L’import navigateur n’est pas disponible dans cette version de PokéStock.")
         component_result = render_browser_photo_upload(
@@ -2627,6 +2697,20 @@ def _render_photo_source_controls(active_drop, folder, *, show_analysis_action, 
     return clicked, folder, photos
 
 
+def _legacy_analysis_blocked(active_drop, result, staleness):
+    """Drop lance avec reassort : l'analyse d'avant lancement ne doit pas etre rejouee.
+
+    Re-analyser (ou actualiser les candidats de) les anciennes photos avec les seules
+    cartes de reassort pourrait rattacher une ancienne photo a une nouvelle carte. Une analyse
+    est autorisee uniquement sur de nouvelles photos importees pour le reassort.
+    """
+    if result is None or not drop_is_launched(active_drop) or not drop_has_restock_scope(active_drop):
+        return False
+    if (result.get("analysis_meta") or {}).get("restock_scope"):
+        return False
+    return not (staleness or {}).get("photos")
+
+
 def _render_photo_analysis_step(drops_data, active_drop, mobile):
     result, session, folder = _load_photo_workflow_state(active_drop)
     drop_id = str(active_drop.get("id") or "")
@@ -2681,11 +2765,17 @@ def _render_photo_analysis_step(drops_data, active_drop, mobile):
             )
             _render_photo_analysis_summary(result, session)
             photos = list_ordered_photos(folder) if folder and Path(folder).exists() else []
+            legacy_blocked = _legacy_analysis_blocked(active_drop, result, staleness)
+            if legacy_blocked:
+                st.info(
+                    "Ces photos correspondent à l’analyse faite avant le lancement du Drop. "
+                    "Pour traiter le réassort, importe les photos des nouvelles cartes (options ci-dessous)."
+                )
             analyze_clicked = st.button(
                 "Mettre à jour l’analyse",
                 key=f"vinted_photo_update_{drop_id}",
                 type="primary",
-                disabled=bool(staleness["photos"] and not photos),
+                disabled=bool(staleness["photos"] and not photos) or legacy_blocked,
                 width="stretch",
             )
         else:
@@ -2725,13 +2815,14 @@ def _render_photo_analysis_step(drops_data, active_drop, mobile):
                 refresh_clicked = st.button(
                     "Actualiser les cartes du Drop",
                     key=f"vinted_photo_refresh_candidates_{drop_id}",
+                    disabled=_legacy_analysis_blocked(active_drop, result, staleness),
                     width="stretch",
                 )
             with option_cols[1]:
                 force_clicked = st.button(
                     "Relancer l’analyse",
                     key=f"vinted_photo_force_analysis_{drop_id}",
-                    disabled=not photos,
+                    disabled=not photos or _legacy_analysis_blocked(active_drop, result, staleness),
                     width="stretch",
                 )
 
@@ -3431,15 +3522,14 @@ def _drop_mark_to_prepare(drops_data, drop_id, card_key):
     drop = find_drop(drops_data, drop_id)
     if not drop:
         return False
-    for ref in drop.get("cards", []) or []:
-        if drop_card_key(ref) != card_key:
-            continue
-        ref["status"] = "to_prepare"
-        ref["draft_ready_at"] = ""
-        ref["listing_posted"] = False
-        ref["listing_posted_at"] = ""
-        return True
-    return False
+    ref = find_drop_ref(drop, card_key)
+    if ref is None:
+        return False
+    ref["status"] = "to_prepare"
+    ref["draft_ready_at"] = ""
+    ref["listing_posted"] = False
+    ref["listing_posted_at"] = ""
+    return True
 
 
 def _drop_direction_edit_key(drop_id):
@@ -3948,6 +4038,44 @@ def _analytics_snapshot_at(drop, rows, cutoff):
     }
 
 
+_RESTOCK_MIN_CARDS = 5
+
+
+def _analytics_restock_markers(drop, *, end=None, min_cards=_RESTOCK_MIN_CARDS):
+    """Reperes visuels de reassort : cartes ajoutees apres le lancement, groupees par jour.
+
+    Lecture seule : ne modifie ni le drop ni les cumuls. Un jour n'est retenu que s'il
+    compte au moins ``min_cards`` cartes ajoutees apres ``drop_launched_at``.
+    """
+    launched = _parse_dt((drop or {}).get("drop_launched_at"))
+    if not launched:
+        return []
+    by_day = {}
+    for ref in (drop or {}).get("cards", []) or []:
+        added = _parse_dt(ref.get("added_at"))
+        if not added or added <= launched:
+            continue
+        if end is not None and added > end:
+            continue
+        try:
+            qty = max(1, int(ref.get("quantity", 1) or 1))
+        except (TypeError, ValueError):
+            qty = 1
+        bucket = by_day.setdefault(added.date(), {"timestamp": added, "cards": 0})
+        bucket["cards"] += qty
+        bucket["timestamp"] = min(bucket["timestamp"], added)
+    markers = []
+    for day in sorted(by_day):
+        bucket = by_day[day]
+        if bucket["cards"] >= min_cards:
+            markers.append({
+                "timestamp": bucket["timestamp"],
+                "cards": bucket["cards"],
+                "label": f"Réassort · {day.strftime('%d/%m/%Y')} · +{bucket['cards']} cartes",
+            })
+    return markers
+
+
 def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
     """Precise cumulative series with a launch point and optional flat visual end."""
     launched = _parse_dt(drop.get("drop_launched_at"))
@@ -4246,7 +4374,7 @@ def _analytics_elapsed_axis(horizon_hours, alt):
     return alt.Axis(title="Temps depuis le lancement", tickCount=7, labelExpr="'J+' + format(datum.value / 24, '.0f')")
 
 
-def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_analytics_chart"):
+def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_analytics_chart", restocks=None):
     if not series:
         st.caption("Les courbes apparaîtront dès les premières ventes liées au Drop.")
         return
@@ -4291,6 +4419,14 @@ def _render_analytics_charts(series, *, mode="CA & bénéfice", key="vinted_anal
         launch_rule = alt.Chart(pd.DataFrame([launch])).mark_rule(color="#7c3aed", strokeDash=[4, 3], strokeWidth=1.4).encode(x="timestamp:T")
         launch_label = alt.Chart(pd.DataFrame([launch])).mark_text(align="left", baseline="top", dx=5, dy=4, color="#6d28d9", fontSize=11, fontWeight=700).encode(x="timestamp:T", text=alt.value(f"Lancement · {launch['timestamp'].strftime('%d %b %H:%M')}"))
         chart = alt.layer(chart, launch_rule, launch_label)
+    if restocks:
+        restock_frame = pd.DataFrame(restocks)
+        restock_rule = alt.Chart(restock_frame).mark_rule(color="#f97316", strokeDash=[2, 3], strokeWidth=1.6).encode(
+            x="timestamp:T",
+            tooltip=[alt.Tooltip("label:N", title="Événement"), alt.Tooltip("timestamp:T", title="Premier ajout", format="%d %b %Y · %H:%M")],
+        )
+        restock_label = alt.Chart(restock_frame).mark_text(align="left", baseline="top", dx=5, dy=22, color="#c2410c", fontSize=11, fontWeight=700).encode(x="timestamp:T", text="label:N")
+        chart = alt.layer(chart, restock_rule, restock_label)
     st.altair_chart(_analytics_chart_style(chart), width="stretch", key=key)
 
 
@@ -4513,7 +4649,16 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     if st.session_state.get("vinted_analysis_drop") not in drop_names:
         st.session_state["vinted_analysis_drop"] = active_name if active_name in drop_names else "Tous les drops"
     with drop_col:
-        selected_name = st.selectbox("Drop", drop_names, key="vinted_analysis_drop", label_visibility="collapsed")
+        archived_names = {drop.get("name", "Drop sans nom") for drop in filtered if drop_is_archived(drop)} - {
+            drop.get("name", "Drop sans nom") for drop in filtered if not drop_is_archived(drop)
+        }
+        selected_name = st.selectbox(
+            "Drop",
+            drop_names,
+            key="vinted_analysis_drop",
+            label_visibility="collapsed",
+            format_func=lambda name: f"{name} · archivé" if name in archived_names else name,
+        )
     selected = filtered if selected_name == "Tous les drops" else [drop for drop in filtered if drop.get("name", "Drop sans nom") == selected_name]
     is_single_drop = len(selected) == 1
     with header_col:
@@ -4560,7 +4705,8 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
                 range_label = st.segmented_control("Période", ("24 h", "72 h", "7 j", "Tout"), key="drop_analytics_range", label_visibility="collapsed") or "Tout"
                 hours = {"24 h": 24, "72 h": 72, "7 j": 168, "Tout": None}[range_label]
                 series = _analytics_time_series(selected[0], all_rows, range_hours=hours)
-                _render_analytics_charts(series, mode=chart_mode, key="drop_analytics_main_chart")
+                restock_end = series[-1]["timestamp"] if series else None
+                _render_analytics_charts(series, mode=chart_mode, key="drop_analytics_main_chart", restocks=_analytics_restock_markers(selected[0], end=restock_end))
             else:
                 st.markdown('<section class="ps-analytics-surface ps-analytics-note"><strong>Temporalité par Drop</strong><span>Sélectionnez un Drop précis pour suivre ses événements transaction par transaction.</span></section>', unsafe_allow_html=True)
         if is_single_drop:
@@ -4609,7 +4755,23 @@ def _recognition_listing_cards(listing, available_cards):
     return cards
 
 
+def _recognition_listing_item_ids(listing):
+    """drop_item_id des references reconnues dans une annonce ('' si inconnu)."""
+    ids = []
+    for card in listing.get("cards", []) or []:
+        candidate = card.get("candidate") or {}
+        ids.append(str(candidate.get("drop_item_id") or card.get("drop_item_id") or "").strip())
+    return ids
+
+
 def _recognition_listing_statuses(active_drop, listing):
+    if drop_is_launched(active_drop):
+        # Reassort : un meme card_uid peut exister en ligne ET en reassort. On identifie
+        # donc chaque reference par drop_item_id ("removed" si elle n'est plus dans le drop).
+        ids = _recognition_listing_item_ids(listing)
+        if ids and all(ids):
+            by_id = {str(ref.get("drop_item_id") or ""): drop_item_status(ref) for ref in active_drop.get("cards", []) or []}
+            return [by_id.get(item_id, "removed") for item_id in ids]
     by_uid = {str(ref.get("card_uid") or ""): drop_item_status(ref) for ref in active_drop.get("cards", []) or []}
     return [by_uid.get(str(uid), "needs_review") for uid in listing.get("card_uids", []) or []]
 
@@ -5019,12 +5181,19 @@ def _render_step4_focus_preview(active_drop, available_cards, recognition_payloa
 def _set_recognition_listing_status(drops_data, active_drop, listing, status):
     changed = False
     wanted = {str(uid) for uid in listing.get("card_uids", []) or [] if uid}
+    launched = drop_is_launched(active_drop)
+    wanted_ids = {item_id for item_id in _recognition_listing_item_ids(listing) if item_id} if launched else set()
     for ref in active_drop.get("cards", []) or []:
-        if str(ref.get("card_uid") or "") not in wanted:
+        if wanted_ids:
+            if str(ref.get("drop_item_id") or "") not in wanted_ids:
+                continue
+        elif str(ref.get("card_uid") or "") not in wanted:
             continue
         if drop_item_status(ref) in {"online", "sold"}:
             continue
-        changed = set_drop_card_status(drops_data, active_drop.get("id"), drop_card_key(ref), status) or changed
+        if launched and not (drop_ref_is_unprocessed(ref) or drop_ref_is_restock_draft(ref)):
+            continue  # drop lance : jamais toucher une reference deja publiee / avec annonce
+        changed = set_drop_card_status(drops_data, active_drop.get("id"), drop_ref_key(ref), status) or changed
     return changed
 
 
@@ -5038,13 +5207,23 @@ def _render_recognition_creation_step(
     mobile,
     recognition_payload,
 ):
-    if active_drop.get("drop_launched_at"):
+    launched = drop_is_launched(active_drop)
+    if launched and not drop_has_restock_scope(active_drop):
         return _render_launched_recognition_preview(
             active_drop,
             available_cards,
             recognition_payload,
             run_html_func,
             mobile,
+        )
+    if launched:
+        restock_refs = drop_restock_refs(active_drop)
+        st.info(
+            f"Réassort : {len(restock_refs)} référence(s) ajoutée(s) après le lancement restent à traiter. "
+            "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
+            if restock_refs
+            else "Réassort : toutes les références ajoutées après le lancement ont un brouillon. "
+            "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
         )
 
     if not recognition_payload.get("ready"):
@@ -5062,7 +5241,13 @@ def _render_recognition_creation_step(
     pending = []
     for listing in listings:
         statuses = _recognition_listing_statuses(active_drop, listing)
-        if not statuses or all(status in {"online", "sold"} for status in statuses):
+        if launched:
+            # Drop lance : uniquement des annonces dont TOUTES les references sont encore
+            # a traiter (ou deja en brouillon). Une annonce touchant une reference en ligne,
+            # vendue ou retiree du drop est ecartee.
+            if not statuses or any(status not in (DROP_UNPROCESSED_STATUSES | {"draft_ready"}) for status in statuses):
+                continue
+        elif not statuses or all(status in {"online", "sold"} for status in statuses):
             continue
         workflow.append(listing)
         if statuses and all(status == "draft_ready" for status in statuses):
@@ -5083,7 +5268,16 @@ def _render_recognition_creation_step(
         unsafe_allow_html=True,
     )
     st.progress(pct)
-    _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
+    if launched:
+        represented = {item_id for listing in listings for item_id in _recognition_listing_item_ids(listing) if item_id}
+        without_photo = [ref for ref in restock_refs if str(ref.get("drop_item_id") or "") not in represented]
+        if without_photo:
+            st.caption(
+                f"{len(without_photo)} carte(s) de réassort n'ont pas encore de photo reconnue : "
+                "importe-les dans l'étape « Tri des photos »."
+            )
+    else:
+        _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
     if not workflow:
         st.caption("Aucune annonce reconnue restant à préparer dans ce Drop.")
         return True
@@ -5275,6 +5469,14 @@ def _render_drop_management_actions(drops_data, active_id, active_drop):
             st.success("Drop mis à jour.")
             st.rerun()
     st.divider()
+    if st.button("📦 Archiver le drop", key=f"archive_drop_{active_id}", width="stretch"):
+        if archive_drop(drops_data, active_id):
+            save_vinted_drops(drops_data)
+            st.session_state.pop("vinted_active_drop_id", None)
+            st.session_state.pop("vinted_drop_view", None)
+            st.success("Drop archivé : retrouve-le dans Archivés → Drops.")
+            st.rerun()
+    st.divider()
     confirm = st.checkbox("Confirmer suppression", key=f"confirm_delete_drop_{active_id}")
     if st.button("Supprimer le drop", key=f"delete_drop_{active_id}", disabled=not confirm, width="stretch"):
         if delete_drop(drops_data, active_id):
@@ -5285,12 +5487,25 @@ def _render_drop_management_actions(drops_data, active_id, active_drop):
 
 
 def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_func, fp_func, mobile, step, run_html_func=None, ld_func=None, calc_cout_lot_func=None, effective_purchase_price_func=None):
-    drops = drops_data.get("drops", [])
+    drops = active_drops(drops_data)
     if not drops:
         st.markdown('<div class="ps-vinted-section-title">Créer un Drop</div>', unsafe_allow_html=True)
         with st.container(border=True):
             _render_new_drop_form(drops_data)
-        st.caption("Aucun drop pour le moment.")
+        archived_count = len(drops_data.get("drops", []) or [])
+        if archived_count:
+            st.caption(f"Aucun drop actif. {archived_count} drop(s) archivé(s) : menu Archivés → Drops.")
+        else:
+            st.caption("Aucun drop pour le moment.")
+        if archived_count and step == "Analyse des drops":
+            _render_drop_analytics(
+                drops_data,
+                ld_func() if callable(ld_func) else {},
+                fp_func,
+                calc_cout_lot_func,
+                effective_purchase_price_func,
+                active_drop=None,
+            )
         return
 
     active_id = _active_drop_id(drops_data)
@@ -5305,6 +5520,7 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
             _render_new_drop_form(drops_data)
     active_id = id_by_name[chosen_name]
     st.session_state["vinted_active_drop_id"] = active_id
+    _apply_pending_drop_removals(drops_data)
     active_drop = find_drop(drops_data, active_id)
     if not active_drop:
         return
@@ -5352,7 +5568,12 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
         if _render_drop_drawer_header("add_cards", "Ajouter des cartes au drop", default_open=True):
             _render_drop_add_search(drops_data, active_drop, available_cards, proxy_img_func, fp_func, mobile)
 
-        if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({total_cards})", default_open=True):
+        listed_cards = sum(
+            max(1, int(ref.get("quantity", 1) or 1))
+            for ref in active_drop.get("cards", []) or []
+            if drop_item_status(ref) != "sold"
+        )
+        if _render_drop_drawer_header("drop_cards", f"Cartes du drop ({listed_cards})", default_open=True):
             _render_drop_grid(drops_data, active_drop, source_cards, proxy_img_func, fp_func, mobile)
     elif step == "Tri des photos":
         _render_photo_analysis_step(drops_data, active_drop, mobile)

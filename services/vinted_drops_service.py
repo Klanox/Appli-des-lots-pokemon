@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 
@@ -133,6 +134,8 @@ def create_drop(data, name, channel=""):
         "channel": normalize_vinted_channel(channel),
         "created_at": _now_iso(),
         "drop_launched_at": "",
+        "archived": False,
+        "archived_at": "",
         "cards": [],
     }
     data.setdefault("drops", []).append(drop)
@@ -161,6 +164,38 @@ def update_drop_channel(data, drop_id, channel):
     if not drop:
         return False
     drop["channel"] = normalize_vinted_channel(channel)
+    return True
+
+
+def drop_is_archived(drop):
+    return bool((drop or {}).get("archived"))
+
+
+def active_drops(data):
+    """Drops shown in the working lists (not archived)."""
+    return [drop for drop in (data or {}).get("drops", []) or [] if not drop_is_archived(drop)]
+
+
+def archived_drops(data):
+    return [drop for drop in (data or {}).get("drops", []) or [] if drop_is_archived(drop)]
+
+
+def archive_drop(data, drop_id):
+    """Flag a drop as archived. Cards, statuses and sales links are untouched."""
+    drop = find_drop(data, drop_id)
+    if not drop or drop_is_archived(drop):
+        return False
+    drop["archived"] = True
+    drop["archived_at"] = _now_iso()
+    return True
+
+
+def restore_drop(data, drop_id):
+    drop = find_drop(data, drop_id)
+    if not drop or not drop_is_archived(drop):
+        return False
+    drop["archived"] = False
+    drop["archived_at"] = ""
     return True
 
 
@@ -209,6 +244,94 @@ def drop_card_key(card_ref):
     )
 
 
+_POSITIONAL_UID_RE = re.compile(r"^\d+:\d+$")
+
+
+def drop_card_identity(card_ref):
+    """Stable identity of a card inside a Drop: (card_uid, lot_uid).
+
+    Positional indexes (lot_idx/card_idx), names and numbers change when lots
+    are reordered/archived or cards are renamed, so they must not decide whether
+    a card is already in a Drop. A missing card_uid (or the positional fallback
+    "3:5" built by the UI for cards without uid) returns None: callers then fall
+    back to the legacy drop_card_key for old data.
+    """
+    ref = card_ref or {}
+    card_uid = str(ref.get("card_uid") or "").strip()
+    if not card_uid or _POSITIONAL_UID_RE.match(card_uid):
+        return None
+    return (card_uid, str(ref.get("lot_uid") or "").strip())
+
+
+def drop_card_match_key(card_ref):
+    """Key used to decide that two card refs are the same Drop item."""
+    identity = drop_card_identity(card_ref)
+    if identity is not None:
+        return ("uid",) + identity
+    return ("legacy", drop_card_key(card_ref or {}))
+
+
+def _drop_match_keys(drop):
+    return {drop_card_match_key(ref) for ref in (drop or {}).get("cards", []) or []}
+
+
+def _ref_quantity(ref):
+    try:
+        return max(1, int((ref or {}).get("quantity", 1) or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def drop_matching_refs(drop, card):
+    """All Drop refs that point to the same card line (card_uid, lot_uid)."""
+    key = drop_card_match_key(card)
+    return [ref for ref in (drop or {}).get("cards", []) or [] if drop_card_match_key(ref) == key]
+
+
+def drop_remaining_quantity(drop, card, matches=None):
+    """Copies of a card still available and not reserved by an active Drop ref.
+
+    Returns None when the card carries no stock information (``available_qty``),
+    so callers keep the historical "one ref = already in drop" behaviour.
+    Sold refs do not reserve anything: their copy already left the stock and is
+    already subtracted from ``available_qty``.
+    """
+    if card is None or card.get("available_qty") is None:
+        return None
+    try:
+        available = int(card.get("available_qty"))
+    except (TypeError, ValueError):
+        return None
+    refs = drop_matching_refs(drop, card) if matches is None else matches
+    reserved = sum(_ref_quantity(ref) for ref in refs if drop_item_status(ref) != "sold")
+    return available - reserved
+
+
+def find_drop_ref(drop, item_key):
+    """Return one Drop ref from its drop_item_id.
+
+    Falls back to the legacy card key only for old callers/data; in that case an
+    active (non-sold) ref is preferred so a sold twin is never modified by mistake.
+    """
+    key = str(item_key or "")
+    if not key:
+        return None
+    refs = (drop or {}).get("cards", []) or []
+    for ref in refs:
+        if str(ref.get("drop_item_id") or "") == key:
+            return ref
+    legacy = [ref for ref in refs if drop_card_key(ref) == key]
+    for ref in legacy:
+        if drop_item_status(ref) != "sold":
+            return ref
+    return legacy[0] if legacy else None
+
+
+def drop_ref_key(ref):
+    """Unique key of a Drop ref (drop_item_id, legacy card key if missing)."""
+    return str((ref or {}).get("drop_item_id") or "") or drop_card_key(ref or {})
+
+
 def make_card_ref(card):
     try:
         quantity = int(card.get("drop_quantity", card.get("quantity_to_add", card.get("quantity", 1))) or 1)
@@ -244,24 +367,42 @@ def add_cards_to_drop(data, drop_id, cards):
     if not drop:
         return 0, len(list(cards or []))
     drop.setdefault("cards", [])
-    existing = {drop_card_key(card) for card in drop["cards"]}
     added = 0
     duplicates = 0
     for card in cards or []:
+        matches = drop_matching_refs(drop, card)
+        if matches:
+            # Same card line already in the Drop: only add copies that are still
+            # in stock and not reserved by an active (non-sold) ref.
+            remaining = drop_remaining_quantity(drop, card, matches)
+            if remaining is None or remaining <= 0:
+                duplicates += 1
+                continue
+            card = dict(card)
+            requested = card.get("drop_quantity", card.get("quantity_to_add", card.get("quantity", 1)))
+            try:
+                requested = max(1, int(requested or 1))
+            except (TypeError, ValueError):
+                requested = 1
+            card["drop_quantity"] = min(requested, remaining)
         ref = make_card_ref(card)
-        key = drop_card_key(ref)
-        if key in existing:
-            duplicates += 1
-            continue
+        used_ids = {str(item.get("drop_item_id") or "") for item in drop["cards"]}
+        if ref["drop_item_id"] in used_ids:
+            ref["drop_item_id"] = uuid.uuid4().hex
         drop["cards"].append(ref)
-        existing.add(key)
         added += 1
     return added, duplicates
 
 
 def card_is_in_drop(drop, card):
-    key = drop_card_key(make_card_ref(card))
-    return any(drop_card_key(ref) == key for ref in drop.get("cards", []))
+    """True when no further copy of this card line can be added to the Drop."""
+    matches = drop_matching_refs(drop, card)
+    if not matches:
+        return False
+    remaining = drop_remaining_quantity(drop, card, matches)
+    if remaining is None:
+        return True
+    return remaining <= 0
 
 
 def add_card_to_drop(data, drop_id, card):
@@ -273,9 +414,11 @@ def remove_card_from_drop(data, drop_id, card_key):
     drop = find_drop(data, drop_id)
     if not drop:
         return False
-    before = len(drop.get("cards", []))
-    drop["cards"] = [card for card in drop.get("cards", []) if drop_card_key(card) != card_key]
-    return len(drop["cards"]) != before
+    ref = find_drop_ref(drop, card_key)
+    if ref is None:
+        return False
+    drop["cards"] = [card for card in drop.get("cards", []) if card is not ref]
+    return True
 
 
 def drop_item_status(ref):
@@ -291,6 +434,70 @@ def drop_item_status(ref):
     return "to_prepare"
 
 
+# Statuts "pas encore traites" : une reference dans l'un de ces statuts n'a ni annonce
+# creee (draft_ready), ni annonce en ligne (online), ni vente (sold).
+DROP_UNPROCESSED_STATUSES = frozenset({"to_photograph", "needs_review", "sorted", "to_prepare"})
+
+
+def drop_is_launched(drop):
+    return bool(str((drop or {}).get("drop_launched_at") or "").strip())
+
+
+def drop_ref_is_unprocessed(ref):
+    """Vrai si la reference n'a encore ete ni mise en brouillon, ni publiee, ni vendue.
+
+    Double controle : le statut ET les marqueurs historiques (listing_posted, online_at,
+    sold_at). En cas de contradiction, la reference est consideree comme traitee.
+    """
+    if not isinstance(ref, dict):
+        return False
+    if drop_item_status(ref) not in DROP_UNPROCESSED_STATUSES:
+        return False
+    if ref.get("listing_posted") or ref.get("online_at") or ref.get("sold_at"):
+        return False
+    return True
+
+
+def drop_restock_refs(drop):
+    """References d'un drop DEJA LANCE qui restent a traiter (reassort). Vide si non lance."""
+    if not drop_is_launched(drop):
+        return []
+    return [ref for ref in (drop or {}).get("cards", []) or [] if drop_ref_is_unprocessed(ref)]
+
+
+def drop_has_restock(drop):
+    return bool(drop_restock_refs(drop))
+
+
+def drop_ref_is_restock_draft(ref):
+    """Reference de reassort dont le brouillon est cree mais qui n'est pas encore en ligne."""
+    if not isinstance(ref, dict):
+        return False
+    if drop_item_status(ref) != "draft_ready":
+        return False
+    return not (ref.get("listing_posted") or ref.get("online_at") or ref.get("sold_at"))
+
+
+def drop_restock_scope_refs(drop):
+    """Perimetre du workflow de reassort : references a traiter + brouillons pas encore en ligne.
+
+    Les brouillons restent dans le perimetre pour que l'ensemble des candidats de la
+    reconnaissance reste stable pendant tout le workflow (sinon passer une carte en
+    « brouillon cree » rendrait l'analyse photo perimee). Jamais de online / sold.
+    """
+    if not drop_is_launched(drop):
+        return []
+    return [
+        ref
+        for ref in (drop or {}).get("cards", []) or []
+        if drop_ref_is_unprocessed(ref) or drop_ref_is_restock_draft(ref)
+    ]
+
+
+def drop_has_restock_scope(drop):
+    return bool(drop_restock_scope_refs(drop))
+
+
 def drop_item_status_label(ref_or_status):
     status = ref_or_status if isinstance(ref_or_status, str) else drop_item_status(ref_or_status)
     return DROP_ITEM_STATUSES.get(status, "À préparer")
@@ -303,37 +510,35 @@ def set_drop_card_status(data, drop_id, card_key, status):
     if not drop:
         return False
     now = _now_iso()
-    for ref in drop.get("cards", []):
-        if drop_card_key(ref) != card_key:
-            continue
-        ref["status"] = status
-        if status == "draft_ready":
-            ref["draft_ready_at"] = ref.get("draft_ready_at") or now
-        elif status == "online":
-            ref["online_at"] = ref.get("online_at") or now
-            ref["listing_posted"] = True
-            ref["listing_posted_at"] = ref.get("listing_posted_at") or now
-        elif status == "sold":
-            ref["sold_at"] = ref.get("sold_at") or now
-        return True
-    return False
+    ref = find_drop_ref(drop, card_key)
+    if ref is None:
+        return False
+    ref["status"] = status
+    if status == "draft_ready":
+        ref["draft_ready_at"] = ref.get("draft_ready_at") or now
+    elif status == "online":
+        ref["online_at"] = ref.get("online_at") or now
+        ref["listing_posted"] = True
+        ref["listing_posted_at"] = ref.get("listing_posted_at") or now
+    elif status == "sold":
+        ref["sold_at"] = ref.get("sold_at") or now
+    return True
 
 
 def toggle_drop_card_posted(data, drop_id, card_key, posted=None):
     drop = find_drop(data, drop_id)
     if not drop:
         return False
-    for ref in drop.get("cards", []):
-        if drop_card_key(ref) != card_key:
-            continue
-        new_value = (not bool(ref.get("listing_posted"))) if posted is None else bool(posted)
-        ref["listing_posted"] = new_value
-        ref["listing_posted_at"] = _now_iso() if new_value else ""
-        if new_value:
-            ref["status"] = "online"
-            ref["online_at"] = ref.get("online_at") or ref["listing_posted_at"]
-        return True
-    return False
+    ref = find_drop_ref(drop, card_key)
+    if ref is None:
+        return False
+    new_value = (not bool(ref.get("listing_posted"))) if posted is None else bool(posted)
+    ref["listing_posted"] = new_value
+    ref["listing_posted_at"] = _now_iso() if new_value else ""
+    if new_value:
+        ref["status"] = "online"
+        ref["online_at"] = ref.get("online_at") or ref["listing_posted_at"]
+    return True
 
 
 def launch_drop(data, drop_id, mode="workflow"):
@@ -391,7 +596,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
         if card:
             enriched = dict(card)
             enriched.update(resolve_drop_item_card_identity(ref, card))
-            enriched["_drop_ref_key"] = key
+            enriched["_drop_ref_key"] = drop_ref_key(ref)
             enriched["listing_posted"] = bool(ref.get("listing_posted", False))
             enriched["listing_posted_at"] = ref.get("listing_posted_at", "")
             enriched["drop_item_id"] = ref.get("drop_item_id", "")
@@ -412,7 +617,7 @@ def resolve_drop_cards_from_data(drop, available_cards):
             ref["status"] = drop_item_status(ref)
             ref["status_label"] = drop_item_status_label(ref)
             ref["identity_fingerprint"] = ref.get("identity_fingerprint") or card_identity_fingerprint(ref)
-            ref["_drop_ref_key"] = key
+            ref["_drop_ref_key"] = drop_ref_key(ref)
             ref["_drop_available"] = False
             missing.append(ref)
     return resolved, missing
@@ -470,11 +675,19 @@ def link_sale_entry_to_drop(data, sale_entry, canal):
         if matches:
             launched = [item for item in matches if item[0].get("drop_launched_at")]
             pool = launched or matches
-            chosen_drop, chosen_ref = sorted(pool, key=lambda item: _drop_sort_key(item[0]), reverse=True)[0]
+            # A card line can have several refs (one per added copy): link the
+            # sale to a ref that is not sold yet, online ones first.
+            def _sale_link_rank(item):
+                status = drop_item_status(item[1])
+                return (status == "sold", status != "online")
+            chosen_drop, chosen_ref = sorted(
+                sorted(pool, key=lambda item: _drop_sort_key(item[0]), reverse=True),
+                key=_sale_link_rank,
+            )[0]
 
     method = "card_match"
     if chosen_drop is None:
-        launched = [drop for drop in drops if drop.get("drop_launched_at")]
+        launched = [drop for drop in drops if drop.get("drop_launched_at") and not drop_is_archived(drop)]
         if not launched:
             return False
         chosen_drop = sorted(launched, key=_drop_sort_key, reverse=True)[0]

@@ -1,80 +1,92 @@
 {
   "files": {
     "data": {
-      "fingerprint": "bf38e155995848ed76b8ba38c92d4d39036fe99852e2c815b59702f317d25a2f",
+      "fingerprint": "a4e739db42a1e675c27ed6d3e9c35157ed99c50507280c0f9fe9bc882bc1dde7",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-09-08T15:10:39.439721+00:00",
-      "last_save_at": "2026-09-06T19:28:15.950036+00:00",
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "last_read_at": "2026-10-12T12:22:41.172222+00:00",
+      "last_save_at": "2026-10-12T11:50:23.830215+00:00",
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "push_pending": false
     },
     "lot_estimations": {
-      "fingerprint": "c87b5cb763934457802a5ee1d7aaa065a0dccbb81452240be951c57bf28542bc",
+      "fingerprint": "bbab9cbc4ccf8f06674b9d92050bdc5e05ee0270a5d29ef21fa7d4e4547228f3",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-09-08T15:10:39.459426+00:00",
-      "last_save_at": "2026-07-11T13:04:56.149798+00:00",
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "last_read_at": "2026-10-12T12:22:41.205642+00:00",
+      "last_save_at": "2026-10-12T12:15:12.035533+00:00",
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "push_pending": false
     },
     "estimation_market_price_cache": {
       "fingerprint": "da8db8c21a19cfbed7e0b38034acbb03f1511d236c3f711a131c4654413375cb",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-09-08T15:10:39.505249+00:00",
+      "last_read_at": "2026-10-12T12:22:41.288321+00:00",
       "last_save_at": "2026-07-04T19:10:17.519766+00:00",
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "push_pending": false
     },
     "monthly_goals": {
-      "fingerprint": "cf8e229f1ce5220a2b22a9f9fbf6b081444a0f2aa837f0b8c279d07e0daeb9ab",
+      "fingerprint": "3c17b2ac00d6a293235f93fb4e0c10150b30a1922f7a6e762ae77b755ff92269",
       "source": "cloud",
       "local_dirty": false,
       "last_save_at": "2026-09-02T11:23:59.302655+00:00",
-      "last_read_at": "2026-09-08T15:10:39.474455+00:00",
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "last_read_at": "2026-10-12T12:22:41.223884+00:00",
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "push_pending": false
     },
     "activity_state": {
-      "fingerprint": "e43ac73ddf01a232def4f9f1f979349c1e2eae578cca3a770d5b55bcd0e81069",
+      "fingerprint": "28b38abaf05704b5ef17b7ba1d6a6d21ab30f490c7b39f6ec6300f95add43c0f",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-09-08T15:10:39.470201+00:00",
-      "last_save_at": "2026-09-04T21:07:03.055862+00:00",
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
+      "last_read_at": "2026-10-12T12:22:41.219055+00:00",
+      "last_save_at": "2026-10-12T11:50:23.837899+00:00",
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "push_pending": false
     },
     "lots_archives": {
-      "fingerprint": "e3ae78263ad7e3753db008e272b8076c61d7da660383abaf9683bf0e08c0e9ee",
+      "fingerprint": "2899445fe7e5659095c2c5f979a18f75f76522f33ea3f914ae14567965f541a1",
       "source": "cloud",
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
-      "last_save_at": "2026-08-15T18:23:22.434066+00:00",
-      "last_read_at": "2026-09-08T15:10:39.465777+00:00"
+      "last_save_at": "2026-09-19T18:29:10.606490+00:00",
+      "last_read_at": "2026-10-12T12:22:41.212951+00:00",
+      "push_pending": false
     },
     "counters": {
-      "fingerprint": "c5454fdcb086a679ffa0d96076d994b88f6b45f743e0db3ec403c8144d7355f0",
-      "source": "local_restored_safe_start",
-      "local_dirty": true,
-      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00"
-    },
-    "vinted_drops": {
-      "fingerprint": "cd55bc1ea47e5407693d8da6ba8ff8d41eadd503de8629a00bdbebdfdbc15c88",
+      "fingerprint": "740acedaf19ea5d5ee7c188ae2a98783318ded764c38f9e12498092fe162eda8",
       "source": "cloud",
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
-      "last_save_at": "2026-09-04T21:07:02.192706+00:00",
-      "last_read_at": "2026-09-08T15:10:39.484978+00:00"
+      "last_save_at": "2026-09-21T18:50:33.527417+00:00",
+      "last_read_at": "2026-10-12T12:22:41.230702+00:00",
+      "push_pending": false
+    },
+    "vinted_drops": {
+      "fingerprint": "5aa71002d86cf536c5730400088c00c8ffc3f73f267b2c4959d654009192df19",
+      "source": "cloud",
+      "local_dirty": false,
+      "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
+      "last_save_at": "2026-10-12T12:05:56.426859+00:00",
+      "last_read_at": "2026-10-12T12:22:41.252431+00:00",
+      "push_pending": false
     },
     "custom_card_images": {
-      "fingerprint": "d0c3fa79d470a316fad11c0de45044b01e9fb525f217e17f904d2685034381a1",
+      "fingerprint": "8e25f43d75c300f90ee94740deec760c70f3e393245ad6f87b6877384acddca2",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-09-06T19:28:15.178556+00:00",
-      "last_read_at": "2026-09-08T15:10:39.515924+00:00"
+      "last_save_at": "2026-10-07T16:01:11.736345+00:00",
+      "last_read_at": "2026-10-12T12:22:41.300840+00:00",
+      "push_pending": false
     },
     "brocantes": {
-      "fingerprint": "f2fe240fd2204dce54356b4ecbe35e210fabad2c8c61ec229fe3856d977dd62b",
+      "fingerprint": "933ddb7eafb0db7ec960a857b86ebcccd299acc392c33befdb8e20b6aa06e85d",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-09-08T14:14:53.103065+00:00",
-      "last_read_at": "2026-09-08T15:10:39.491484+00:00"
+      "last_save_at": "2026-10-06T10:31:03.336823+00:00",
+      "last_read_at": "2026-10-12T12:22:41.266355+00:00",
+      "push_pending": false
     }
   }
 }

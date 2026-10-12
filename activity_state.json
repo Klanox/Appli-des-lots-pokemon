@@ -1,5 +1,36 @@
 {
   "bulk_cart": [],
   "swap_cart_give": [],
-  "swap_cart_receive": []
+  "swap_cart_receive": [
+    {
+      "name": "Dracaufeu",
+      "set": "",
+      "number": "199",
+      "value": 0.0,
+      "quantity": 1,
+      "image_url": "",
+      "image_url_en": "",
+      "image_url_ja": "",
+      "rarity": "",
+      "lang": "fr",
+      "card_id": "",
+      "set_id": "",
+      "is_collection_keep": false
+    },
+    {
+      "name": "Celebi",
+      "set": "",
+      "number": "93",
+      "value": 0.0,
+      "quantity": 1,
+      "image_url": "",
+      "image_url_en": "",
+      "image_url_ja": "",
+      "rarity": "",
+      "lang": "fr",
+      "card_id": "",
+      "set_id": "",
+      "is_collection_keep": false
+    }
+  ]
 }

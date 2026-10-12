@@ -696,38 +696,6 @@ def _comparison_rows(suppliers):
     rows = []
     for supplier in suppliers:
         score = pokestock_score(supplier, suppliers)
-        rows.append({
-            "Fournisseur": supplier.get("nom") or "Sans nom",
-            "Prix / carte EUR": supplier.get("prix_unitaire_eur"),
-            "Score PokéStock": score.get("score"),
-            "Couverture": score.get("coverage"),
-            "Risque": supplier.get("risk_level", "unknown"),
-            "Confiance": supplier.get("confiance_note"),
-            "Potentiel négo": supplier.get("potentiel_negociation_note"),
-            "Badges": " ".join((supplier.get("best_for_tags") or [])[:2]),
-            "Action recommandée": supplier.get("action_recommandee") or "",
-            "Pays": supplier.get("pays") or "",
-            "Type": supplier.get("type") or "",
-            "Statut": supplier.get("statut") or "",
-            "Prix 100": supplier.get("prix_100"),
-            "Prix 200": supplier.get("prix_200"),
-            "Devise": supplier.get("devise") or "",
-            "Port": supplier.get("port"),
-            "PayPal G&S": supplier.get("paypal_gs"),
-            "Tracking": supplier.get("tracking"),
-            "Photos / vidéo": supplier.get("photos_video"),
-            "Best For": supplier.get("best_for") or "",
-            "Position marché": supplier.get("market_position") or "",
-            "Première commande": supplier.get("recommended_first_order") or "",
-            "Dernière mise à jour": supplier.get("review_last_updated") or "",
-        })
-    return rows
-
-
-def _comparison_rows(suppliers):
-    rows = []
-    for supplier in suppliers:
-        score = pokestock_score(supplier, suppliers)
         priority = _priority_score(supplier)
         rows.append({
             "Fournisseur": supplier.get("nom") or "Sans nom",
@@ -1018,10 +986,10 @@ def _supplier_form(prefix, supplier=None, submit_label="Enregistrer"):
             "risk_level": risk_level,
             "recommended_first_order": recommended_first_order.strip(),
             "recommended_first_order_quantity": _parse_first_order_quantity(recommended_first_order),
-            "follow_status": follow_status,
-            "follow_up_date": follow_up_date.strip(),
-            "follow_up_note": follow_up_note.strip(),
-            "preferred_offer_variant": preferred_offer_variant.strip(),
+            "follow_status": supplier.get("follow_status") or "",
+            "follow_up_date": str(supplier.get("follow_up_date") or "").strip(),
+            "follow_up_note": str(supplier.get("follow_up_note") or "").strip(),
+            "preferred_offer_variant": str(supplier.get("preferred_offer_variant") or "").strip(),
             "review_last_updated": parsed_review_date or supplier.get("review_last_updated") or "",
             "notes": notes.strip(),
             "statut": statut,

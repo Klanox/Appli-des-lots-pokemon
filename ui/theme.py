@@ -14,19 +14,16 @@ NAV_SECTIONS = (
         "items": (
             ("Accueil", "Accueil", "🏠"),
             ("Vente", "Vente / Échange", "💰"),
-            ("Brocante", "Brocante", "🧺"),
+            ("Lots", "Lots", "📦"),
         ),
     },
     {
         "label": "Gestion",
         "items": (
-            ("Lots", "Lots", "📦"),
+            ("Brocante", "Brocante", "🧺"),
             ("Collection", "Collection", "🧾"),
-            ("Estimations", "Estimations", "📉"),
-            ("Fournisseurs", "Fournisseurs", "🤝"),
             ("Annonces individuelles", "Annonces individuelles", "📝"),
             ("Annonces Vinted", "Drop Vinted", "🛍️"),
-            ("Archivés", "Archivés", "🗄️"),
         ),
     },
     {
@@ -37,6 +34,10 @@ NAV_SECTIONS = (
             ("Marché", "Marché", "📈"),
             ("Wrapped", "Wrapped", "🎁"),
             ("Compteurs", "Compteurs", "🎰"),
+            ("Estimations", "Estimations", "📉"),
+            ("Fournisseurs", "Fournisseurs", "🤝"),
+            ("Archivés", "Archivés", "🗄️"),
+            ("Data Health", "Data Health", "🩺"),
         ),
     },
     {

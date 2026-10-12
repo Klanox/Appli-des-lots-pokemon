@@ -1,7 +1,8 @@
-"""Archived lots page renderer for Pokestock.
+"""Archived lots and drops page renderer for Pokestock.
 
-This module contains the existing Streamlit UI rendering for the Archivés page.
-It preserves the same restore behavior and archive file format.
+The Lots tab keeps the existing archive behaviour and file format
+(lots_archives.json). The Drops tab lists the drops flagged ``archived`` in
+vinted_drops.json and can restore them (``archived=False``).
 """
 
 import json
@@ -9,24 +10,26 @@ import os
 
 import streamlit as st
 
+from services.vinted_drops_service import (
+    archived_drops,
+    drop_item_status,
+    load_vinted_drops,
+    restore_drop,
+    save_vinted_drops,
+)
 
-def render_archives_page(
+
+def _render_archived_lots(
     *,
     ld_func,
     sd_func,
     safe_write_json_func,
-    render_page_header_func,
     cr_func,
     cp_func,
     crp_func,
     fp_func,
     archive_file_path="lots_archives.json",
 ):
-    st.markdown(
-        render_page_header_func("Lots archivés", "Lots clôturés et données historiques", "🗄️"),
-        unsafe_allow_html=True,
-    )
-    
     archive_file=archive_file_path
     if os.path.exists(archive_file):
         with open(archive_file,"r",encoding="utf-8")as f:
@@ -59,3 +62,83 @@ def render_archives_page(
             st.info("Aucun lot archivé")
     else:
         st.info("Aucun lot archivé")
+
+
+def _drop_revenue(drop, stock_data):
+    """Drop revenue computed like the Drop analytics, or None if unavailable."""
+    try:
+        from ui.pages.vinted_listings import _sale_rows_for_drop, _sales_scope_metrics
+
+        rows = _sale_rows_for_drop(stock_data, drop.get("id"))
+        if not rows:
+            return None
+        return float(_sales_scope_metrics(rows).get("ca_total", 0) or 0)
+    except Exception:
+        return None
+
+
+def _render_archived_drops(*, ld_func, fp_func):
+    drops_data = load_vinted_drops()
+    archived = archived_drops(drops_data)
+    if not archived:
+        st.info("Aucun drop archivé")
+        return
+    st.info(f"🛍️ {len(archived)} drop(s) archivé(s)")
+    try:
+        stock_data = ld_func()
+    except Exception:
+        stock_data = {}
+    for drop in sorted(archived, key=lambda item: str(item.get("archived_at") or ""), reverse=True):
+        drop_id = str(drop.get("id") or "")
+        refs = drop.get("cards", []) or []
+        total_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in refs)
+        sold_cards = sum(max(1, int(ref.get("quantity", 1) or 1)) for ref in refs if drop_item_status(ref) == "sold")
+        revenue = _drop_revenue(drop, stock_data)
+        archived_on = str(drop.get("archived_at") or "N/A")[:10]
+        with st.expander(f"{drop.get('name', 'Drop sans nom')} - Archivé le {archived_on}"):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Cartes", total_cards)
+            c2.metric("Vendues", sold_cards)
+            c3.metric("CA", fp_func(revenue) if revenue is not None else "N/A")
+            c4.metric("Canal", drop.get("channel") or "N/A")
+            launched = str(drop.get("drop_launched_at") or "")[:10]
+            st.caption(f"Lancé le {launched}" if launched else "Drop non lancé")
+            if st.button("Restaurer", key=f"restore_drop_{drop_id}", type="primary"):
+                fresh = load_vinted_drops()
+                if restore_drop(fresh, drop_id):
+                    save_vinted_drops(fresh)
+                    st.session_state.pop("vinted_drop_view", None)
+                    st.success("✅ Drop restauré !")
+                    st.rerun()
+
+
+def render_archives_page(
+    *,
+    ld_func,
+    sd_func,
+    safe_write_json_func,
+    render_page_header_func,
+    cr_func,
+    cp_func,
+    crp_func,
+    fp_func,
+    archive_file_path="lots_archives.json",
+):
+    st.markdown(
+        render_page_header_func("Archivés", "Lots et drops clôturés, données historiques", "🗄️"),
+        unsafe_allow_html=True,
+    )
+    lots_tab, drops_tab = st.tabs(["📦 Lots", "🛍️ Drops"])
+    with lots_tab:
+        _render_archived_lots(
+            ld_func=ld_func,
+            sd_func=sd_func,
+            safe_write_json_func=safe_write_json_func,
+            cr_func=cr_func,
+            cp_func=cp_func,
+            crp_func=crp_func,
+            fp_func=fp_func,
+            archive_file_path=archive_file_path,
+        )
+    with drops_tab:
+        _render_archived_drops(ld_func=ld_func, fp_func=fp_func)

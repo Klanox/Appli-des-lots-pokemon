@@ -117,6 +117,8 @@ from core.sales_actions import (
 )
 from services.custom_card_image_service import apply_custom_image_fallback
 from services.vinted_channels import SALE_CHANNELS
+from services.vinted_drops_service import load_vinted_drops, save_vinted_drops
+from services.brocante_data import load_brocantes
 
 from ui.components import (
     KPI_ACCENTS,
@@ -146,6 +148,7 @@ from ui.pages.estimations import render_estimations_page
 from ui.pages.fournisseurs import render_fournisseurs_page
 from ui.pages.history import render_history_page
 from ui.pages.archives import render_archives_page
+from ui.pages.data_health import clear_focus_if_left, render_data_health_focus, render_data_health_page
 from ui.pages.collection import render_collection_page
 from ui.pages.lots import render_lots_page
 from ui.pages.sales import render_sales_page
@@ -211,6 +214,59 @@ except ImportError as e:
             "error": CLOUD_BACKGROUND_PULL_IMPORT_ERROR,
             "changed": [],
         }
+
+try:
+    from services.cloud_sync_service import (
+        apply_finished_cloud_pushes,
+        cloud_push_status,
+        flush_pending_cloud_pushes,
+    )
+except ImportError:
+    def apply_finished_cloud_pushes():
+        return []
+
+    def flush_pending_cloud_pushes(*, retry_after_seconds=0.0):
+        return []
+
+    def cloud_push_status():
+        return {"enabled": False, "state": "idle", "sending": [], "pending": [], "error": ""}
+
+
+def _cloud_push_indicator_body():
+    """Etat de l'envoi cloud en arriere-plan : en cours -> synchronise (ou echec visible)."""
+    try:
+        apply_finished_cloud_pushes()
+        flush_pending_cloud_pushes(retry_after_seconds=30.0)
+        info = cloud_push_status()
+    except Exception as e:
+        st.caption(f"☁️ État d'envoi cloud indisponible : {e}")
+        return
+    if not info.get("enabled"):
+        return
+    state = info.get("state")
+    if state == "sending":
+        names = ", ".join(SYNCED_DATASETS[k].label for k in info.get("sending") or info.get("pending") or [] if k in SYNCED_DATASETS)
+        st.caption("☁️ Envoi cloud en cours…" + (f" ({names})" if names else ""))
+    elif state == "error":
+        st.warning(
+            "☁️ Échec de l'envoi cloud : " + str(info.get("error") or "erreur inconnue")
+            + " — tes données sont conservées sur ce PC, nouvel essai automatique toutes les 30 s."
+        )
+    else:
+        st.caption("☁️ Synchronisé")
+
+
+def render_cloud_push_indicator():
+    try:
+        state = cloud_push_status().get("state")
+    except Exception:
+        state = "idle"
+    try:
+        # Rafraichit seulement ce petit bloc tant qu'un envoi est en cours / en echec.
+        st.fragment(run_every=2 if state in ("sending", "error") else None)(_cloud_push_indicator_body)()
+    except Exception:
+        _cloud_push_indicator_body()
+
 
 RERUN_PROFILE_ENV_VAR = "POKESTOCK_RERUN_PROFILE"
 
@@ -1328,10 +1384,18 @@ def ecd(c, s, lang="fr"):
 
 def set_current_page(page, source=""):
     st.session_state.current_page = page
+    clear_focus_if_left(page)  # le rappel Data Health ne suit pas l'utilisateur sur une autre page
     st.session_state["scroll_top_once"] = True
     if page == "Vente":
         st.session_state["sales_active_section"] = "Vente"
         st.session_state["sale_scroll_top_pending"] = True
+    if page != "Lots":
+        st.session_state.pop("active_lot_ix", None)
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("lot_expanded_"):
+                st.session_state.pop(key, None)
+    if page != "Historique":
+        st.session_state["history_visible_count"] = 40
 
 def navigate_to_native_page(page):
     set_current_page(page, source="shortcut")
@@ -1351,15 +1415,6 @@ def render_with_perf(label, render_func, *args, **kwargs):
             flush=True,
         )
         raise
-    if page == "Vente":
-        st.session_state["sale_scroll_top_pending"] = True
-    if page != "Lots":
-        st.session_state.pop("active_lot_ix", None)
-        for key in list(st.session_state.keys()):
-            if str(key).startswith("lot_expanded_"):
-                st.session_state.pop(key, None)
-    if page != "Historique":
-        st.session_state["history_visible_count"] = 40
 
 def accepted_renderer_kwargs(render_func, kwargs):
     try:
@@ -1542,6 +1597,35 @@ def _show_hot_reload_toast_once():
 
 _show_hot_reload_toast_once()
 
+
+def _dismiss_data_merge_notice():
+    st.session_state.pop("data_merge_notice", None)
+
+
+def _show_data_merge_notice():
+    """Signale qu'une autre session (PC/téléphone/onglet) avait modifié data.json avant la sauvegarde."""
+    notice = st.session_state.get("data_merge_notice")
+    if not notice:
+        return
+    if not notice.get("n_conflicts"):
+        st.session_state.pop("data_merge_notice", None)
+        st.toast("🔀 Une autre session avait modifié des données : ses changements ont été conservés et fusionnés avec les tiens.")
+        return
+    with st.container(border=True):
+        st.warning(
+            "⚠️ Une autre session (autre onglet ou appareil) avait modifié les mêmes données que toi. "
+            "Ta modification a été conservée ; la valeur de l'autre session a été remplacée pour :"
+        )
+        for conflict in notice.get("conflicts") or []:
+            st.caption(f"• {conflict.get('path')} — autre session : {conflict.get('theirs')} → toi : {conflict.get('mine')}")
+        extra = int(notice.get("n_conflicts") or 0) - len(notice.get("conflicts") or [])
+        if extra > 0:
+            st.caption(f"… et {extra} autre(s).")
+        st.button("J'ai compris", key="data_merge_notice_ok", on_click=_dismiss_data_merge_notice)
+
+
+_show_data_merge_notice()
+
 try:
     query_mobile = str(st.query_params.get("mobile", "")).lower() in ("1", "true", "yes", "oui")
 except Exception:
@@ -1634,6 +1718,13 @@ with rerun_phase("cards_cache"):
             load_cards_cache(allow_network=False)
 
 with rerun_phase("cloud_initial_or_apply"):
+    try:
+        # Resultats d'envois d'arriere-plan + reprise des envois interrompus (demarrage)
+        # AVANT toute lecture cloud, qui ignore les jeux encore marques "a envoyer".
+        apply_finished_cloud_pushes()
+        flush_pending_cloud_pushes(retry_after_seconds=0.0 if "full_cloud_pull_checked" not in st.session_state else 30.0)
+    except Exception as e:
+        st.session_state["cloud_push_error"] = str(e)
     if "full_cloud_pull_checked" not in st.session_state:
         st.session_state["full_cloud_pull_checked"] = True
         try:
@@ -2071,6 +2162,8 @@ with rerun_phase("navigation_resolution"):
             "pokestock-wrapped": "Wrapped",
             "compteurs": "Compteurs",
             "archives": "Archivés",
+            "data-health": "Data Health",
+            "datahealth": "Data Health",
         }
         st.session_state.current_page = page_map.get(query_page, "Vente" if is_mobile_mode() else "Accueil")
         if st.session_state.current_page == "Vente" and query_page in ("echange", "échange"):
@@ -2092,6 +2185,7 @@ NATIVE_NAV_URL_PATHS = {
     "Marché": "marche",
     "Wrapped": "wrapped",
     "Compteurs": "compteurs",
+    "Data Health": "data-health",
 }
 NATIVE_NAV_PAGE_OBJECTS = {}
 
@@ -2191,6 +2285,7 @@ if not wrapped_story_active:
             )
             with st.container(key="ps_sidebar_bottom_block"):
                 st.markdown("---")
+                render_cloud_push_indicator()
                 with st.expander("⚙️ Paramètres", expanded=False):
                     st.toggle("📱 Mode mobile", key="mobile_mode", help="Affichage compact pour vendre depuis le téléphone.")
                     st.toggle(
@@ -2213,6 +2308,8 @@ if not wrapped_story_active:
                             f"{status_summary.get('synced', 0)}/{status_summary.get('total', len(SYNCED_DATASETS))}"
                         )
                         st.caption(f"Dernière lecture cloud : {last_read} · dernière écriture cloud : {last_save}")
+                        if status_summary.get("sending"):
+                            st.caption(f"Envoi en cours : {', '.join(status_summary.get('sending')[:4])}")
                         if unsynced:
                             st.caption(f"Attention : {len(unsynced)} jeu(x) de données local(aux) attendent une synchro.")
                             st.caption("Non synchronisé : " + ", ".join(unsynced[:4]) + ("..." if len(unsynced) > 4 else ""))
@@ -2320,6 +2417,10 @@ if st.session_state.get("current_page") != "Vente":
     </script>
     """, height=0)
 
+
+# Rappel Data Health : affiche sur la page cible l'element a verifier (carte / lot / Drop).
+if st.session_state.current_page != "Data Health":
+    render_data_health_focus(st.session_state.current_page)
 
 # ============================================================
 # PAGE ACCUEIL
@@ -2580,6 +2681,25 @@ elif st.session_state.current_page == "Wrapped":
         set_current_page_func=set_current_page,
     )
 
+
+# ============================================================
+# PAGE DATA HEALTH
+# ============================================================
+elif st.session_state.current_page == "Data Health":
+    render_with_perf(
+        "page Data Health",
+        render_data_health_page,
+        ld_func=ld,
+        sd_func=sd,
+        render_page_header_func=render_page_header,
+        navigate_func=navigate_to_native_page,
+        load_drops_func=load_vinted_drops,
+        save_drops_func=save_vinted_drops,
+        load_brocantes_func=load_brocantes,
+        data_path=os.path.join(APP_DIR, "data.json"),
+        drops_path=os.path.join(APP_DIR, "vinted_drops.json"),
+        archives_path=os.path.join(APP_DIR, "lots_archives.json"),
+    )
 
 # ============================================================
 # PAGE COMPTEURS

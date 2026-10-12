@@ -409,10 +409,16 @@ def _cancel_panel_key(sale_id):
     return f"history_cancel_{safe}"
 
 
-def _render_cancel_sale_action(item, *, ld_func, sd_func):
+def _render_cancel_sale_action(item, *, ld_func, sd_func, rendered_sale_ids=None):
     sale_id = str(item.get("sale_id") or "").strip()
     if not sale_id:
         return
+    # Une vente multi-cartes produit plusieurs lignes avec le même sale_id :
+    # un seul bouton/panneau par vente, sinon Streamlit lève DuplicateElementKey.
+    if rendered_sale_ids is not None:
+        if sale_id in rendered_sale_ids:
+            return
+        rendered_sale_ids.add(sale_id)
     key = _cancel_panel_key(sale_id)
     if st.button("Annuler la vente", key=f"cancel_sale_open_{key}", type="secondary"):
         st.session_state["history_cancel_sale_id"] = sale_id
@@ -653,6 +659,7 @@ def render_history_page(
         st.markdown("---")
     
         # ── Lignes de l'historique ──
+        cancel_sale_rendered = set()
         for h in visible_history:
             if h.get("type") == "exchange":
                 trade = h.get("exchange", {}) or {}
@@ -778,7 +785,7 @@ def render_history_page(
                 </div>
                 """, unsafe_allow_html=True)
                 if _sale_can_be_cancelled(h):
-                    _render_cancel_sale_action(h, ld_func=ld_func, sd_func=sd_func)
+                    _render_cancel_sale_action(h, ld_func=ld_func, sd_func=sd_func, rendered_sale_ids=cancel_sale_rendered)
     
             st.markdown('<hr style="margin:0.4rem 0;border:none;border-top:1px solid #f1f5f9;">', unsafe_allow_html=True)
     

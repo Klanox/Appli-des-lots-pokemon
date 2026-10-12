@@ -19,7 +19,17 @@ from cloud import (
     update_cloud_sync_state,
     utc_now_iso,
 )
-from services.cloud_sync_service import SYNCED_DATASETS, pull_dataset_from_cloud, save_synced_dataset
+from services.cloud_sync_service import (
+    DATA_WRITE_LOCK,
+    SYNCED_DATASETS,
+    cloud_read_may_be_stale,
+    data_file_signature,
+    is_cloud_push_pending,
+    pull_dataset_from_cloud,
+    remember_data_base,
+    save_synced_dataset,
+)
+from services.data_merge_service import merge3
 from services.perf_service import perf_count, perf_log
 
 # Constants
@@ -105,6 +115,7 @@ def ld():
             perf_log("ld()", time.perf_counter() - perf_start, "cache/after_empty_guard")
             return cached
 
+    cloud_read_started = time.time()
     cloud_data = load_cloud_json(SUPABASE_DATA_KEY) if cloud_sync_enabled() else None
     cloud_valid = _valid_data_snapshot(cloud_data)
     cloud_lots_count = len(cloud_data.get("lots", [])) if cloud_valid else 0
@@ -114,7 +125,26 @@ def ld():
         cloud_hash = json_fingerprint(cloud_data)
         sync_entry = cloud_sync_entry(SUPABASE_DATA_KEY)
         local_dirty = bool(sync_entry.get("local_dirty"))
-        if local_dirty and local_hash and local_hash != cloud_hash:
+        push_pending = (
+            bool(sync_entry.get("push_pending"))
+            or is_cloud_push_pending(SUPABASE_DATA_KEY)
+            # lecture commencee avant la fin d'un envoi / une modif locale : peut etre perimee
+            or cloud_read_may_be_stale(SUPABASE_DATA_KEY, cloud_read_started)
+        )
+        if push_pending and local_hash and local_hash != cloud_hash:
+            # Envoi cloud en arriere-plan interrompu ou en cours : le local est la reference,
+            # il sera (re)envoye par flush_pending_cloud_pushes. Ce n'est pas un conflit.
+            d = local_data
+            perf_source = "local/push_pending"
+            st.session_state.pop("cloud_sync_conflict", None)
+            _set_cloud_status(
+                source="local",
+                status="cloud_pending",
+                message="Modifications locales en cours d'envoi vers le cloud.",
+                cloud_data=cloud_data,
+                local_data=local_data,
+            )
+        elif local_dirty and local_hash and local_hash != cloud_hash:
             d = local_data
             perf_source = "local/cloud_conflict"
             st.session_state["cloud_sync_conflict"] = {
@@ -174,6 +204,9 @@ def ld():
         perf_source = "empty"
         _set_cloud_status(source="empty", status="empty", message="Aucune donnée locale ou cloud disponible.")
 
+    # Version du fichier vue par cette session (avant les corrections automatiques ci-dessous) :
+    # sert a detecter, au moment de sd(), qu'une autre session a ecrit entre-temps.
+    remember_data_base(d)
     data_changed = False
     if ensure_card_ids(d):
         data_changed = True
@@ -192,8 +225,8 @@ def ld():
     return d
 
 
-def sd(d):
-    """Save data with cloud sync support."""
+def _sd_write(d):
+    """Ecrit data.json (+ envoi cloud). Appele par sd() sous verrou, apres reconciliation."""
     if not isinstance(d, dict) or not isinstance(d.get("lots"), list):
         raise ValueError("Refus de sauvegarde : donnees invalides, cle 'lots' manquante.")
     if os.path.exists(DATA):
@@ -213,6 +246,9 @@ def sd(d):
         st.session_state["data_cloud_loaded_at"] = time.time()
         st.session_state["cloud_sync_notice"] = "Données locales sauvegardées et cloud mis à jour."
         _set_cloud_status(source="local", status="saved_to_cloud", message="Sauvegarde locale et cloud OK.", local_data=d, cloud_data=d)
+    elif sync_result.get("queued"):
+        st.session_state["cloud_sync_notice"] = "Sauvegarde locale OK · envoi cloud en cours."
+        _set_cloud_status(source="local", status="cloud_pending", message="Sauvegarde locale OK, envoi cloud en cours.", local_data=d)
     else:
         st.session_state["cloud_sync_notice"] = (
             "Sauvegarde locale OK, mais la synchro cloud a échoué ou est désactivée. "
@@ -222,6 +258,63 @@ def sd(d):
     # Mettre à jour le cache et marquer comme propre
     st.session_state["data_cache"] = d
     st.session_state["data_dirty"] = False
+
+
+def _reconcile_with_other_sessions(d):
+    """Evite d'ecraser la modification d'une autre session (PC + telephone, 2 onglets...).
+
+    Chaque session garde sa copie en memoire ; si data.json a change depuis que CETTE session
+    l'a lu/ecrit pour la derniere fois, on fusionne a 3 voies (base = ce que la session avait vu,
+    mine = sa copie modifiee, theirs = le fichier actuel) au lieu de reecrire sa copie perimee.
+    La copie `d` est mise a jour sur place. Un conflit reel (meme valeur modifiee des deux cotes)
+    garde la valeur de la sauvegarde en cours et est signale a l'utilisateur.
+    """
+    base_json = st.session_state.get("data_base_json")
+    if not base_json or not _valid_data_snapshot(d):
+        return
+    current_sig = data_file_signature()
+    if current_sig == st.session_state.get("data_base_stat"):
+        return  # fichier inchange depuis la derniere lecture/ecriture de cette session
+    try:
+        disk = _read_local_data_file()
+    except Exception:
+        return
+    if not _valid_data_snapshot(disk):
+        return
+    disk_fp = json_fingerprint(disk)
+    try:
+        base = json.loads(base_json)
+    except Exception:
+        return
+    if disk_fp == json_fingerprint(base):
+        st.session_state["data_base_stat"] = current_sig  # simple changement d'horodatage
+        return
+    if disk_fp == json_fingerprint(d):
+        return  # le fichier contient deja exactement notre version
+    merged, conflicts = merge3(base, d, disk)
+    if not _valid_data_snapshot(merged):
+        return
+    d.clear()
+    d.update(merged)
+    st.session_state["data_merge_notice"] = {
+        "conflicts": conflicts[:8],
+        "n_conflicts": len(conflicts),
+        "at": utc_now_iso(),
+    }
+    print(
+        f"[Cloud Sync] data.json modifie par une autre session : fusion a 3 voies "
+        f"conflits={len(conflicts)} {conflicts[:3]}",
+        flush=True,
+    )
+
+
+def sd(d):
+    """Save data with cloud sync support (protege contre l'ecrasement entre sessions)."""
+    with DATA_WRITE_LOCK:
+        if isinstance(d, dict) and isinstance(d.get("lots"), list):
+            _reconcile_with_other_sessions(d)
+        _sd_write(d)
+        remember_data_base(d)
 
 
 def ensure_card_ids(d):
@@ -245,31 +338,85 @@ def sync_mixte_purchase_prices(d):
     return changed
 
 
+_STORAGE_MERGE_VARIANT_FIELDS = (
+    "is_reverse", "is_ed1", "condition", "japanese", "lang", "language", "special_tag",
+    "stamp", "promo", "master_ball", "poke_ball", "first_edition", "is_collection_keep", "is_collection",
+)
+
+
+def _storage_price(card):
+    try:
+        return round(float(card.get("suggested_price") or 0.0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _storage_merge_signature(card):
+    """Deux entrees ne sont fusionnables que si prix ET variante sont identiques."""
+    return (_storage_price(card), tuple(repr(card.get(field)) for field in _STORAGE_MERGE_VARIANT_FIELDS))
+
+
+def _storage_card_is_plain(card):
+    """Entree sans vente / echange : la fusionner ne fait perdre aucun historique de vente."""
+    for field in ("sold_quantity", "exchange_out_quantity"):
+        try:
+            if int(card.get(field) or 0) > 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return not card.get("sold_entries")
+
+
 def consolidate_storage_cards(d):
-    """Consolidate cards in storage lot."""
+    """Fusionne les entrees STRICTEMENT identiques du lot Stockage (meme carte, meme prix, meme variante).
+
+    Avant, toutes les entrees de meme (nom, numero, set) etaient fusionnees et le prix de la
+    premiere gagnait : les prix des autres entrees disparaissaient silencieusement. Maintenant :
+      - une entree dont le prix (ou la variante) differe reste une entree distincte ;
+      - une entree avec des ventes / echanges n'est jamais absorbee ;
+      - quand une fusion a lieu, une trace (storage_merged_entries) garde l'entree absorbee.
+    """
     changed = False
     storage_idx = None
     for i, lot in enumerate(d.get("lots", [])):
         if lot.get("nom") == "Stockage" or lot.get("is_storage"):
             storage_idx = i
             break
-    
+
     if storage_idx is not None:
         storage_lot = d["lots"][storage_idx]
-        card_map = {}
+        kept = []
+        buckets = {}  # (nom, numero, set) -> [(signature, carte conservee)]
         for card in storage_lot.get("cards", []):
             key = (card.get("name", ""), card.get("number", ""), card.get("set", ""))
-            if key not in card_map:
-                card_map[key] = card
-            else:
-                # Merge quantities
-                existing = card_map[key]
-                existing["quantity"] = int(existing.get("quantity", 0)) + int(card.get("quantity", 0))
-                existing["stored_quantity"] = int(existing.get("stored_quantity", 0)) + int(card.get("stored_quantity", 0))
-                changed = True
+            signature = _storage_merge_signature(card)
+            target = None
+            if _storage_card_is_plain(card):
+                for known_signature, known_card in buckets.get(key, []):
+                    if known_signature == signature:
+                        target = known_card
+                        break
+            if target is None:
+                buckets.setdefault(key, []).append((signature, card))
+                kept.append(card)
+                continue
+            # Fusion d'une entree identique : on garde une trace de ce qui est absorbe.
+            target.setdefault("storage_merged_entries", []).append({
+                "card_uid": card.get("card_uid"),
+                "quantity": int(card.get("quantity", 0) or 0),
+                "stored_quantity": int(card.get("stored_quantity", 0) or 0),
+                "suggested_price": card.get("suggested_price"),
+                "storage_cote_at_add": card.get("storage_cote_at_add"),
+                "stored_date": card.get("stored_date"),
+                "price_history": list(card.get("price_history") or []),
+                "merged_at": datetime.now().isoformat(timespec="seconds"),
+            })
+            target["quantity"] = int(target.get("quantity", 0)) + int(card.get("quantity", 0))
+            target["stored_quantity"] = int(target.get("stored_quantity", 0)) + int(card.get("stored_quantity", 0))
+            changed = True
         if changed:
-            storage_lot["cards"] = list(card_map.values())
-    
+            storage_lot["cards"] = kept
+
     return changed
 
 

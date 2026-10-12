@@ -255,4 +255,16 @@ def cancel_upload_session(root: str | Path, drop_id: str, upload_session_id: str
 
 
 def upload_allowed_for_drop(drop: dict[str, Any] | None) -> bool:
-    return bool(drop) and not bool(str((drop or {}).get("drop_launched_at") or "").strip())
+    """Import autorise avant le lancement, ou apres si des references restent a traiter.
+
+    Un drop lance sans reassort (aucune reference to_photograph / needs_review / sorted /
+    to_prepare) reste protege : les annonces deja en ligne ou vendues ne sont jamais
+    concernees par un nouvel import.
+    """
+    if not drop:
+        return False
+    if not str(drop.get("drop_launched_at") or "").strip():
+        return True
+    from services.vinted_drops_service import drop_has_restock
+
+    return drop_has_restock(drop)

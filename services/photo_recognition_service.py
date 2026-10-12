@@ -30,7 +30,14 @@ from services.photo_upload_service import (
     upload_allowed_for_drop,
     upload_session_dir,
 )
-from services.vinted_drops_service import drop_card_key, drop_item_status, find_drop
+from services.vinted_drops_service import (
+    drop_card_key,
+    drop_has_restock,
+    drop_is_launched,
+    drop_item_status,
+    drop_ref_is_unprocessed,
+    find_drop,
+)
 
 
 PRODUCTION_SESSION_VERSION = "v1"
@@ -974,8 +981,8 @@ def apply_recognition_statuses(drops_data: dict[str, Any], drop_id: str, payload
     drop = find_drop(drops_data, drop_id)
     if not drop:
         return 0
-    if drop.get("drop_launched_at"):
-        return 0
+    if drop_is_launched(drop):
+        return _apply_restock_recognition_statuses(drop, payload)
     ready_uids = {
         str(uid)
         for listing in payload.get("listings", []) or []
@@ -990,6 +997,58 @@ def apply_recognition_statuses(drops_data: dict[str, Any], drop_id: str, payload
         uid = str(ref.get("card_uid") or "")
         desired = "sorted" if uid in ready_uids else "needs_review"
         if desired and ref.get("status") != desired:
+            ref["status"] = desired
+            changed += 1
+    return changed
+
+
+def _payload_item_ids(listing: dict[str, Any]) -> set[str]:
+    ids = set()
+    for card in listing.get("cards", []) or []:
+        candidate = card.get("candidate") or {}
+        item_id = str(candidate.get("drop_item_id") or card.get("drop_item_id") or "").strip()
+        if item_id:
+            ids.add(item_id)
+    return ids
+
+
+def _apply_restock_recognition_statuses(drop: dict[str, Any], payload: dict[str, Any]) -> int:
+    """Drop deja lance : ne touche QUE les references de reassort presentes dans ce payload.
+
+    - references online / sold / draft_ready / avec annonce : jamais modifiees ;
+    - reference non traitee mais absente des photos analysees : statut inchange ;
+    - reference identifiee par drop_item_id (le card_uid seul est ambigu quand une meme
+      carte existe en ligne ET en reassort).
+    """
+    if not drop_has_restock(drop):
+        return 0
+    seen_ids: set[str] = set()
+    ready_ids: set[str] = set()
+    seen_uids: set[str] = set()
+    ready_uids: set[str] = set()
+    for listing in payload.get("listings", []) or []:
+        ids = _payload_item_ids(listing)
+        uids = {str(uid) for uid in listing.get("card_uids", []) or [] if uid}
+        seen_ids |= ids
+        seen_uids |= uids
+        if listing.get("ready"):
+            ready_ids |= ids
+            ready_uids |= uids
+    changed = 0
+    for ref in drop.get("cards", []) or []:
+        if not drop_ref_is_unprocessed(ref):
+            continue
+        item_id = str(ref.get("drop_item_id") or "")
+        uid = str(ref.get("card_uid") or "")
+        if seen_ids:
+            if item_id not in seen_ids:
+                continue
+            desired = "sorted" if item_id in ready_ids else "needs_review"
+        else:  # payload ancien sans drop_item_id : repli sur le card_uid
+            if uid not in seen_uids:
+                continue
+            desired = "sorted" if uid in ready_uids else "needs_review"
+        if ref.get("status") != desired:
             ref["status"] = desired
             changed += 1
     return changed

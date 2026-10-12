@@ -904,5 +904,648 @@
     "lot_uid": "lot_ec4158b243b1400fa2a52ca198526be4",
     "prix_achat": 214.0,
     "archived_date": "2026-08-16T19:17:34.270862"
+  },
+  {
+    "nom": "Lot Tortank alt + Reverses xy Évolutions",
+    "cards": [
+      {
+        "id": "sv03.5-200",
+        "set": "151",
+        "name": "Tortank-ex",
+        "is_ed1": false,
+        "number": "200",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_693c6eb05f004c4498fca134141e59a9",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/sv/sv03.5/200/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-05-04T21:41:45.377706",
+            "canal": "Dexify_TCG",
+            "price": 150.0,
+            "card_set": "151",
+            "quantity": 1,
+            "card_name": "Tortank-ex",
+            "card_number": "200",
+            "suggested_price_at_sale": 160.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 1,
+        "suggested_price": 150.0,
+        "suggested_price_at_sale": 150.0
+      },
+      {
+        "id": "xy12-3",
+        "set": "Évolutions",
+        "name": "Chenipan",
+        "is_ed1": false,
+        "number": "3",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_d5ce0d2f6a4a42f79fa48709ab80f8df",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/3/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.741816",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Chenipan",
+            "card_number": "3",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 2,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-4",
+        "set": "Évolutions",
+        "name": "Chrysacier",
+        "is_ed1": false,
+        "number": "4",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_8963dd2a30514a5cbc6f7a021c27da40",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/4/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.750043",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Chrysacier",
+            "card_number": "4",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 3,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-5",
+        "set": "Évolutions",
+        "name": "Aspicot",
+        "is_ed1": false,
+        "number": "5",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_8e5542336c0f436da3d1d269169b9e39",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/5/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.858096",
+            "price": 1.9999675896370985,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Aspicot",
+            "card_number": "5"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 4,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-6",
+        "set": "Évolutions",
+        "name": "Coconfort",
+        "is_ed1": false,
+        "number": "6",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_b7ef2409f11242ceaf620ddbfb58ea74",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/6/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.852115",
+            "price": 1.9999675896370985,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Coconfort",
+            "card_number": "6"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 5,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-8",
+        "set": "Évolutions",
+        "name": "Saquedeneu",
+        "is_ed1": false,
+        "number": "8",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_1dee514259d24e9aa572a73933f78aa5",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/8/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.761871",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Saquedeneu",
+            "card_number": "8",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 6,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-28",
+        "set": "Évolutions",
+        "name": "Otaria",
+        "is_ed1": false,
+        "number": "28",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_6b0943c5e45c4d43930f4e2b0049db2b",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/28/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.770888",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Otaria",
+            "card_number": "28",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 7,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-29",
+        "set": "Évolutions",
+        "name": "Lamantine",
+        "is_ed1": false,
+        "number": "29",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_1ccd8924afbd466f8d86dd64e57305c7",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/29/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.779529",
+            "price": 4.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Lamantine",
+            "card_number": "29",
+            "suggested_price_at_sale": 4.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 8,
+        "suggested_price": 4.0
+      },
+      {
+        "id": "xy12-37",
+        "set": "Évolutions",
+        "name": "Magnéti",
+        "is_ed1": false,
+        "number": "37",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_17fbc515db9644e29055acbe5172d6cb",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/37/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.839815",
+            "price": 1.9999675896370985,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Magnéti",
+            "card_number": "37"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 9,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-54",
+        "set": "Évolutions",
+        "name": "Sabelette",
+        "is_ed1": false,
+        "number": "54",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_9e5f7b75db084857bb3360aebaa946c8",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/54/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.821604",
+            "price": 1.9999675896370985,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Sabelette",
+            "card_number": "54"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 10,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-55",
+        "set": "Évolutions",
+        "name": "Taupiqueur",
+        "is_ed1": false,
+        "number": "55",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_355ed737d8dc49b48f082dbed12e0bd9",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/55/high.webp",
+        "is_reverse": false,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.787515",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Taupiqueur",
+            "card_number": "55",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 11,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-66",
+        "set": "Évolutions",
+        "name": "Rattata",
+        "is_ed1": false,
+        "number": "66",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_c503c81f944746f4bfb30e1ea773a566",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/66/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.804608",
+            "price": 1.9999675896370985,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Rattata",
+            "card_number": "66"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 12,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-67",
+        "set": "Évolutions",
+        "name": "Rattatac",
+        "is_ed1": false,
+        "number": "67",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_e844b55d9581409a97669a25493f0e7c",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/67/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-09-16T14:06:32.296437",
+            "canal": "ChoppeTaCarte",
+            "price": 4.63,
+            "drop_id": "09f360773f8e4f7fbb6a3d89469f1bd3",
+            "lot_uid": "lot_e800428413c64ea687c00c979d87decd",
+            "sale_id": "card_e844b55d9581409a97669a25493f0e7c_1789560392296",
+            "card_set": "Évolutions",
+            "card_uid": "card_e844b55d9581409a97669a25493f0e7c",
+            "quantity": 1,
+            "card_name": "Rattatac",
+            "drop_name": "Drop Rentrée",
+            "card_number": "67",
+            "drop_channel": "ChoppeTaCarte",
+            "drop_item_id": "d8a7ede48680412a918ffdc37f1dd91b",
+            "drop_link_method": "card_match",
+            "sale_transaction_id": "sale_tx_e4c86f1f49fd45819ffce017a96d18cb",
+            "suggested_price_at_sale": 5.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 13,
+        "suggested_price": 5.0
+      },
+      {
+        "id": "xy12-68",
+        "set": "Évolutions",
+        "name": "Canarticho",
+        "is_ed1": false,
+        "number": "68",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_0fbf28b45afa47bb9301257747e5e644",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/68/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.795689",
+            "price": 4.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Canarticho",
+            "card_number": "68",
+            "suggested_price_at_sale": 4.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 14,
+        "suggested_price": 4.0
+      },
+      {
+        "id": "xy12-69",
+        "set": "Évolutions",
+        "name": "Doduo",
+        "is_ed1": false,
+        "number": "69",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_6e0311fb3d0047158581c3b2b74ae437",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/69/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.804214",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Doduo",
+            "card_number": "69",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 15,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-71",
+        "set": "Évolutions",
+        "name": "Porygon",
+        "is_ed1": false,
+        "number": "71",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_054435ccec874ba6ac8ff86608604d8c",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/71/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.812446",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Porygon",
+            "card_number": "71",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 16,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "xy12-76",
+        "set": "Évolutions",
+        "name": "Spray Dés-Évoluant",
+        "is_ed1": false,
+        "number": "76",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_d64f05bb2704466c97a09f9b2dadb03a",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/76/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-05T22:36:18.798863",
+            "price": 2.999951384455648,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Spray Dés-Évoluant",
+            "card_number": "76"
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 17,
+        "suggested_price": 3.0
+      },
+      {
+        "id": "xy12-77",
+        "set": "Évolutions",
+        "name": "Récupération d'Énergie",
+        "is_ed1": false,
+        "number": "77",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_b6752e3834ea4a2390689d16b79d4f80",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/77/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-09-16T14:06:33.081392",
+            "canal": "ChoppeTaCarte",
+            "price": 5.56,
+            "drop_id": "09f360773f8e4f7fbb6a3d89469f1bd3",
+            "lot_uid": "lot_e800428413c64ea687c00c979d87decd",
+            "sale_id": "card_b6752e3834ea4a2390689d16b79d4f80_1789560393081",
+            "card_set": "Évolutions",
+            "card_uid": "card_b6752e3834ea4a2390689d16b79d4f80",
+            "quantity": 1,
+            "card_name": "Récupération d'Énergie",
+            "drop_name": "Drop Rentrée",
+            "card_number": "77",
+            "drop_channel": "ChoppeTaCarte",
+            "drop_item_id": "df17f5d5cfb94f768b127ff795811f5c",
+            "drop_link_method": "card_match",
+            "sale_transaction_id": "sale_tx_e4c86f1f49fd45819ffce017a96d18cb",
+            "suggested_price_at_sale": 6.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 18,
+        "suggested_price": 6.0
+      },
+      {
+        "id": "xy12-86",
+        "set": "Évolutions",
+        "name": "Lien Spirituel Flagadoss",
+        "is_ed1": false,
+        "number": "86",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_c406f1ea82744fb4b5b999d391edad10",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/86/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-09-16T14:06:33.693576",
+            "canal": "ChoppeTaCarte",
+            "price": 5.56,
+            "drop_id": "09f360773f8e4f7fbb6a3d89469f1bd3",
+            "lot_uid": "lot_e800428413c64ea687c00c979d87decd",
+            "sale_id": "card_c406f1ea82744fb4b5b999d391edad10_1789560393693",
+            "card_set": "Évolutions",
+            "card_uid": "card_c406f1ea82744fb4b5b999d391edad10",
+            "quantity": 1,
+            "card_name": "Lien Spirituel Flagadoss",
+            "drop_name": "Drop Rentrée",
+            "card_number": "86",
+            "drop_channel": "ChoppeTaCarte",
+            "drop_item_id": "fb6a6681fb634931b3f58d44887a4d8f",
+            "drop_link_method": "card_match",
+            "sale_transaction_id": "sale_tx_e4c86f1f49fd45819ffce017a96d18cb",
+            "suggested_price_at_sale": 6.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 19,
+        "suggested_price": 6.0
+      },
+      {
+        "id": "xy12-88",
+        "set": "Évolutions",
+        "name": "Échange",
+        "is_ed1": false,
+        "number": "88",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_20668c7b712e42738dbf011cf4710aa6",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/xy/xy12/88/high.webp",
+        "is_reverse": true,
+        "sold_entries": [
+          {
+            "date": "2026-04-23T14:10:29.821596",
+            "price": 2.0,
+            "card_set": "Évolutions",
+            "quantity": 1,
+            "card_name": "Échange",
+            "card_number": "88",
+            "suggested_price_at_sale": 2.0
+          }
+        ],
+        "sold_quantity": 1,
+        "added_sequence": 20,
+        "suggested_price": 2.0
+      },
+      {
+        "id": "swsh10.5-018",
+        "set": "Pokémon GO",
+        "lang": "fr",
+        "name": "Tortank Radieux",
+        "is_ed1": false,
+        "number": "018",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_932754d1564140cc97b47e2407f96459",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/swsh/swsh10.5/018/high.webp",
+        "is_reverse": false,
+        "image_url_en": "",
+        "sold_entries": [],
+        "sold_quantity": 0,
+        "added_sequence": 21,
+        "suggested_price": 9.0,
+        "is_collection_keep": true,
+        "collection_current_value": 9.0,
+        "collection_purchase_price": 0.0
+      },
+      {
+        "id": "swsh10.5-004",
+        "set": "Pokémon GO",
+        "lang": "fr",
+        "name": "Florizarre Radieux",
+        "is_ed1": false,
+        "number": "004",
+        "rarity": "",
+        "added_at": "2026-04-03T23:40:33.118857",
+        "card_uid": "card_2e6310715e5546408ba04af102539e51",
+        "quantity": 1,
+        "condition": "NM",
+        "image_url": "https://assets.tcgdex.net/fr/swsh/swsh10.5/004/high.webp",
+        "is_reverse": false,
+        "image_url_en": "",
+        "sold_entries": [],
+        "sold_quantity": 0,
+        "added_sequence": 22,
+        "suggested_price": 8.0,
+        "is_collection_keep": true,
+        "collection_current_value": 8.0,
+        "collection_purchase_price": 0.0
+      }
+    ],
+    "ventes": [],
+    "created": "2026-04-03T23:40:33.118857",
+    "lot_uid": "lot_e800428413c64ea687c00c979d87decd",
+    "prix_achat": 80.0,
+    "is_brocante": true,
+    "archived_date": "2026-09-19T20:29:10.296166"
   }
 ]

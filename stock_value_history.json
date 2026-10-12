@@ -763,6 +763,211 @@
       "captured_at": "2026-09-07T21:19:31",
       "value": 5911.39,
       "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-09T13:12:05",
+      "value": 5899.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-11T21:25:33",
+      "value": 5910.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-11T21:38:03",
+      "value": 5959.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-11T21:38:16",
+      "value": 5969.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-11T21:47:02",
+      "value": 6051.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-11T22:15:15",
+      "value": 6236.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-13T14:15:17",
+      "value": 6250.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-13T14:15:34",
+      "value": 6252.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-13T14:49:15",
+      "value": 6264.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-16T13:42:12",
+      "value": 6207.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-17T21:54:04",
+      "value": 6125.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-24T08:09:35",
+      "value": 6103.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-24T08:10:46",
+      "value": 6089.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-26T22:50:11",
+      "value": 6054.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-28T20:20:31",
+      "value": 6517.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-28T20:38:34",
+      "value": 6699.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-29T21:25:16",
+      "value": 6808.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-09-30T17:59:56",
+      "value": 6867.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-01T10:58:04",
+      "value": 6720.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-02T11:42:09",
+      "value": 6816.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-02T12:17:14",
+      "value": 6826.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-02T16:44:25",
+      "value": 7186.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-02T17:52:00",
+      "value": 7196.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-02T18:21:14",
+      "value": 7212.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-03T18:57:30",
+      "value": 7251.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-04T15:24:34",
+      "value": 7316.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-04T15:47:20",
+      "value": 7324.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-04T15:53:46",
+      "value": 7328.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-04T21:28:25",
+      "value": 7349.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-06T12:10:10",
+      "value": 7298.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-07T17:59:48",
+      "value": 7312.89,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-09T19:52:58",
+      "value": 7319.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-10T22:25:08",
+      "value": 7318.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-10T23:20:06",
+      "value": 7298.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-10T23:33:18",
+      "value": 7296.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-11T17:52:57",
+      "value": 7295.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-11T18:01:12",
+      "value": 7285.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-11T18:01:56",
+      "value": 7282.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-11T18:05:16",
+      "value": 7277.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-11T18:08:37",
+      "value": 7283.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-12T13:45:16",
+      "value": 7294.39,
+      "provenance": "live"
     }
   ],
   "annotations": []

@@ -42,6 +42,7 @@ from services.custom_card_image_service import resolve_custom_card_image
 from services.vinted_drops_service import (
     drop_card_key,
     drop_item_status,
+    drop_restock_scope_refs,
     load_vinted_drops,
     resolve_drop_item_card_identity,
 )
@@ -231,7 +232,15 @@ def active_drop_candidates(data_path="data.json", drops_path="vinted_drops.json"
 
     candidates = []
     seen_keys = set()
-    for ref in drop.get("cards", []) or []:
+    drop_refs = drop.get("cards", []) or []
+    # Drop deja lance avec du reassort : seules les references encore a traiter sont
+    # candidates (a traiter + brouillons, pour garder un jeu de candidats stable). Les cartes en ligne /
+    # vendues ne sont jamais re-scannees ni re-proposees.
+    # (Sans reassort, ou avant lancement : comportement historique inchange.)
+    restock_refs = drop_restock_scope_refs(drop)
+    if restock_refs:
+        drop_refs = restock_refs
+    for ref in drop_refs:
         card = None
         if ref.get("card_uid"):
             card = card_by_uid.get(str(ref.get("card_uid")))
@@ -4145,6 +4154,7 @@ def analyze_sample(
             "photo_count": len(photo_window),
             "photo_signature": photo_signature,
             "candidate_signature": candidates_signature,
+            "restock_scope": bool(drop_restock_scope_refs(drop)),
             "matching_refresh_version": POC_MATCHING_REFRESH_VERSION,
             "proposal_reliability_version": PROPOSAL_RELIABILITY_VERSION,
             "language_compatibility_version": LANGUAGE_COMPATIBILITY_VERSION,

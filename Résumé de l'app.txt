@@ -1,0 +1,1828 @@
+1. PokéStock, c’est quoi ?
+
+PokéStock est ton application personnelle de gestion d’achat-revente de cartes Pokémon.
+
+Elle ne sert pas seulement à tenir un inventaire : elle couvre pratiquement tout le cycle de vie d’une carte :
+
+achat / estimation → entrée en stock → gestion du lot → vente / échange → analyse → historique
+
+et elle contient aussi des workflows spécialisés pour :
+
+les brocantes ;
+les Drops Vinted ;
+les estimations de collections/annonces ;
+les échanges ;
+les rachats de cartes ;
+la collection personnelle ;
+le suivi des cotes ;
+les statistiques et compteurs.
+
+L’application est développée en Python + Streamlit et existe à la fois :
+
+en local ;
+sur Streamlit Cloud ;
+avec le code versionné sur GitHub klanox/appli-des-lots-pokemon, branche main.
+
+Le projet local principal est :
+
+C:\Users\User\Desktop\Appli des lots pokemon
+
+2. Structure générale de l’application
+
+La navigation principale actuelle est organisée dans la sidebar avec :
+
+Principal
+🏠 Accueil
+💰 Vente / Échange
+🧺 Brocante
+Gestion
+📦 Lots
+📄 Collection
+📉 Estimations
+🤝 Fournisseurs
+📝 Annonces individuelles
+🛍️ Drop Vinted
+🗄️ Archivés
+Analyse
+📋 Historique
+📊 Statistiques
+📈 Marché
+🎁 Wrapped
+🧮 Compteurs
+
+Le design global repose sur :
+
+sidebar sombre ;
+surfaces principales claires ;
+violet comme couleur d’action PokéStock ;
+composants compacts ;
+responsive desktop/mobile ;
+style plutôt SaaS premium, sans effets visuels artificiels inutiles.
+3. 🏠 Accueil
+
+L’Accueil sert de tableau de bord global.
+
+Il permet de visualiser rapidement l’état de ton activité plutôt que d’aller chercher les informations page par page.
+
+On y retrouve notamment des indicateurs liés à :
+
+chiffre d’affaires ;
+bénéfice ;
+activité globale ;
+évolution des ventes ;
+raccourcis vers les fonctions importantes.
+
+Le dashboard utilise les mêmes données économiques que le reste de PokéStock : une vente réalisée ailleurs doit donc naturellement remonter sur l’Accueil.
+
+Les raccourcis de navigation ont également été retravaillés pour pointer correctement vers les différents modules.
+
+4. 💰 Vente / Échange
+
+C’est un des modules centraux de PokéStock.
+
+Il comporte deux espaces :
+
+Vente
+
+Le but est de rechercher les cartes réellement disponibles dans ton stock, de les mettre dans un panier puis d’enregistrer une transaction.
+
+Recherche
+
+Le moteur permet de rechercher notamment par :
+
+nom ;
+numéro ;
+extension ;
+variantes et métadonnées disponibles.
+
+La recherche est live : les résultats évoluent pendant que tu tapes.
+
+Hors recherche, les cartes conservent une présentation organisée selon leurs lots.
+
+Lorsqu’une recherche est active :
+
+les séparations par lot disparaissent ;
+les cartes deviennent une grille continue ;
+les exemplaires les plus anciennement acquis sont prioritaires.
+
+Cela permet notamment d’écouler en premier les cartes les plus anciennes.
+
+Cartes
+
+Une carte affichée peut contenir :
+
+image ;
+nom ;
+numéro ;
+extension ;
+lot d’origine ;
+quantité disponible ;
+prix de vente ;
+coût d’acquisition ;
+statut ;
+bouton d’ajout au panier.
+
+Les images passent désormais par une résolution centralisée pouvant prendre en compte :
+
+image API ;
+image personnalisée ;
+anciens champs d’image ;
+cache ;
+fallback TCGDex.
+Quantités
+
+Si une carte existe en plusieurs exemplaires, la quantité peut être choisie avant l’ajout au panier.
+
+Les cartes possèdent des identifiants stables, notamment card_uid, ce qui évite les confusions lorsque plusieurs cartes semblables sont présentes dans un lot.
+
+5. 🛒 Panier de vente
+
+Le panier est aujourd’hui capable de contenir plusieurs types de produits dans une même transaction.
+
+Il peut mélanger :
+
+cartes physiques en stock ;
+articles hors stock.
+
+Chaque ligne garde :
+
+quantité ;
+prix ;
+origine ;
+nature de l’article ;
+coût d’acquisition lorsqu’il est connu.
+Prix négocié
+
+Le prix final de la commande peut être différent de la somme initiale.
+
+PokéStock recalcule alors la vente selon le montant réellement encaissé.
+
+Bénéfice estimé
+
+Le panier peut afficher :
+
+prix total ;
+coût d’achat estimé ;
+bénéfice de la commande.
+
+Si une partie du coût est inconnue, le bénéfice est signalé comme partiel plutôt que d’inventer un coût.
+
+6. Vente hors stock
+
+Une vente hors stock correspond à quelque chose vendu mais qui n’existe pas comme carte physique inventoriée.
+
+Par exemple :
+
+bulk ;
+classeur ;
+tin ;
+produit divers ;
+article accessoire.
+
+Elle peut être ajoutée au même panier que des cartes physiques.
+
+Avant validation finale :
+
+aucune vente n’est créée ;
+aucun chiffre d’affaires n’est comptabilisé.
+
+C’est seulement lorsque le panier complet est validé que la transaction existe réellement.
+
+7. Transactions de vente
+
+Une commande complète reçoit un :
+
+sale_transaction_id
+
+commun à toutes ses lignes.
+
+Cela signifie qu’une vente contenant :
+
+3 cartes ;
+1 classeur hors stock ;
+
+reste une seule transaction commerciale.
+
+Les statistiques peuvent ainsi distinguer :
+
+nombre de cartes vendues ;
+nombre de transactions ;
+panier moyen.
+Annulation
+
+Si une transaction est annulée :
+
+toutes les lignes de la transaction sont annulées ensemble ;
+le stock physique est restauré ;
+les articles hors stock ne créent évidemment pas de stock ;
+le CA est retiré ;
+les statistiques sont recalculées proprement.
+
+Les anciennes ventes créées avant l’existence de sale_transaction_id restent compatibles.
+
+8. 🔄 Échange
+
+Le deuxième volet de Vente / Échange est un véritable moteur économique d’échanges.
+
+Un échange peut contenir :
+
+Ce que tu donnes
+une ou plusieurs cartes ;
+différentes quantités ;
+éventuellement de l’argent.
+Ce que tu reçois
+une ou plusieurs cartes ;
+éventuellement de l’argent.
+
+Le contrôle cash permet :
+
+Aucun / Tu reçois / Tu ajoutes
+
+9. Règle fondamentale : un échange n’est pas une vente
+
+PokéStock fait une différence stricte.
+
+Une carte donnée dans un échange :
+
+❌ ne crée pas de vente
+❌ ne crée pas de CA
+❌ ne reçoit pas un faux prix de vente
+
+Elle sort du stock via des mécanismes dédiés du type :
+
+exchange_out_quantity
+exchange_out_entries
+
+Cela évite de fausser toutes les statistiques.
+
+10. Coût économique des échanges
+
+PokéStock conserve la vraie valeur historique des cartes que tu donnes.
+
+La logique actuelle est essentiellement :
+
+coût économique restant = coût historique des cartes données + argent ajouté - argent reçu
+
+avec un minimum de 0.
+
+Exemple :
+
+cartes données : coût historique 80 €
+tu ajoutes 20 €
+
+→ coût transmis aux cartes reçues : 100 €
+
+Si tu reçois 15 € avec les cartes :
+
+→ coût transmis : 85 €
+
+L’argent reçu dans un échange :
+
+❌ n’est pas du CA.
+
+11. Lot système Trade
+
+Les cartes reçues via un échange rejoignent le lot système Trade.
+
+Elles conservent notamment :
+
+provenance ;
+coût historique ;
+contributeurs ;
+cash ajouté/reçu ;
+valeur reçue ;
+méthode de calcul.
+
+Des champs ont été prévus autour de cette logique, par exemple :
+
+trade_acquisition_cost
+trade_acquisition_unit_cost
+trade_acquisition_total_cost
+trade_received_cards_value
+trade_given_cards_value
+trade_cash_paid
+trade_cash_received
+trade_economic_received_total
+trade_cost_method
+
+Une carte reçue via Trade peut ensuite être :
+
+vendue ;
+rééchangée ;
+transférée en Collection ;
+transférée en Stockage.
+
+Sa provenance économique n’est pas perdue.
+
+12. 📦 Lots
+
+Le module Lots représente la structure économique fondamentale du stock.
+
+Un lot correspond généralement à un achat :
+
+Collection achetée 255,49 €
+
+puis contient toutes les cartes récupérées lors de cet achat.
+
+Un lot peut mémoriser notamment :
+
+nom ;
+prix payé ;
+valeur estimée ;
+cartes ;
+quantités ;
+montant déjà vendu ;
+date ;
+provenance ;
+ventes réalisées ;
+échanges ;
+coût restant.
+13. Cartes dans un lot
+
+Chaque carte peut contenir :
+
+card_uid
+nom ;
+numéro ;
+image ;
+quantité ;
+prix de vente prévu ;
+quantité vendue ;
+historique ;
+état interne.
+
+On peut notamment :
+
+modifier une carte ;
+changer sa quantité ;
+corriger son identité ;
+modifier son image ;
+supprimer une entrée ;
+ajouter une carte ;
+suivre les exemplaires vendus.
+
+Les corrections de quantité utilisent maintenant des identifiants stables plutôt que la position de la carte dans une liste.
+
+14. Filtres des Lots
+
+La page propose actuellement des filtres du type :
+
+Tous ;
+Brocantes ;
+Mixtes ;
+Non remboursés ;
+Remboursés ;
+Classiques ;
+Spécial.
+
+Le but est de pouvoir isoler rapidement différents types de lots.
+
+15. Remboursement d’un lot
+
+Chaque lot possède maintenant une jauge financière intégrée directement dans sa carte.
+
+Exemple :
+
+Lot acheté : 255,49 €
+CA généré : 322,50 €
+
+PokéStock affiche :
+
+✓ Remboursé · 126,2 %
+
+La formule est toujours financière :
+
+CA généré par le lot / coût historique du lot
+
+Elle ne se transforme plus en progression du nombre de cartes après remboursement.
+
+Le pourcentage peut donc monter à :
+
+110 %
+150 %
+220 %
+etc.
+
+La barre visuelle est plafonnée à 100 %, mais le vrai pourcentage reste affiché.
+
+Couleurs
+rouge : moins de 70 %
+orange : 70 à moins de 100 %
+vert : 100 % ou plus
+
+La jauge et le header sont désormais dans une seule surface blanche, depuis le correctif 3d7ccdf.
+
+16. % de la cote à l’achat
+
+À côté du prix d’un lot, PokéStock peut afficher le pourcentage auquel tu as acheté le lot par rapport à sa valeur estimée.
+
+Exemple :
+
+255,49 € · 73,5 % cote
+
+Cela signifie :
+
+prix payé / valeur estimée du lot
+
+La valeur de référence peut venir des informations du lot ou être reconstruite à partir des cartes.
+
+17. Lots de rachat Brocante
+
+Un nouveau type de lot est progressivement utilisé pour les rachats réalisés en Brocante.
+
+Pour une même brocante :
+
+le premier rachat crée le lot journalier ;
+tous les rachats suivants rejoignent ce même lot.
+
+Contrairement à un lot classique, les cartes peuvent arriver sans coût individuel immédiatement réparti.
+
+Le coût global du rachat est connu, mais la répartition attend les prix de vente.
+
+18. Répartition différée du coût
+
+Exemple :
+
+Tu rachètes :
+
+Dracaufeu ;
+Pikachu ;
+
+pour 10 € au total.
+
+Au moment du rachat :
+
+coût du lot = 10 € ;
+aucun coût fictif de 5 €/5 € n’est inventé.
+
+Plus tard dans Lots, tu renseignes :
+
+Dracaufeu : prix de vente 15 €
+Pikachu : prix de vente 5 €
+
+Total = 20 €.
+
+PokéStock répartit alors :
+
+Dracaufeu : 75 % → coût historique 7,50 €
+Pikachu : 25 % → coût historique 2,50 €
+
+Total = exactement 10 €.
+
+Une fois cette répartition figée, modifier ensuite le prix de vente ne doit pas réécrire arbitrairement l’histoire économique.
+
+Avant répartition, les cartes concernées sont protégées contre vente/échange afin d’éviter un faux bénéfice.
+
+19. 📄 Collection
+
+Collection est un espace distinct du stock destiné à conserver les cartes que tu ne veux pas considérer comme stock de revente classique.
+
+Les cartes peuvent notamment arriver depuis :
+
+un lot ;
+Trade.
+
+Les statuts visuels permettent de distinguer :
+
+COLLECTION
+STOCKAGE
+vendu ;
+stock normal.
+
+Pour une carte issue d’un échange, le champ Payé correspond à sa vraie valeur économique d’acquisition et pas à une valeur arbitraire.
+
+La grille est responsive :
+
+environ 6 cartes par ligne sur desktop ;
+2 sur mobile.
+20. 🧺 Brocante
+
+Le module Brocante est devenu une véritable caisse mobile événementielle.
+
+Il est pensé principalement pour être utilisé sur téléphone pendant une vraie journée chargée.
+
+Il possède actuellement 7 vues :
+
+Aujourd’hui
+Vente
+Rachat
+Hors stock
+Échange
+Frais / clôture
+Historique
+21. Création d’une brocante
+
+Avant de démarrer une brocante, PokéStock peut demander :
+
+nom ;
+date ;
+lieu ;
+notes ;
+objectifs ;
+checklist ;
+fonds initial de caisse.
+
+Le fonds de caisse est obligatoire à renseigner, mais :
+
+0 € est autorisé.
+
+Cela permet ensuite de calculer correctement la caisse théorique.
+
+22. Checklist Brocante
+
+La préparation peut contenir des tâches comme :
+
+cartes vérifiées ;
+cartes rangées ;
+prix vérifiés ;
+monnaie préparée ;
+téléphone chargé ;
+batterie externe ;
+connexion ;
+matériel ;
+table ;
+eau/nourriture.
+
+Certaines peuvent être marquées obligatoires.
+
+Une tâche personnalisée peut également être ajoutée.
+
+23. Aujourd’hui — dashboard Brocante
+
+Une fois la brocante démarrée, la vue Aujourd’hui affiche notamment :
+
+chiffre d’affaires ;
+bénéfice calculable ;
+cartes vendues ;
+caisse théorique ;
+rachats ;
+dépenses ;
+échanges ;
+frais ;
+encaissements ;
+objectifs.
+
+Des raccourcis permettent d’accéder rapidement à :
+
+nouvelle vente ;
+nouveau rachat ;
+hors stock ;
+nouvel échange ;
+ajouter un frais ;
+clôturer.
+24. Vente Brocante
+
+La Vente Brocante réutilise le moteur principal de Vente.
+
+Sur mobile, elle fonctionne en search-first.
+
+À vide :
+
+PokéStock ne charge pas tout l’inventaire avec toutes les images.
+
+Tu tapes :
+
+pika
+
+et seulement les résultats pertinents sont rendus.
+
+Les résultats sont bornés, environ 24 à la fois, avec chargement progressif.
+
+Cela réduit énormément le travail Streamlit.
+
+Les mesures obtenues étaient de l’ordre de :
+
+recherche pure : ~4 à 5 ms ;
+payload mobile : ~1 à 1,4 ms.
+
+Le panier est conservé pendant la recherche.
+
+25. Rachat Brocante
+
+Le Rachat sert quand quelqu’un vient te vendre des cartes directement à ton stand.
+
+Le workflow actuel est volontairement simple :
+
+rechercher une carte ;
+choisir la quantité ;
+Ajouter au panier ;
+répéter pour toutes les cartes ;
+saisir le montant total réellement payé ;
+choisir le paiement ;
+valider.
+
+Il n’y a :
+
+❌ aucun taux de rachat
+❌ aucune cote obligatoire
+❌ aucun prix conseillé imposé
+
+Le but est d’être très rapide sur le terrain.
+
+26. Recherche Rachat
+
+Elle comprend notamment :
+
+dracaufeu
+dracaufeu 199
+dracaufeu199
+199
+pikachu
+
+Les résultats affichent directement :
+
+image ;
+nom ;
+numéro ;
+extension ;
+quantité ;
+bouton Ajouter au panier.
+
+L’ancienne étape intermédiaire Sélectionner a été supprimée.
+
+27. Paiement d’un rachat
+
+Si tu achètes un lot :
+
+40 € en espèces
+
+alors :
+
+aucun CA n’est créé ;
+le stock augmente ;
+l’investissement augmente ;
+la caisse théorique diminue de 40 €.
+28. Hors stock Brocante
+
+Le module permet également d’enregistrer une vente hors stock pendant la brocante.
+
+Il peut contenir :
+
+catégorie ;
+description ;
+quantité ;
+prix total ;
+mode de paiement ;
+éventuellement coût ;
+options supplémentaires.
+
+Ces ventes entrent dans :
+
+CA Brocante ;
+caisse ;
+historique ;
+bénéfice lorsqu’un coût est connu.
+29. Échange Brocante
+
+L’Échange Brocante utilise maintenant le même moteur économique que le Trade principal.
+
+Il permet :
+
+Cartes à donner
+
+Recherche du stock + images + quantités.
+
+Cartes à recevoir
+
+Recherche/catalogue ou ajout de carte reçue.
+
+Complément espèces
+Aucun
+Tu reçois
+Tu ajoutes
+
+Les images utilisent également le renderer central.
+
+Le format Brocante utilise des miniatures uniformes d’environ :
+
+6rem × 6rem, soit environ 96 × 96 px.
+
+30. Frais Brocante
+
+Pendant la journée, tu peux enregistrer des dépenses :
+
+emplacement ;
+nourriture ;
+achat matériel ;
+autre dépense liée à la journée.
+
+Un frais :
+
+❌ n’est pas du CA
+
+mais :
+
+diminue le bénéfice Brocante ;
+peut diminuer la caisse si payé en espèces.
+31. Caisse théorique
+
+PokéStock reconstruit la caisse en espèces avec une logique du type :
+
+fonds initial
+
+ventes espèces
+cash reçu dans les échanges
+− rachats espèces
+− frais espèces
+− cash ajouté dans les échanges
+
+Les paiements numériques sont suivis séparément.
+
+32. Clôture d’une brocante
+
+À la fin de la journée, PokéStock permet de faire une réconciliation de caisse.
+
+Il affiche :
+
+fonds initial ;
+ventes espèces ;
+compléments reçus ;
+rachats ;
+frais ;
+compléments donnés ;
+espèces théoriques.
+
+Tu renseignes :
+
+Espèces réellement comptées
+
+PokéStock calcule ensuite l’écart.
+
+Exemple :
+
+caisse théorique : 65 €
+caisse réelle : 64 €
+
+→ écart : -1 €
+
+Une note peut expliquer l’écart.
+
+33. Historique Brocante
+
+Une brocante clôturée rejoint l’historique.
+
+Le résumé peut conserver :
+
+CA ;
+bénéfice ;
+ventes ;
+rachats ;
+frais ;
+échanges ;
+caisse ;
+écart ;
+date ;
+lieu.
+
+Les brocantes peuvent être archivées.
+
+34. Suppression Brocante
+
+Il existe aussi une suppression transactionnelle.
+
+Elle n’est pas une simple suppression de ligne.
+
+PokéStock tente de restaurer proprement :
+
+ventes ;
+stock ;
+rachats inutilisés ;
+frais ;
+hors stock.
+
+Mais si une donnée a ensuite été réutilisée, la suppression est bloquée.
+
+Exemples :
+
+carte rachetée puis revendue ;
+carte utilisée dans un échange ;
+dépendance historique ambiguë.
+
+Cela évite de casser l’historique économique.
+
+35. 🛍️ Drop Vinted
+
+C’est probablement le workflow spécialisé le plus complexe de l’application.
+
+Il sert à préparer de gros Drops Vinted de cartes Pokémon.
+
+Le processus est divisé en 5 étapes.
+
+36. Étape 1 — Choix des cartes
+
+Tu sélectionnes les cartes qui feront partie du Drop.
+
+Le Drop mémorise notamment :
+
+les cartes ;
+leur identité ;
+leur valeur ;
+leur statut ;
+le canal.
+
+Les principaux canaux centralisés utilisés sont notamment :
+
+Dexify ;
+Pokédeal ;
+ChoppeTaCarte.
+37. Cycle de statut Drop
+
+Les cartes peuvent passer par différents états :
+
+to_photograph
+needs_review
+sorted
+to_prepare
+draft_ready
+online
+sold
+
+Le Drop possède aussi différents timestamps :
+
+préparation ;
+mise en ligne ;
+lancement ;
+vente.
+
+drop_launched_at sert de référence temporelle aux analyses.
+
+Une fois fixé, il doit rester stable.
+
+38. Étape 2 — Photos
+
+Les photos peuvent provenir :
+
+d’un dossier local ;
+d’un upload navigateur.
+
+Le système d’upload navigateur possède :
+
+compression côté navigateur ;
+limite de taille autour de 2048 px ;
+JPEG ;
+traitement séquentiel ;
+IndexedDB ;
+reprise après rechargement ;
+SHA-256 ;
+déduplication ;
+uploads en lots ;
+accusé de réception par fichier ;
+manifest ordonné.
+
+Même si le système supporte le téléphone, ton workflow prévu est plutôt :
+
+photos → PC → navigateur PokéStock.
+
+39. Reconnaissance automatique des photos
+
+Le moteur de reconnaissance n’utilise pas GPT, Gemini ou autre modèle génératif.
+
+Il repose sur :
+
+RapidOCR ;
+ONNX Runtime ;
+matching visuel/artwork ;
+règles métier ;
+numéro ;
+langue ;
+set ;
+variante ;
+verso ;
+LEGEND ;
+V-UNION ;
+groupes multi-cartes.
+
+Il possède également un cache persistant permettant de ne pas tout recalculer.
+
+Sur le dataset de référence :
+
+529 photos ;
+252 annonces ;
+plusieurs annonces multi-cartes.
+40. Gestion des photos multi-cartes
+
+Le protocole peut gérer par exemple :
+
+Carte simple
+recto ;
+verso.
+3 cartes dans une annonce
+photo principale avec les 3 ;
+recto/verso carte 1 ;
+recto/verso carte 2 ;
+recto/verso carte 3.
+
+Soit 7 photos.
+
+Il existe aussi des cas spéciaux :
+
+Rayquaza & Deoxys LEGEND ;
+Morpeko V-UNION ;
+annonces 2/3/4 cartes.
+41. Étape 3 — Vérification
+
+Le moteur classe les résultats visuellement :
+
+✓ Reconnu
+! À vérifier
+× Non reconnu
+
+Une carte peut être :
+
+validée ;
+marquée mauvaise ;
+associée manuellement ;
+passée provisoirement.
+
+Pour les annonces multi-cartes :
+
+chaque sous-carte physique possède sa propre validation.
+
+Le grouping doit également être confirmé lorsqu’il est réellement ambigu.
+
+42. Système de passes de vérification
+
+La vérification fonctionne par passe.
+
+Une passe mémorise :
+
+les groupes présents au départ ;
+la position ;
+les éléments déjà parcourus.
+
+À la fin :
+
+Vérification terminée
+
+puis tu peux explicitement relancer :
+
+Revoir les X cas non résolus
+
+Cela évite de revenir automatiquement au premier problème en boucle.
+
+43. Étape 4 — Création des annonces
+
+Une fois les photos et cartes validées, PokéStock construit un payload d’annonces.
+
+Chaque annonce conserve :
+
+photos ordonnées ;
+photo principale ;
+cartes incluses ;
+card_uid ;
+confiance ;
+origine auto/manuelle ;
+titre ;
+description.
+
+Le moteur prepare_listing() génère le contenu des annonces.
+
+44. Preview des annonces
+
+Étape 4 permet de parcourir les annonces :
+
+Annonce X / 252
+
+avec :
+
+photo principale ;
+miniatures ;
+identité ;
+titre ;
+description ;
+boutons Copier ;
+navigation précédente/suivante.
+
+Pour un Drop déjà lancé, l’aperçu reste strictement non destructif.
+
+45. Drop Rentrée
+
+Le dataset qui a servi à valider tout le moteur est Drop Rentrée.
+
+Lors des validations approfondies, il contenait environ :
+
+264 items Drop ;
+252 annonces photographiées ;
+529 photos ;
+262 cartes réellement photographiées ;
+5 annonces multi-cartes.
+
+Deux cartes du Drop n’avaient réellement pas été photographiées :
+
+Tour de Brouillage 261/78 ;
+Relicanth SH8.
+46. Étape 5 — Analyse des Drops
+
+Cette étape est devenue un véritable dashboard analytique.
+
+Elle possède notamment trois vues :
+
+Vue d’ensemble ;
+Analyse détaillée ;
+Comparaison.
+
+La comparaison devient pertinente lorsqu’au moins deux Drops ont été lancés.
+
+47. KPI Drop
+
+Les indicateurs peuvent inclure :
+
+CA total ;
+bénéfice ;
+taux d’écoulement ;
+cartes vendues ;
+valeur publiée ;
+marge ;
+prix moyen par carte ;
+panier moyen ;
+cartes par transaction.
+
+Le CA distingue :
+
+cartes physiques ;
+hors stock.
+48. Courbes Drop
+
+Les graphiques permettent d’afficher notamment :
+
+CA cumulé ;
+bénéfice cumulé ;
+ventes ;
+écoulement.
+
+Les courbes sont lissées visuellement avec une interpolation de type monotone, tout en gardant les vraies données.
+
+Périodes :
+
+24 h ;
+72 h ;
+7 jours ;
+Tout.
+49. Milestones Drop
+
+PokéStock mesure le temps après lancement pour atteindre :
+
+première vente ;
+50 € ;
+100 € ;
+200 € ;
+500 € ;
+etc.
+
+Mais aussi :
+
+10 % vendu ;
+25 % ;
+50 % ;
+75 %.
+
+Les checkpoints temporels peuvent inclure :
+
+H+1 ;
+H+6 ;
+H+12 ;
+H+24 ;
+H+48 ;
+J+3 ;
+J+7 ;
+J+30.
+50. Analyse détaillée Drop
+
+On retrouve également :
+
+négociation ;
+prix affiché vs prix réalisé ;
+tranches de prix ;
+sell-through par tranche ;
+cartes encore invendues ;
+valeur immobilisée ;
+plus grosse vente ;
+meilleure marge € ;
+meilleure marge % ;
+vente la plus rapide ;
+enseignements calculés automatiquement.
+51. 📉 Estimations
+
+Le menu Estimations sert à analyser des opportunités d’achat avant qu’elles entrent réellement dans ton stock.
+
+C’est actuellement le prochain gros chantier Estimations V2.
+
+Mais beaucoup de fonctions existent déjà.
+
+52. Création d’une estimation
+
+Une estimation possède notamment :
+
+nom de l’opportunité ;
+type d’achat ;
+prix demandé ;
+lien annonce ;
+cartes ;
+bulk ;
+statut ;
+offres.
+
+Exemple de sources :
+
+Vinted ;
+autres sources selon configuration.
+53. Recherche avancée Estimations
+
+La recherche Estimations est beaucoup plus élaborée qu’une recherche classique.
+
+L’index actuel contient environ :
+
+21 441 références ;
+~19 772 cartes uniques.
+
+Il combine :
+
+nom ;
+alias ;
+numéro ;
+extension ;
+rareté ;
+types ;
+variantes ;
+tags ;
+langue ;
+préférences issues des anciennes estimations.
+
+Cela permet par exemple de taper :
+
+evoli ar
+
+sans connaître le numéro.
+
+Cette logique doit absolument être conservée pendant V2.
+
+54. Cartes d’une estimation
+
+Chaque carte peut contenir :
+
+image ;
+nom ;
+numéro ;
+quantité ;
+cote ;
+source de cote ;
+coût estimé ;
+différence potentielle ;
+lien Cardmarket ;
+suppression.
+
+Une estimation calcule ensuite une cote totale.
+
+55. Quick bulk V/ex
+
+Estimations possède déjà une notion structurée de bulk rapide pour les V/ex classiques.
+
+Le format contient notamment :
+
+entry_type=quick_bulk
+bulk_type
+quantité ;
+valeur ;
+prix d’achat unitaire selon les usages existants.
+
+Tu ne souhaites pas étendre cette gestion aux co/unco ordinaires.
+
+56. Mémoire de cotes
+
+La BDD / mémoire de cotes est une fonction importante du module.
+
+Elle permet de conserver des valeurs déjà utilisées plutôt que de repartir systématiquement de zéro.
+
+Elle possède sa propre source synchronisée et peut tenir compte de :
+
+identité de la carte ;
+langue ;
+date ;
+historique ;
+fraîcheur de la donnée.
+
+Cette fonction doit rester centrale dans Estimations V2, même si ses paramètres n’ont plus vocation à être tout en haut de l’écran.
+
+57. Cardmarket
+
+PokéStock génère des liens Cardmarket pour faciliter la vérification manuelle d’une cote.
+
+Point important :
+
+PokéStock n’appelle pas automatiquement l’API Cardmarket pendant la recherche.
+
+Les liens sont construits localement.
+
+Les rate limits que tu as rencontrés proviennent donc probablement surtout de l’ouverture rapide de nombreuses pages Cardmarket dans le navigateur.
+
+58. Suivi d’une estimation
+
+Une estimation peut avoir différents statuts, par exemple autour de :
+
+à vérifier ;
+prête pour offre ;
+offre envoyée ;
+achetée.
+
+Il existe aussi :
+
+historique d’offres ;
+dernier montant envoyé ;
+date ;
+avertissements avant offre.
+59. Offre Vinted
+
+Un réglage par source existe déjà.
+
+Pour Vinted, tes données utilisent actuellement :
+
+55 %
+
+mais la valeur fallback dans le code était encore 60 % lors du dernier audit.
+
+Le comportement visé dans Estimations V2 est :
+
+cote totale × taux Vinted = offre initiale préremplie
+
+tout en laissant l’offre totalement modifiable.
+
+Une offre personnalisée ne doit ensuite plus être écrasée automatiquement.
+
+60. Bug actuel du % cote
+
+L’audit a trouvé précisément pourquoi certains pourcentages étaient faux.
+
+Aujourd’hui une formule additionne parfois :
+
+prix vendeur + coût bulk
+
+avant de comparer à la cote.
+
+Exemple actuel :
+
+prix demandé : 87 €
+bulk : 10,50 €
+cote : 160,50 €
+
+le programme calcule :
+
+97,50 / 160,50 = 60,7 %
+
+alors que le vrai pourcentage demandé est :
+
+87 / 160,50 = 54,2 %
+
+C’est un des bugs prévus pour Estimations V2.
+
+61. Comparer les estimations
+
+La fonction existe encore actuellement mais tu as décidé de la supprimer dans V2.
+
+Elle possède :
+
+renderer dédié ;
+sélection ;
+tri ;
+état de session.
+
+Elle n’a pas de dépendance métier persistante, donc elle pourra être retirée proprement.
+
+62. Estimation → Lot
+
+Cette fonction existe déjà.
+
+Lorsqu’une estimation est achetée, PokéStock peut créer un Lot contenant les cartes.
+
+Il récupère notamment :
+
+cartes ;
+quantités ;
+prix/cotes ;
+coût d’achat.
+
+Cependant l’audit a découvert plusieurs risques :
+
+deux sauvegardes indépendantes ;
+transfert non transactionnel ;
+risque de doublon ;
+certaines métadonnées peuvent être perdues ;
+bulk V/ex mal représenté ;
+estimation conservée après transfert.
+
+Cela sera au cœur d’Estimations V2 Passe 2.
+
+63. Futur transfert transactionnel Estimation → Lot
+
+Le comportement visé est :
+
+prévalider ;
+créer le lot ;
+lier avec un identifiant comme from_estimation_uid ;
+sauvegarder ;
+vérifier le succès ;
+seulement ensuite supprimer l’estimation.
+
+Si le processus plante :
+
+aucun doublon ;
+aucune estimation perdue ;
+possibilité de reprendre.
+64. Dette bulk V/ex après transfert
+
+Si une estimation contient :
+
+17 V/ex classiques
+
+et qu’elle est convertie en Lot, le futur système devra enregistrer :
+
+17 V/ex classiques restent à renseigner
+
+sous forme de métadonnée structurée.
+
+Quand tu identifies les vraies cartes dans Lots :
+
+le compteur diminue ;
+à 0, le rappel disparaît.
+
+Pas de cartes fictives.
+
+65. Images personnalisées
+
+PokéStock possède déjà une bibliothèque centrale d’images personnalisées.
+
+Elle sert lorsque :
+
+l’API n’a pas d’image ;
+l’image est incorrecte ;
+tu veux ajouter ton propre visuel.
+
+Les images personnalisées sont associées à une identité de carte.
+
+Elles peuvent ensuite être réutilisées par plusieurs écrans.
+
+Le service central gère notamment :
+
+custom_card_images.json
+
+La résolution d’images a récemment été améliorée dans Vente/Brocante.
+
+66. Images dans Estimations
+
+Actuellement Estimations sait lire les images personnalisées centrales, mais son ancien système d’upload enregistre encore certaines images dans :
+
+images/manual_estimations
+
+sans toujours les enregistrer dans le service central.
+
+Estimations V2 doit corriger cela afin qu’une image changée dans Estimations soit ensuite disponible partout.
+
+67. 📋 Historique global
+
+L’Historique permet de retrouver les opérations réalisées.
+
+Il sait notamment afficher :
+
+ventes ;
+échanges ;
+commandes multi-lignes.
+
+Les échanges apparaissent chronologiquement avec les ventes sans être comptés comme CA.
+
+Une transaction mixte est affichée comme un seul bloc plutôt que plusieurs ventes indépendantes.
+
+68. Annulation depuis l’Historique
+
+Une vente peut être annulée.
+
+L’annulation restaure :
+
+stock ;
+quantités ;
+CA ;
+historique économique associé.
+
+Pour une transaction avec plusieurs lignes, l’annulation porte sur toute la transaction.
+
+69. 📊 Statistiques
+
+Le module Statistiques analyse l’activité dans le temps.
+
+Il propose notamment :
+
+CA ;
+bénéfice ;
+évolution mensuelle ;
+graphiques ;
+objectifs ;
+profils de mois.
+70. Comparaison mensuelle équitable
+
+Pour le mois en cours, PokéStock ne compare plus un mois partiel à un mois complet.
+
+Exemple :
+
+si nous sommes le 5 septembre :
+
+les statistiques comparent :
+
+1–5 septembre
+
+à :
+
+1–5 août
+
+Cela évite de dire artificiellement :
+
+septembre est -80 %
+
+simplement parce qu’il n’est pas terminé.
+
+Pour les marges, les différences peuvent être exprimées en points lorsque c’est plus logique.
+
+71. Profils des mois
+
+Chaque mois reçoit un profil basé sur plusieurs dimensions de ton activité.
+
+Les axes construits couvrent notamment :
+
+investissement ;
+nombre d’acquisitions ;
+quantité vendue ;
+CA ;
+activité faible ;
+prix moyen ;
+bénéfice ;
+marge ;
+commandes ;
+vitesse acquisition → vente ;
+rendement bénéfice/investissement ;
+part des ventes négociées sous le prix de référence.
+
+Les cartes peuvent afficher par exemple :
+
+🌿 Mois calme
+📦 Mois de volume
+🏆 Mois record
+💎 Mois premium
+💰 Mois rentable
+
+et d’autres profils du système.
+
+72. Mois record
+
+Le Mois record a une règle particulière.
+
+Il est attribué en priorité au mois qui possède le plus gros chiffre d’affaires réel de son année.
+
+Il ne peut donc pas être distribué arbitrairement à plusieurs mois d’une même année.
+
+En cas d’égalité, le premier mois chronologique garde le titre.
+
+Le mois courant ne devient record que lorsqu’il dépasse réellement le record précédent.
+
+73. Explication des profils
+
+Les cartes mensuelles n’affichent plus une longue justification permanente.
+
+Un ? permet d’obtenir une explication plus naturelle.
+
+Le but est d’éviter des textes comme :
+
+« valeur supérieure à 1,8 fois la médiane »
+
+et plutôt dire par exemple :
+
+« Tu as vendu beaucoup plus de cartes que d’habitude ce mois-ci. »
+
+74. Objectifs mensuels
+
+Le module contient également des objectifs mensuels, par exemple autour de :
+
+CA ;
+cartes vendues ;
+autres KPI.
+
+Ils peuvent être modifiés et suivis visuellement.
+
+75. 🧮 Compteurs
+
+Le module Compteurs suit notamment les performances par canal.
+
+Un bug concernant ChoppeTaCarte avait été corrigé.
+
+Le problème venait du fait qu’un nouveau compteur démarrait à la date du jour et excluait donc les ventes plus anciennes.
+
+La logique a été corrigée pour commencer au :
+
+1er janvier de l’année du compteur
+
+et normaliser les anciens alias du canal.
+
+76. 📈 Marché
+
+Une page Marché existe dans la navigation Analyse.
+
+Elle est liée à l’écosystème de suivi de valeurs/cotes.
+
+Nos développements récents ont davantage porté sur la mémoire de cotes intégrée à Estimations et les analyses de Drops ; je n’ai pas suffisamment de détails fiables dans notre historique pour inventer ici toutes les sous-fonctions actuelles de Marché.
+
+77. 🤝 Fournisseurs
+
+Une page Fournisseurs existe également dans la navigation Gestion.
+
+Elle est destinée à la partie fournisseur/sourcing de l’activité.
+
+Nous n’avons pas retravaillé en détail son fonctionnement dans les échanges récents, donc je préfère ne pas inventer de fonctionnalités précises que le code pourrait ne pas avoir.
+
+78. 📝 Annonces individuelles
+
+Le module Annonces individuelles est distinct de Drop Vinted.
+
+La séparation est volontaire :
+
+Annonces individuelles → publication/gestion ponctuelle ;
+Drop Vinted → workflow industriel de dizaines/centaines d’annonces avec photos, reconnaissance, vérification et analytics.
+
+L’architecture actuelle garde donc les deux usages séparés.
+
+79. 🗄️ Archivés
+
+Une page dédiée aux éléments archivés existe également.
+
+Elle permet de sortir certains éléments des vues opérationnelles principales sans nécessairement détruire leur historique.
+
+La notion d’archive est également utilisée dans Brocante.
+
+80. 🎁 Wrapped
+
+Wrapped fait partie de la section Analyse.
+
+Son rôle est de proposer une lecture plus récapitulative de ton activité, à la manière d’un bilan périodique, distinct des tableaux de statistiques quotidiens.
+
+Nous avons moins travaillé récemment sur cette page que sur Stats, Drop ou Brocante.
+
+81. 🔎 Recherche globale
+
+PokéStock possède également une logique de recherche globale.
+
+Elle a été modifiée pour :
+
+mettre à jour les résultats pendant la frappe ;
+ne pas imposer Entrée ;
+présenter les cartes de façon continue pendant une recherche ;
+utiliser l’ancienneté d’acquisition pour le classement.
+
+Lorsqu’aucune recherche n’est active, les informations de lot restent visibles de façon plus structurée.
+
+82. Coût historique dans la recherche
+
+À côté du prix d’une carte, PokéStock peut afficher son coût d’acquisition historique.
+
+Cela fonctionne aussi pour les cartes issues de Trade lorsque la provenance permet de retrouver le coût.
+
+Si le coût n’est pas fiable :
+
+PokéStock indique qu’il est inconnu plutôt que de fabriquer une estimation.
+
+83. Système central d’images
+
+L’application tend maintenant vers un seul pipeline :
+
+custom image explicite
+→ image API
+→ champs historiques
+→ cache
+→ fallback
+
+Ce système est partagé de plus en plus largement entre :
+
+Vente ;
+Brocante ;
+Échange ;
+Lots ;
+Collection ;
+bientôt Estimations de façon complète.
+84. Base cartes / TCGDex
+
+Une partie importante du catalogue et des informations cartes repose sur les données TCGDex/cache.
+
+Le système sait notamment manipuler :
+
+cartes françaises ;
+cartes japonaises ;
+numéro ;
+extension ;
+images ;
+noms ;
+variantes.
+
+Certaines URL TCGDex doivent être normalisées vers des chemins comme :
+
+/high.webp
+
+pour afficher correctement l’image.
+
+85. Cloud Sync
+
+PokéStock possède un mécanisme de synchronisation entre local et Cloud.
+
+Des fonctions comme :
+
+pull_all_cloud_datasets()
+save_synced_dataset()
+save_cloud_json()
+
+ont été intégrées.
+
+Le système possède plusieurs protections :
+
+cache de session ;
+TTL/debounce ;
+session-first loading ;
+auto-pull périodique ;
+protection local_dirty.
+86. local_dirty
+
+Lorsqu’un fichier local contient des modifications non encore synchronisées, local_dirty=true empêche une synchronisation descendante de venir écraser brutalement le travail local.
+
+C’est une protection importante contre la perte de données.
+
+87. Déploiement
+
+Le workflow actuel est :
+
+PC local
+↕
+GitHub main pour le code
+↕
+Streamlit Cloud pour l’application web
+
+Les données utilisateur et le code sont volontairement séparés autant que possible.
+
+Les commits ne doivent pas inclure des fichiers comme :
+
+data.json
+vinted_drops.json
+custom_card_images.json
+cloud_sync_state.json
+monthly_goals.json
+stock_value_history.json
+caches ;
+images locales utilisateur.
+88. Compatibilité historique
+
+Une grosse partie du travail réalisé sur PokéStock consiste à ne pas casser les anciennes données.
+
+Par exemple :
+
+anciennes ventes sans sale_transaction_id ;
+anciens lots ;
+anciens échanges ;
+anciennes images ;
+anciennes estimations.
+
+Le code ajoute autant que possible des couches compatibles au lieu de forcer des migrations destructives.
+
+89. Principes économiques fondamentaux
+
+PokéStock repose maintenant sur quelques règles très importantes.
+
+Vente
+
+CA = montant réellement encaissé.
+
+Bénéfice
+
+vente − coût historique réel.
+
+Échange
+
+n’est jamais une vente.
+
+Argent reçu dans un échange
+
+n’est jamais du CA.
+
+Rachat
+
+n’est jamais une vente.
+
+Prix estimé
+
+n’est jamais automatiquement un coût historique.
+
+Coût inconnu
+
+reste inconnu.
+
+Lot
+
+conserve l’origine économique des cartes.
+
+Suppression
+
+doit restaurer proprement les conséquences économiques.
+
+C’est ce qui permet d’avoir des statistiques fiables.
+
+90. Principaux workflows complets
+Achat classique
+
+Achat d’une collection
+→ création Lot
+→ cartes en stock
+→ prix de vente
+→ Vente
+→ CA
+→ bénéfice
+→ remboursement du Lot
+→ statistiques.
+
+Estimation
+
+Annonce/Vinted
+→ Estimation
+→ cartes + cotes
+→ prix vendeur
+→ négociation
+→ achat
+→ conversion en Lot
+→ futur stock.
+
+Échange
+
+Cartes stockées
+→ Trade
+→ cartes données sans CA
+→ cartes reçues avec coût historique transmis
+→ Trade Lot
+→ future vente.
+
+Brocante
+
+Préparation
+→ fonds de caisse
+→ Vente / Rachat / Hors stock / Trade / Frais
+→ caisse théorique
+→ comptage réel
+→ clôture
+→ historique.
+
+Drop Vinted
+
+Choix cartes
+→ photos
+→ reconnaissance
+→ validation
+→ annonces
+→ lancement
+→ ventes
+→ analytics.
+
+91. État actuel des gros chantiers
+
+À l’heure actuelle, je classerais l’application comme ceci :
+
+✅ Très avancé / stabilisé
+Vente ;
+panier mixte ;
+Trade ;
+Lots ;
+remboursement Lots ;
+Collection ;
+Drop Vinted Steps 2–5 ;
+reconnaissance photo ;
+analytics Drops ;
+recherche globale ;
+images centrales ;
+responsive général.
+🟢 Brocante fonctionnellement très avancée
+
+Les dernières passes ont corrigé :
+
+Vente mobile ;
+Rachat ;
+Trade ;
+cash ;
+images ;
+format 6rem ;
+performance.
+
+Il reste surtout le test automatisé complet isolé que nous venons de préparer avant de la considérer définitivement gelée.
+
+🟠 Estimations : prochain gros chantier
+
+La base est riche, mais V2 doit corriger :
+
+% cote ;
+fluidité/reruns ;
+curseur ;
+image custom centrale ;
+offre Vinted automatique ;
+suppression Comparaison ;
+transfert Estimation → Lot ;
+bulk V/ex après transfert ;
+suppression transactionnelle de l’estimation.
+En une phrase
+
+PokéStock est passé d’un simple gestionnaire de lots Pokémon à un véritable mini-ERP personnel pour ton activité : il suit l’origine et le coût de chaque carte, les ventes, les échanges, les rachats, les brocantes, les Drops Vinted, les estimations, les cotes, les statistiques et toute l’histoire économique du stock, avec une logique commune entre desktop, mobile et Cloud.

@@ -95,15 +95,30 @@ def save_cloud_sync_state(state):
     safe_write_json(CLOUD_SYNC_STATE_FILE, state, indent=2)
 
 
-def update_cloud_sync_state(key, *, data=None, source="", dirty=None, last_read=None, last_save=None):
+def update_cloud_sync_state(key, *, data=None, source="", dirty=None, last_read=None, last_save=None, fingerprint=None, push_pending=None, push_error=None):
     state = load_cloud_sync_state()
     entry = state.setdefault("files", {}).setdefault(key, {})
-    if data is not None:
+    if fingerprint:
+        entry["fingerprint"] = fingerprint
+    elif data is not None:
         entry["fingerprint"] = json_fingerprint(data)
     if source:
         entry["source"] = source
     if dirty is not None:
         entry["local_dirty"] = bool(dirty)
+        if not dirty and push_pending is None:
+            # Donnees identiques au cloud : plus rien a envoyer.
+            push_pending = False
+    if push_pending is not None:
+        # push_pending : envoi cloud en arriere-plan demande mais pas encore confirme.
+        entry["push_pending"] = bool(push_pending)
+    if push_error is not None:
+        if push_error:
+            entry["push_error"] = str(push_error)[:300]
+            entry["push_error_at"] = utc_now_iso()
+        else:
+            entry.pop("push_error", None)
+            entry.pop("push_error_at", None)
     if last_read:
         entry["last_read_at"] = last_read
     if last_save:
@@ -282,6 +297,21 @@ def load_cloud_json_meta(key):
         return {"available": False, "lots_count": None, "updated_at": "", "error": st.session_state["cloud_sync_error"]}
     finally:
         perf_log("cloud load_meta", time.perf_counter() - started_at, key)
+
+
+def save_cloud_json_with_client(client, key, data):
+    """Upsert JSON data with an existing client, WITHOUT touching Streamlit state.
+
+    Utilisable depuis un fil d'execution d'arriere-plan : aucun acces a
+    st.session_state ni a perf_*. Leve une exception en cas d'echec ; l'appelant
+    (main thread) se charge de memoriser le resultat.
+    """
+    client.table(SUPABASE_STATE_TABLE).upsert({
+        "key": key,
+        "data": data,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+    return True
 
 
 def save_cloud_json(key, data):
