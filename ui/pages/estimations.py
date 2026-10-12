@@ -3457,16 +3457,15 @@ def _render_compact_suggestion(enriched, language="fr"):
     if lang == "JP":
         alias = str(enriched.get("name_fr") or enriched.get("name_en") or "").strip()
     detail = " · ".join(part for part in [set_name, f"#{number}" if number else "", lang, rarity] if part)
+    # Sans alias, l'ancienne ligne vide coupait le bloc HTML pour Markdown : <em> et </div>
+    # s'affichaient en texte brut. Aucune ligne vide ne doit exister dans ce bloc.
+    alias_html = f"<span>{html.escape(alias)}</span>" if alias else ""
     st.markdown(
-        f"""
-        <div class="est-suggestion-card compact">
-            <div class="est-suggestion-copy">
-                <strong>{html.escape(str(enriched.get('name') or 'Carte'))}</strong>
-                {f'<span>{html.escape(alias)}</span>' if alias else ''}
-                <em>{html.escape(detail)}</em>
-            </div>
-        </div>
-        """,
+        '<div class="est-suggestion-card compact"><div class="est-suggestion-copy">'
+        f"<strong>{html.escape(str(enriched.get('name') or 'Carte'))}</strong>"
+        f"{alias_html}"
+        f"<em>{html.escape(detail)}</em>"
+        "</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -3900,7 +3899,52 @@ def _save_estimation_manual_image(card, uploaded_file):
     return image_ref
 
 
+# Grille « Cartes suivies » : colonnes de largeur fixe (part de la ligne), retour à la ligne,
+# jamais étirées selon le nombre de cartes. Clé dédiée : les autres grilles (accueil, collection,
+# popups, choix d'estimation) gardent leurs règles partagées de app.py.
+_TRACKED_GRID_GAP = "0.46rem"
+_TRACKED_GRID_CSS = """
+<style>
+[class*="st-key-est_tracked_grid_"][data-testid="stHorizontalBlock"] {
+    display:flex !important;
+    flex-direction:row !important;
+    flex-wrap:wrap !important;
+    justify-content:flex-start !important;
+    align-items:flex-start !important;
+    gap:%(gap)s !important;
+    width:100%% !important;
+    max-width:100%% !important;
+}
+[class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
+    flex:0 0 calc((100%% - 7 * %(gap)s) / 8) !important;
+    width:calc((100%% - 7 * %(gap)s) / 8) !important;
+    max-width:calc((100%% - 7 * %(gap)s) / 8) !important;
+    min-width:0 !important;
+    box-sizing:border-box !important;
+}
+@media (max-width:1100px) {
+    [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex-basis:calc((100%% - 3 * %(gap)s) / 4) !important;
+        width:calc((100%% - 3 * %(gap)s) / 4) !important;
+        max-width:calc((100%% - 3 * %(gap)s) / 4) !important;
+    }
+}
+@media (max-width:768px) {
+    [class*="st-key-est_tracked_grid_"][data-testid="stHorizontalBlock"] {
+        gap:0.3rem !important;
+    }
+    [class*="st-key-est_tracked_grid_"] > [data-testid="stLayoutWrapper"] {
+        flex-basis:calc((100%% - 0.3rem) / 2) !important;
+        width:calc((100%% - 0.3rem) / 2) !important;
+        max-width:calc((100%% - 0.3rem) / 2) !important;
+    }
+}
+</style>
+""" % {"gap": _TRACKED_GRID_GAP}
+
+
 def _render_css():
+    st.markdown(_TRACKED_GRID_CSS, unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -5704,7 +5748,7 @@ def _render_open_estimation(
                 )
                 st.rerun()
         tracked_render_started = time.perf_counter()
-        with st.container(key=f"search_results_grid_estimations_{uid}", horizontal=True, gap="small"):
+        with st.container(key=f"est_tracked_grid_{uid}", horizontal=True, gap="small"):
             for cidx, card in enumerate(render_cards):
                 with st.container(key=f"search_result_card_estimations_{uid}_{card.get('uid') or cidx}"):
                         if _is_quick_bulk_entry(card):
