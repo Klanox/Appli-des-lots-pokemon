@@ -968,6 +968,11 @@
       "captured_at": "2026-10-12T13:45:16",
       "value": 7294.39,
       "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-12T14:45:10",
+      "value": 7205.39,
+      "provenance": "live"
     }
   ],
   "annotations": []
