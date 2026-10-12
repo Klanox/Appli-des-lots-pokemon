@@ -3516,7 +3516,7 @@
       "price_source": "Estimation · Lot de pas mal de gg et d'ar jap",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T13:28:13.907372+00:00",
-      "last_used_at": "2026-07-04T18:14:17.494288+00:00",
+      "last_used_at": "2026-10-12T12:33:14.983187+00:00",
       "history": []
     },
     "pashmilla-ex|105|ME04|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10036,7 +10036,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T19:03:03.188246+00:00",
-      "last_used_at": "2026-07-04T19:10:16.537832+00:00",
+      "last_used_at": "2026-10-12T12:33:14.972994+00:00",
       "history": []
     },
     "riolu|GG26|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10278,6 +10278,30 @@
       "updated_at": "2026-07-04T19:10:17.229231+00:00",
       "last_used_at": "",
       "history": []
+    },
+    "grodoudou|105|ME02|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me02-105",
+      "name": "Grodoudou",
+      "number": "105",
+      "set_id": "ME02",
+      "set": "Flammes Fantasmagoriques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "grodoudou|105|ME02|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 5.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-12T12:33:22.199023+00:00",
+      "last_used_at": "",
+      "history": []
     }
   },
   "settings": {
@@ -10286,5 +10310,5 @@
   },
   "last_import_at": "",
   "last_refresh_at": "",
-  "updated_at": "2026-07-04T19:10:17.229267+00:00"
+  "updated_at": "2026-10-12T12:33:22.199053+00:00"
 }

@@ -19,7 +19,70 @@
       "listing_image_url": "",
       "status": "À analyser",
       "created_at": "2026-10-12",
-      "cards": []
+      "cards": [
+        {
+          "uid": "estcard_32d6150846d044beb0491f22dad0d252",
+          "name": "Skelénox",
+          "number": "GG28",
+          "set": "Zénith Suprême",
+          "quantity": 1,
+          "cote": 5.0,
+          "condition": "NM",
+          "special": "",
+          "note": "",
+          "image_url": "https://assets.tcgdex.net/fr/swsh/swsh12.5/GG28/high.webp",
+          "image_url_en": "",
+          "rarity": "",
+          "is_collection": false,
+          "set_id": "swsh12.5",
+          "set_tags": [
+            "gg",
+            "swsh",
+            "swsh12.5",
+            "swsh125"
+          ],
+          "id": "swsh12.5-GG28",
+          "card_id": "swsh12.5-GG28",
+          "lang": "fr",
+          "language": "fr",
+          "metadata_tags": [
+            "GG"
+          ],
+          "cached_image_path": "images/estimation_cache/swsh12.5-GG28_swsh12.5-GG28_Skel_nox_GG28_swsh12.5.webp",
+          "auto_price": 5.0,
+          "market_price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
+          "market_price_confidence": "saisie manuelle",
+          "auto_price_updated_at": "2026-07-04T19:03:03.188246+00:00",
+          "market_price_origin": "auto"
+        },
+        {
+          "uid": "estcard_bfd8e618a6b04d5a96672fa54c2a9fe4",
+          "name": "Grodoudou",
+          "number": "105",
+          "set": "Flammes Fantasmagoriques",
+          "quantity": 1,
+          "cote": 5.0,
+          "condition": "NM",
+          "special": "",
+          "note": "",
+          "image_url": "https://assets.tcgdex.net/fr/me/me02/105/high.webp",
+          "image_url_en": "",
+          "rarity": "",
+          "is_collection": false,
+          "set_id": "me02",
+          "set_tags": [
+            "me",
+            "me02"
+          ],
+          "id": "me02-105",
+          "card_id": "me02-105",
+          "lang": "fr",
+          "language": "fr",
+          "cached_image_path": "images/estimation_cache/me02-105_me02-105_Grodoudou_105_me02.webp",
+          "manual_price": 5.0,
+          "market_price_origin": "manual"
+        }
+      ]
     }
   ]
 }
