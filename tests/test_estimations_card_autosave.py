@@ -93,6 +93,17 @@ class CardAutosaveTest(unittest.TestCase):
         self.cache_save.assert_not_called()
         self.assertEqual(self.at.session_state["market_price_cache"]["entries"], {})
 
+    def test_quantity_changed_elsewhere_recreates_field_with_new_value(self):
+        self.qty("c1").set_value(5).run()                                           # saisie utilisateur : le champ garde sa clé
+        self.assertEqual(self.card("c1")["quantity"], 5)
+        self.assertTrue(any(n.key == "est_card_qty_e1_c1" for n in self.at.number_input))
+        self.card("c1")["quantity"] = 6                                             # modifiée ailleurs (ex. fusion d'un doublon)
+        self.at.run()
+        key = "est_card_qty_e1_c1_v1"
+        self.assertTrue(any(n.key == key for n in self.at.number_input))            # champ recréé : plus d'ancienne valeur renvoyée par le navigateur
+        self.assertEqual(next(n for n in self.at.number_input if n.key == key).value, 6)
+        self.assertEqual(self.card("c1")["quantity"], 6)
+
     def test_cote_change_marks_manual_and_copies_to_price_cache(self):
         self.cote("c1").set_value("9,50").run()
         self.assertEqual(len(self.at.exception), 0)
@@ -132,6 +143,21 @@ class CardAutosaveTest(unittest.TestCase):
         src = inspect.getsource(estimations._render_open_estimation)
         block = src[src.index('"Utiliser la cote auto"'):src.index('foot_cols = st.columns')]
         self.assertNotIn("st.session_state[", block)
+
+
+class StaleQuantityCallbackTest(unittest.TestCase):
+    def test_old_field_value_is_ignored_after_quantity_changed_elsewhere(self):
+        card = {"uid": "c1", "quantity": 4}
+        saved = []
+        state = {"qty_old": 3, "epoch": 1}                                          # le champ d'origine (époque 0) renvoie encore 3
+        kwargs = dict(card=card, estimate={}, edata={}, market_cache={}, save_estimations_func=lambda d: saved.append(1),
+                      parse_float_input_func=lambda t, d=0.0: d, qty_key="qty_old", cote_key="cote", qty_epoch_key="epoch", qty_rendered_key="rendered")
+        with mock.patch.object(estimations.st, "session_state", state):
+            estimations._autosave_estimation_card_field("qty", qty_epoch=0, **kwargs)
+            self.assertEqual((card["quantity"], saved), (4, []))                    # ignoré : la fusion (4) n'est pas écrasée
+            state.update(qty_old=5, epoch=0)
+            estimations._autosave_estimation_card_field("qty", qty_epoch=0, **kwargs)
+            self.assertEqual((card["quantity"], len(saved), state["rendered"]), (5, 1, 5))   # vraie saisie : enregistrée
 
 
 if __name__ == "__main__":

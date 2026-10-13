@@ -116,6 +116,7 @@ from core.sales_actions import (
     scroll_to_cart_prepare,
 )
 from services.custom_card_image_service import apply_custom_image_fallback
+from services.card_image_lookup import start_card_image_lookup
 from services.vinted_channels import SALE_CHANNELS
 from services.vinted_drops_service import load_vinted_drops, save_vinted_drops
 from services.brocante_data import load_brocantes
@@ -179,6 +180,11 @@ from services.estimations_service import (
 )
 from core.trade_economics import card_trade_sale_cost
 from services.estimations_cache_enrichment import enrich_estimations_card_cache
+try:
+    from ui.pages.estimations import preload_estimations_in_background
+    preload_estimations_in_background()   # imports lourds + index de recherche des cartes, une seule fois, en arriere-plan
+except Exception as e:
+    print(f"Prechargement Estimations ignore: {e}")
 from services.cloud_sync_service import (
     SYNCED_DATASETS,
     cloud_sync_status_summary,
@@ -608,11 +614,16 @@ def add_estimation_card(active, card_name, card_number, card_cote, card_qty, car
     rarity = ""
     final_name = str(card_name or "").strip()
     final_number = str(card_number or "").strip()
+    lookup_card_id = ""
 
     if chosen_match:
         try:
             matched_card, matched_set = chosen_match
-            enriched = ecd(matched_card, matched_set, lang="fr")
+            # allow_network=False : plus d'appel API bloquant pendant le clic ; si la carte n'a pas d'image dans l'index local,
+            # l'URL est cherchee en arriere-plan (voir plus bas) et rattachee a la carte au rendu suivant.
+            enriched = ecd(matched_card, matched_set, lang="fr", allow_network=False)
+            if not enriched.get("image_url"):
+                lookup_card_id = str(matched_card.get("id", "") or "")
             image_url = enriched.get("image_url", "")
             image_url_en = enriched.get("image_url_en", "")
             set_name = enriched.get("set", "")
@@ -625,7 +636,9 @@ def add_estimation_card(active, card_name, card_number, card_cote, card_qty, car
         try:
             matches = search_in_cache(final_name, final_number)
             if len(matches) == 1:
-                enriched = ecd(matches[0][0], matches[0][1], lang="fr")
+                enriched = ecd(matches[0][0], matches[0][1], lang="fr", allow_network=False)
+                if not enriched.get("image_url"):
+                    lookup_card_id = str(matches[0][0].get("id", "") or "")
                 image_url = enriched.get("image_url", "")
                 image_url_en = enriched.get("image_url_en", "")
                 set_name = enriched.get("set", "")
@@ -652,6 +665,11 @@ def add_estimation_card(active, card_name, card_number, card_cote, card_qty, car
     }
     apply_custom_image_fallback(estimation_card)
     active.setdefault("cards", []).append(estimation_card)
+    if lookup_card_id and not estimation_card.get("image_url") and not estimation_card.get("manual_image_path"):
+        try:
+            start_card_image_lookup(estimation_card["uid"], lookup_card_id, "fr")
+        except Exception:
+            pass
 
 def new_uid(prefix):
     return f"{prefix}_{uuid.uuid4().hex}"
@@ -1317,7 +1335,7 @@ def sgt(n,num=None,lang="fr"):
     
     return results
 
-def ecd(c, s, lang="fr"):
+def ecd(c, s, lang="fr", allow_network=True):
     """Enrichir données carte"""
     cache_key = f"ecd_{lang}_{c.get('id','')}_{s}_{c.get('localId') or c.get('number') or ''}"
     if cache_key in st.session_state:
@@ -1344,7 +1362,8 @@ def ecd(c, s, lang="fr"):
         img_url_en = ""
 
     # Si toujours vide (pas de set_id dans le cache), appel API une seule fois
-    if not img_url and card_id:
+    network_skipped = bool(not img_url and card_id and not allow_network)
+    if not img_url and card_id and allow_network:
         try:
             for try_lang in ([lang, "en"] if lang != "ja" else ["ja", "en"]):
                 r = requests.get(f"https://api.tcgdex.net/v2/{try_lang}/cards/{card_id}", timeout=3)
@@ -1379,7 +1398,9 @@ def ecd(c, s, lang="fr"):
         "is_ed1": False,
         "sold_entries": []
     }
-    st.session_state[cache_key] = json.loads(json.dumps(enriched, ensure_ascii=False))
+    if not network_skipped:
+        # Un resultat volontairement incomplet (appel API reporte en arriere-plan) n'est pas mis en cache.
+        st.session_state[cache_key] = json.loads(json.dumps(enriched, ensure_ascii=False))
     return json.loads(json.dumps(enriched, ensure_ascii=False))
 
 def set_current_page(page, source=""):

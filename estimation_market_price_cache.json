@@ -22,7 +22,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:54:17.183864+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539972+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352025+00:00",
       "history": [
         {
           "price": 33.0,
@@ -430,7 +430,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T10:35:18.152485+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539888+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351873+00:00",
       "history": []
     },
     "mega-dracaufeu x-ex|029|MEP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -650,7 +650,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T10:39:32.572223+00:00",
-      "last_used_at": "2026-07-04T18:14:38.535411+00:00",
+      "last_used_at": "2026-10-13T13:14:14.465216+00:00",
       "history": []
     },
     "frissonille|168|SV05|fr||normal|nonholo|standard|nostamp|regular": {
@@ -674,7 +674,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T10:39:51.416863+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541733+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353457+00:00",
       "history": []
     },
     "saquedeneu d'erika|218|ME02.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -833,7 +833,7 @@
       "number": "100",
       "set_id": "ME02",
       "set": "Flammes Fantasmagoriques",
-      "lang": "",
+      "lang": "fr",
       "specials": "",
       "tags": "",
       "is_reverse": false,
@@ -842,14 +842,20 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "zacian|100|ME02|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 4.0,
-      "previous_price": 0.0,
+      "reference_price": 5.0,
+      "previous_price": 4.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot d'ar et d'ex",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-06-23T10:43:46.962730+00:00",
-      "last_used_at": "2026-07-04T18:14:39.055384+00:00",
-      "history": []
+      "updated_at": "2026-10-13T12:51:02.025495+00:00",
+      "last_used_at": "2026-10-13T13:52:11.361183+00:00",
+      "history": [
+        {
+          "price": 4.0,
+          "source": "Estimation · Lot d'ar et d'ex",
+          "at": "2026-06-23T10:43:46.962730+00:00"
+        }
+      ]
     },
     "tokorico-ex|222|SV04|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "sv04-222",
@@ -896,7 +902,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T10:45:54.489182+00:00",
-      "last_used_at": "2026-07-04T18:14:39.036531+00:00",
+      "last_used_at": "2026-10-13T13:14:14.527289+00:00",
       "history": []
     },
     "noadkoko|135|ME01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -1399,7 +1405,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T11:53:41.868512+00:00",
-      "last_used_at": "2026-07-04T18:14:38.862736+00:00",
+      "last_used_at": "2026-10-13T13:52:11.428988+00:00",
       "history": []
     },
     "mega-nanmeouie-ex|253|ME02.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -1663,7 +1669,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T11:59:36.771673+00:00",
-      "last_used_at": "2026-07-04T18:14:38.755503+00:00",
+      "last_used_at": "2026-10-13T13:14:14.647378+00:00",
       "history": []
     },
     "colimucus|095|ME04|fr||normal|nonholo|standard|nostamp|regular": {
@@ -1963,7 +1969,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:50:38.108995+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542655+00:00",
+      "last_used_at": "2026-10-13T13:14:14.916600+00:00",
       "history": [
         {
           "price": 3.0,
@@ -2100,7 +2106,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:46:08.622749+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542424+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353990+00:00",
       "history": [
         {
           "price": 5.0,
@@ -2406,7 +2412,7 @@
       "price_source": "Estimation · Lot de pas mal de gg et d'ar jap",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T12:48:32.405904+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541569+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353364+00:00",
       "history": []
     },
     "paras|GG32|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -2985,7 +2991,7 @@
       "number": "198",
       "set_id": "SV03",
       "set": "Flammes Obsidiennes",
-      "lang": "",
+      "lang": "fr",
       "specials": "",
       "tags": "",
       "is_reverse": false,
@@ -2994,14 +3000,20 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "ortide|198|SV03|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 4.0,
-      "previous_price": 0.0,
+      "reference_price": 11.0,
+      "previous_price": 4.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot de pas mal de gg et d'ar jap",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-06-23T13:06:42.128441+00:00",
-      "last_used_at": "2026-07-04T11:18:30.468158+00:00",
-      "history": []
+      "updated_at": "2026-10-13T12:48:04.402622+00:00",
+      "last_used_at": "2026-10-13T13:52:11.403041+00:00",
+      "history": [
+        {
+          "price": 4.0,
+          "source": "Estimation · Lot de pas mal de gg et d'ar jap",
+          "at": "2026-06-23T13:06:42.128441+00:00"
+        }
+      ]
     },
     "koraidon-ex|247|SV01|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "sv01-247",
@@ -3174,7 +3186,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:16:35.682036+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541202+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353136+00:00",
       "history": [
         {
           "price": 2.0,
@@ -3341,7 +3353,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:58:14.463587+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540112+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352212+00:00",
       "history": [
         {
           "price": 18.0,
@@ -3545,7 +3557,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:32:57.339428+00:00",
-      "last_used_at": "2026-10-12T19:56:21.554667+00:00",
+      "last_used_at": "2026-10-13T09:34:59.365854+00:00",
       "history": [
         {
           "price": 7.0,
@@ -3816,7 +3828,7 @@
       "number": "091",
       "set_id": "SV10.5W",
       "set": "Flamme Blanche",
-      "lang": "",
+      "lang": "fr",
       "specials": "",
       "tags": "",
       "is_reverse": false,
@@ -3825,18 +3837,28 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "vivaldaim|091|SV10.5W|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 7.0,
-      "previous_price": 6.0,
+      "reference_price": 15.0,
+      "previous_price": 15.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot de pas mal de gg et d'ar jap",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-06-28T17:13:45.545197+00:00",
-      "last_used_at": "2026-07-04T11:18:30.468966+00:00",
+      "updated_at": "2026-10-13T13:14:13.049807+00:00",
+      "last_used_at": "2026-10-13T13:14:14.593894+00:00",
       "history": [
         {
           "price": 6.0,
           "source": "Estimation · Lot de pas mal de gg et d'ar jap",
           "at": "2026-06-23T13:39:42.816964+00:00"
+        },
+        {
+          "price": 7.0,
+          "source": "Estimation · Lot de pas mal de gg et d'ar jap",
+          "at": "2026-06-28T17:13:45.545197+00:00"
+        },
+        {
+          "price": 15.0,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T12:24:51.934970+00:00"
         }
       ]
     },
@@ -4035,7 +4057,7 @@
       "price_source": "Estimation · lot xyle",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T18:50:06.308133+00:00",
-      "last_used_at": "2026-07-04T18:14:17.777945+00:00",
+      "last_used_at": "2026-10-13T13:14:14.514658+00:00",
       "history": []
     },
     "balbaleze|201|SV08|fr||normal|nonholo|standard|nostamp|regular": {
@@ -4329,18 +4351,23 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "lakmecygne|110|SV10.5W|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 22.5,
-      "previous_price": 23.0,
+      "reference_price": 20.0,
+      "previous_price": 22.5,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-07-04T18:37:27.223902+00:00",
-      "last_used_at": "2026-07-04T19:10:16.906370+00:00",
+      "updated_at": "2026-10-13T12:24:57.342559+00:00",
+      "last_used_at": "2026-10-13T13:14:14.581726+00:00",
       "history": [
         {
           "price": 23.0,
           "source": "Estimation · lot xyle",
           "at": "2026-06-23T18:56:54.842709+00:00"
+        },
+        {
+          "price": 22.5,
+          "source": "Estimation · Gros lot d'ar, de radieuses et de tg",
+          "at": "2026-07-04T18:37:27.223902+00:00"
         }
       ]
     },
@@ -4365,7 +4392,7 @@
       "price_source": "Estimation · lot xyle",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T18:57:22.707864+00:00",
-      "last_used_at": "2026-07-04T11:18:30.469747+00:00",
+      "last_used_at": "2026-10-13T13:14:14.761368+00:00",
       "history": []
     },
     "plan de n|163|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
@@ -4413,7 +4440,7 @@
       "price_source": "Estimation · lot xyle",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T18:58:05.082158+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542180+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353831+00:00",
       "history": []
     },
     "hotte-de-fer|066|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -4437,7 +4464,7 @@
       "price_source": "Estimation · lot xyle",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-23T18:58:30.588835+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541326+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353212+00:00",
       "history": []
     },
     "feuiloutan|090|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
@@ -4461,7 +4488,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:43:32.312188+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542292+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353909+00:00",
       "history": [
         {
           "price": 7.0,
@@ -5097,7 +5124,7 @@
       "price_source": "Estimation · Lot d'ex et de quelques ar",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-24T09:56:16.829920+00:00",
-      "last_used_at": "2026-06-24T10:26:42.305186+00:00",
+      "last_used_at": "2026-10-13T13:52:11.487945+00:00",
       "history": []
     },
     "tcheren|081|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -5199,7 +5226,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:20:40.001810+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541475+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353306+00:00",
       "history": [
         {
           "price": 3.0,
@@ -5228,13 +5255,13 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "lamantine|097|ME02|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 4.0,
-      "previous_price": 3.0,
+      "reference_price": 3.5,
+      "previous_price": 4.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot d'ar et d'ex dracaufeu",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-07-04T11:12:45.837486+00:00",
-      "last_used_at": "2026-07-04T19:10:16.224442+00:00",
+      "updated_at": "2026-10-13T12:23:26.823920+00:00",
+      "last_used_at": "2026-10-13T13:14:14.638071+00:00",
       "history": [
         {
           "price": 2.0,
@@ -5245,6 +5272,11 @@
           "price": 3.0,
           "source": "Estimation · Lot d'ar et d'ex dracaufeu",
           "at": "2026-07-04T11:12:41.432776+00:00"
+        },
+        {
+          "price": 4.0,
+          "source": "Estimation · Lot d'ar et d'ex dracaufeu",
+          "at": "2026-07-04T11:12:45.837486+00:00"
         }
       ]
     },
@@ -5671,14 +5703,20 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "moustillon|105|SV10.5W|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 60.0,
-      "previous_price": 0.0,
+      "reference_price": 46.0,
+      "previous_price": 60.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot d'ex et de quelques ar",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-06-24T10:17:48.771946+00:00",
-      "last_used_at": "2026-06-24T10:26:42.077983+00:00",
-      "history": []
+      "updated_at": "2026-10-13T12:24:22.878850+00:00",
+      "last_used_at": "2026-10-13T13:14:14.604937+00:00",
+      "history": [
+        {
+          "price": 60.0,
+          "source": "Estimation · Lot d'ex et de quelques ar",
+          "at": "2026-06-24T10:17:48.771946+00:00"
+        }
+      ]
     },
     "ludvina|164|SV10.5W|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "sv10.5w-164",
@@ -5773,7 +5811,7 @@
       "price_source": "Estimation · Lot d'ex et de quelques ar",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-24T10:22:39.968290+00:00",
-      "last_used_at": "2026-06-24T10:26:42.048009+00:00",
+      "last_used_at": "2026-10-13T13:52:11.396793+00:00",
       "history": []
     },
     "mega-tenefix et tyranocif gx|126|SM11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -6925,7 +6963,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:32:41.345390+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539034+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350917+00:00",
       "history": [
         {
           "price": 6.0,
@@ -6979,7 +7017,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:47:07.477756+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542487+00:00",
+      "last_used_at": "2026-10-13T09:34:59.354049+00:00",
       "history": [
         {
           "price": 15.0,
@@ -7081,7 +7119,7 @@
       "price_source": "Estimation · Lot d'ar et de tg tomarias18",
       "confidence": "saisie manuelle",
       "updated_at": "2026-06-24T13:09:14.310014+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539122+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351002+00:00",
       "history": []
     },
     "zamazenta|102|SWSH4|fr||normal|nonholo|standard|nostamp|regular": {
@@ -7129,7 +7167,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:54:11.555071+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539951+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351996+00:00",
       "history": [
         {
           "price": 43.5,
@@ -7418,13 +7456,24 @@
       "is_ed1": false,
       "key": "libegon|101|ME02|fr||normal|nonholo|standard|nostamp|regular",
       "reference_price": 4.0,
-      "previous_price": 0.0,
+      "previous_price": 4.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot d'ar et de tg tomarias18",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-06-24T13:21:36.602246+00:00",
-      "last_used_at": "2026-07-04T18:14:49.900314+00:00",
-      "history": []
+      "updated_at": "2026-10-13T13:52:13.898816+00:00",
+      "last_used_at": "",
+      "history": [
+        {
+          "price": 4.0,
+          "source": "Estimation · Lot d'ar et de tg tomarias18",
+          "at": "2026-06-24T13:21:36.602246+00:00"
+        },
+        {
+          "price": 4.0,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T13:14:00.578372+00:00"
+        }
+      ]
     },
     "dracaufeu gx|20|SM3|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "sm3-20",
@@ -8047,14 +8096,20 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "plumeline-ex|024|MEP|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 25.0,
-      "previous_price": 0.0,
+      "reference_price": 21.0,
+      "previous_price": 25.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot de cel et d'ar",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-07-03T16:35:03.740508+00:00",
-      "last_used_at": "2026-07-04T18:15:07.954554+00:00",
-      "history": []
+      "updated_at": "2026-10-13T12:51:25.357966+00:00",
+      "last_used_at": "2026-10-13T13:52:11.340968+00:00",
+      "history": [
+        {
+          "price": 25.0,
+          "source": "Estimation · Lot de cel et d'ar",
+          "at": "2026-07-03T16:35:03.740508+00:00"
+        }
+      ]
     },
     "magneton|159|SVP|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "svp-159",
@@ -8173,14 +8228,20 @@
       "is_stamp": false,
       "is_ed1": false,
       "key": "ectoplasma|TG06|SWSH11|fr||normal|nonholo|standard|nostamp|regular",
-      "reference_price": 40.0,
-      "previous_price": 0.0,
+      "reference_price": 30.0,
+      "previous_price": 40.0,
       "origin": "manual_estimation",
-      "price_source": "Estimation · Lot de cel et d'ar",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
-      "updated_at": "2026-07-03T16:35:57.209009+00:00",
-      "last_used_at": "2026-07-04T18:15:07.908461+00:00",
-      "history": []
+      "updated_at": "2026-10-13T12:33:37.629764+00:00",
+      "last_used_at": "2026-10-13T13:14:14.381103+00:00",
+      "history": [
+        {
+          "price": 40.0,
+          "source": "Estimation · Lot de cel et d'ar",
+          "at": "2026-07-03T16:35:57.209009+00:00"
+        }
+      ]
     },
     "pharamp|090|ME04|fr||normal|nonholo|standard|nostamp|regular": {
       "source_card_id": "me04-090",
@@ -8347,7 +8408,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:43:00.330073+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542251+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353888+00:00",
       "history": [
         {
           "price": 8.0,
@@ -8593,7 +8654,7 @@
       "price_source": "Estimation · Lot d'ar et d'ex dracaufeu",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T11:14:04.078440+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542400+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353973+00:00",
       "history": []
     },
     "mega-diancie-ex|267|ME02.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -8761,7 +8822,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:40:40.421252+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542077+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353729+00:00",
       "history": [
         {
           "price": 14.5,
@@ -9031,7 +9092,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:52:16.128051+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539327+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351147+00:00",
       "history": [
         {
           "price": 4.5,
@@ -9133,7 +9194,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T18:27:00.258549+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539413+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351210+00:00",
       "history": []
     },
     "yanma|183|SV10|fr||normal|nonholo|standard|nostamp|regular": {
@@ -9229,7 +9290,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:17:05.269595+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541232+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353158+00:00",
       "history": [
         {
           "price": 5.0,
@@ -9283,7 +9344,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:18:34.451534+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541356+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353234+00:00",
       "history": [
         {
           "price": 6.0,
@@ -9577,7 +9638,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T18:45:01.448061+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540637+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352770+00:00",
       "history": []
     },
     "cizayox-ex|195|SV05|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10135,7 +10196,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T16:56:32.310813+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538770+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350633+00:00",
       "history": [
         {
           "price": 5.0,
@@ -10213,7 +10274,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T19:08:07.172508+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538926+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350813+00:00",
       "history": []
     },
     "pikachu vmax|SWSH286|SWSHP|fr||normal|nonholo|promo|nostamp|regular": {
@@ -10237,7 +10298,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T19:08:14.948806+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539267+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351109+00:00",
       "history": []
     },
     "fort-ivoire-ex|072|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10309,7 +10370,7 @@
       "price_source": "Estimation · Gros lot d'ar, de radieuses et de tg",
       "confidence": "saisie manuelle",
       "updated_at": "2026-07-04T19:08:42.424106+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538829+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350713+00:00",
       "history": []
     },
     "grondogue|071|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10333,7 +10394,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:38:07.068201+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539451+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351247+00:00",
       "history": [
         {
           "price": 2.0,
@@ -10411,7 +10472,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T16:56:39.645401+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538803+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350685+00:00",
       "history": [
         {
           "price": 5.0,
@@ -10441,7 +10502,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T16:56:34.953334+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538851+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350739+00:00",
       "history": [
         {
           "price": 3.0,
@@ -10476,7 +10537,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:03:49.871486+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538873+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350761+00:00",
       "history": []
     },
     "paume-de-fer-ex|154|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -10500,7 +10561,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:19:13.761056+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538903+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350789+00:00",
       "history": []
     },
     "verpom|185|SV06|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10524,7 +10585,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:21:58.074254+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538946+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350832+00:00",
       "history": []
     },
     "pikachu|GG30|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10548,7 +10609,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:22:49.498776+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538966+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350852+00:00",
       "history": []
     },
     "pikachu|30|SM4|fr|reverse|reverse|nonholo|standard|nostamp|regular": {
@@ -10572,7 +10633,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:28:20.500636+00:00",
-      "last_used_at": "2026-10-12T19:56:21.538990+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350876+00:00",
       "history": []
     },
     "metamorph|GG22|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10596,7 +10657,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:29:52.195765+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539011+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350897+00:00",
       "history": []
     },
     "evoli|133|SV03.5|fr|stamp|normal|nonholo|standard|stamp|regular": {
@@ -10620,7 +10681,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:33:29.351442+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539058+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350940+00:00",
       "history": []
     },
     "sorboul|190|SV04|fr|stamp|normal|nonholo|standard|stamp|regular": {
@@ -10644,7 +10705,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:34:13.278048+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539081+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350961+00:00",
       "history": []
     },
     "ogerpon masque du puits-ex|213|SV06|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10668,7 +10729,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:34:48.481644+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539103+00:00",
+      "last_used_at": "2026-10-13T09:34:59.350983+00:00",
       "history": []
     },
     "pyronille|196|SV08|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10692,7 +10753,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:36:00.056932+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539142+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351021+00:00",
       "history": []
     },
     "pikachu surfeur vmax|9|CEL25|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10716,7 +10777,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:36:19.797123+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539163+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351045+00:00",
       "history": []
     },
     "pikachu catcheur|14|TK-XY-P|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10740,7 +10801,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:40:54.659997+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539185+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351067+00:00",
       "history": []
     },
     "pikachu v|157|SWSH9|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10764,7 +10825,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:41:23.831188+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539225+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351087+00:00",
       "history": []
     },
     "pikachu-ex|063|SV02|fr|stamp|normal|nonholo|standard|stamp|regular": {
@@ -10788,7 +10849,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T17:53:05.757326+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539368+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351171+00:00",
       "history": []
     },
     "patachiot|069|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10812,7 +10873,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:38:15.339799+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539472+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351277+00:00",
       "history": []
     },
     "forgerette|165|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10836,7 +10897,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:38:16.958100+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539433+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351229+00:00",
       "history": []
     },
     "rafflesia obscur|13|BASE5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -10860,7 +10921,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:40:12.677922+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539498+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351330+00:00",
       "history": []
     },
     "kaimorse de team aqua|6|EX4|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10884,7 +10945,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:41:55.708588+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539518+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351367+00:00",
       "history": []
     },
     "amphinobi-ex|132|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10908,7 +10969,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:42:24.968786+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539539+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351401+00:00",
       "history": []
     },
     "toutombe|070|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10932,7 +10993,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:18.931726+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539556+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351431+00:00",
       "history": []
     },
     "blizzi|100|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10956,7 +11017,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:27.051404+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539573+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351461+00:00",
       "history": []
     },
     "pomdepik|099|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -10980,7 +11041,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:32.387814+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539591+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351489+00:00",
       "history": []
     },
     "xatu|152|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11004,7 +11065,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:38.441709+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539608+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351518+00:00",
       "history": []
     },
     "cotovol|098|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11028,7 +11089,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:43.861840+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539626+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351546+00:00",
       "history": []
     },
     "melo|150|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11052,7 +11113,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:44:49.312521+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539644+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351576+00:00",
       "history": []
     },
     "kirlia|154|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11076,7 +11137,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:45:11.589496+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539662+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351607+00:00",
       "history": []
     },
     "nymphali|SWSH211|SWSHP|fr||normal|nonholo|promo|nostamp|regular": {
@@ -11100,7 +11161,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:45:56.801007+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539683+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351640+00:00",
       "history": []
     },
     "mentali|BW92|BWP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11124,7 +11185,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:47:10.742835+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539701+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351667+00:00",
       "history": []
     },
     "ho-oh|HGSS01|HGSSP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11148,7 +11209,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:48:51.179737+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539719+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351685+00:00",
       "history": []
     },
     "tauros de paldea|120|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11172,7 +11233,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:50:18.332346+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539738+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351706+00:00",
       "history": []
     },
     "glaivodo|130|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11196,7 +11257,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:50:19.656581+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539758+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351731+00:00",
       "history": []
     },
     "lucario|174|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11220,7 +11281,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:51:33.108721+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539775+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351749+00:00",
       "history": []
     },
     "gribouraigne|189|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11244,7 +11305,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:51:45.400530+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539793+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351775+00:00",
       "history": []
     },
     "gourmelet|207|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11268,7 +11329,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:51:50.908435+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539811+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351794+00:00",
       "history": []
     },
     "roucool|196|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11292,7 +11353,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:51:57.713757+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539829+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351812+00:00",
       "history": []
     },
     "amassel|177|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11316,7 +11377,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:52:03.825739+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539845+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351830+00:00",
       "history": []
     },
     "ramoloss|116|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11340,7 +11401,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:52:09.213831+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539867+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351848+00:00",
       "history": []
     },
     "muplodocus de hisui vstar|136|SWSH11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11364,7 +11425,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:53:13.881966+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539911+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351914+00:00",
       "history": []
     },
     "arceus vstar|123|SWSH9|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11388,7 +11449,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:53:22.447358+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539931+00:00",
+      "last_used_at": "2026-10-13T09:34:59.351967+00:00",
       "history": []
     },
     "baojian-ex|242|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11412,7 +11473,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:55:02.420436+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540011+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352070+00:00",
       "history": []
     },
     "yuyu-ex|241|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11436,7 +11497,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:55:03.308308+00:00",
-      "last_used_at": "2026-10-12T19:56:21.539992+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352050+00:00",
       "history": []
     },
     "phyllali v|166|SWSH7|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11460,7 +11521,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:55:38.611418+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540032+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352091+00:00",
       "history": []
     },
     "gardevoir|TG05|SWSH12|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11484,7 +11545,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:55:46.039813+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540051+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352110+00:00",
       "history": []
     },
     "bekaglacon-ex|222|SV03|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11508,7 +11569,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:56:09.563729+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540071+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352142+00:00",
       "history": []
     },
     "mew|53|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular": {
@@ -11532,7 +11593,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T18:57:44.383357+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540093+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352175+00:00",
       "history": []
     },
     "noctali-ex|060|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11556,7 +11617,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:02.642276+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540138+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352260+00:00",
       "history": []
     },
     "aquali-ex|023|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11580,7 +11641,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:05.247499+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540173+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352307+00:00",
       "history": []
     },
     "pyroli-ex|014|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11604,7 +11665,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:06.529706+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540225+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352363+00:00",
       "history": []
     },
     "nymphali-ex|041|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11628,7 +11689,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:07.257068+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540266+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352395+00:00",
       "history": []
     },
     "givrali-ex|026|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11652,7 +11713,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:08.055597+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540295+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352431+00:00",
       "history": []
     },
     "voltali-ex|030|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11676,7 +11737,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:08.108469+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540321+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352457+00:00",
       "history": []
     },
     "mentali-ex|034|SV08.5|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -11700,7 +11761,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:04:09.346861+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540347+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352482+00:00",
       "history": []
     },
     "clamiral de hisui v|176|SWSH10|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11724,7 +11785,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:05:12.458409+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540393+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352504+00:00",
       "history": []
     },
     "ampibidou-ex|237|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11748,7 +11809,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:06:46.735343+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540425+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352525+00:00",
       "history": []
     },
     "gallame v|181|SWSH11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11772,7 +11833,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:06:54.798972+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540449+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352546+00:00",
       "history": [
         {
           "price": 2.5,
@@ -11802,7 +11863,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:07:15.440488+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540472+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352566+00:00",
       "history": []
     },
     "berserkatt de galar v|183|SWSH11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11826,7 +11887,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:07:20.931779+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540494+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352588+00:00",
       "history": []
     },
     "mewtwo v|SWSH229|SWSHP|fr||normal|nonholo|promo|nostamp|regular": {
@@ -11850,7 +11911,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:07:25.893176+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540516+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352609+00:00",
       "history": []
     },
     "crabominable v|248|SWSH8|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11874,7 +11935,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:07:31.066951+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540536+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352628+00:00",
       "history": []
     },
     "amphinobi-ex|198|SV06|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11898,7 +11959,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:07:35.678194+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540555+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352651+00:00",
       "history": []
     },
     "felinferno-ex|187|SV05|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11922,7 +11983,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:08:41.170436+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540576+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352690+00:00",
       "history": []
     },
     "shaymin v|152|SWSH9|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11946,7 +12007,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:08:46.190811+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540596+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352729+00:00",
       "history": []
     },
     "farfaduvet v|160|SWSH9|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11970,7 +12031,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:08:51.964263+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540616+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352751+00:00",
       "history": []
     },
     "gromago-ex|231|SV04|fr||normal|nonholo|standard|nostamp|regular": {
@@ -11994,7 +12055,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:09:01.646221+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540656+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352789+00:00",
       "history": []
     },
     "hyporoi-ex|131|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12018,7 +12079,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:09:34.059764+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540676+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352808+00:00",
       "history": []
     },
     "cleopsytra-ex|214|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12042,7 +12103,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:10:54.227062+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540698+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352830+00:00",
       "history": []
     },
     "filentrappe-ex|223|SV01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12066,7 +12127,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:10:59.050339+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540727+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352849+00:00",
       "history": []
     },
     "gardevoir-ex|217|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12090,7 +12151,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:11:04.934932+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540761+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352867+00:00",
       "history": []
     },
     "ho-oh v|187|SWSH12|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12114,7 +12175,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:11:38.891931+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540792+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352886+00:00",
       "history": []
     },
     "lokhlass-ex|158|SV07|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12138,7 +12199,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:11:52.887284+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540824+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352904+00:00",
       "history": []
     },
     "terapagos-ex|165|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12162,7 +12223,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:12:32.176974+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540855+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352922+00:00",
       "history": []
     },
     "hoopa v|253|SWSH8|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12186,7 +12247,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:12:40.774453+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540888+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352940+00:00",
       "history": []
     },
     "dracolosse v|076|SWSH10.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12210,7 +12271,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:12:46.192338+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540920+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352961+00:00",
       "history": []
     },
     "mysdibule v|178|SWSH12|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12234,7 +12295,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:13:07.146706+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540948+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352980+00:00",
       "history": []
     },
     "brome|267|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12258,7 +12319,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:14:32.157839+00:00",
-      "last_used_at": "2026-10-12T19:56:21.540977+00:00",
+      "last_used_at": "2026-10-13T09:34:59.352998+00:00",
       "history": []
     },
     "reshiram|113A|CEL25|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12282,7 +12343,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:14:50.219719+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541007+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353014+00:00",
       "history": []
     },
     "pania|252|SV01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12306,7 +12367,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:15:00.113134+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541035+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353032+00:00",
       "history": []
     },
     "mimosa|251|SV01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12330,7 +12391,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:15:06.657028+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541063+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353049+00:00",
       "history": []
     },
     "lithia|220|SV06|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12354,7 +12415,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:15:13.203153+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541090+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353065+00:00",
       "history": []
     },
     "amis de galar|TG23|SWSH12|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12378,7 +12439,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:15:47.892974+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541119+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353084+00:00",
       "history": []
     },
     "vrombi|206|SV03|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12402,7 +12463,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:16:06.880891+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541146+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353101+00:00",
       "history": []
     },
     "pohm|226|SV04.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12426,7 +12487,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:16:18.823361+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541172+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353118+00:00",
       "history": []
     },
     "noarfang|141|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12450,7 +12511,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:17:32.808026+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541262+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353176+00:00",
       "history": []
     },
     "mimiqui|075|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12474,7 +12535,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:18:24.425341+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541294+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353193+00:00",
       "history": []
     },
     "canarbello|207|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12498,7 +12559,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:18:54.320493+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541389+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353253+00:00",
       "history": []
     },
     "coiffeton|206|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12522,7 +12583,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:20:28.745493+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541419+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353271+00:00",
       "history": []
     },
     "ferdeter|224|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12546,7 +12607,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:20:33.822080+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541448+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353288+00:00",
       "history": []
     },
     "salameche|044|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12570,7 +12631,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:20:48.587353+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541509+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353325+00:00",
       "history": []
     },
     "absol|141|PL3|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12594,7 +12655,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:23:01.463801+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541540+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353346+00:00",
       "history": []
     },
     "evoli v|SWSH065|SWSHP|fr||normal|nonholo|promo|nostamp|regular": {
@@ -12618,7 +12679,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:23:44.519578+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541605+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353386+00:00",
       "history": []
     },
     "flotte-meche|097|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12642,7 +12703,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:24:06.080352+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541639+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353405+00:00",
       "history": []
     },
     "simiabraz|173|SV06|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12666,7 +12727,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:24:28.408681+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541669+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353423+00:00",
       "history": []
     },
     "vibraninf|206|SV08|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12690,7 +12751,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:29:00.891405+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541702+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353440+00:00",
       "history": []
     },
     "drascore|097|ME03|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12714,7 +12775,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:29:10.015426+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541764+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353475+00:00",
       "history": []
     },
     "elige|266|SV02|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12738,7 +12799,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:29:31.680229+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541793+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353492+00:00",
       "history": []
     },
     "dracaufeu|143|PL3|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12762,7 +12823,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:31:02.628266+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541820+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353509+00:00",
       "history": []
     },
     "zamazenta v|TG22|SWSH10|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12786,7 +12847,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:31:31.992857+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541863+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353529+00:00",
       "history": []
     },
     "dracaufeu ex|11|XY2|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12810,7 +12871,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:33:12.444073+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541886+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353548+00:00",
       "history": []
     },
     "sulfura ex|31|NP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12834,7 +12895,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:34:16.597020+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541907+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353566+00:00",
       "history": []
     },
     "darkrai ex|118|XY9|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12858,7 +12919,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:35:49.514016+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541927+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353584+00:00",
       "history": []
     },
     "ethernatos vmax|TG22|SWSH11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12882,7 +12943,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:37:24.822653+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541949+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353606+00:00",
       "history": []
     },
     "zacian v|TG21|SWSH10|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12906,7 +12967,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:37:30.277138+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541969+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353624+00:00",
       "history": []
     },
     "lumineon v|GG39|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12930,7 +12991,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:37:41.091718+00:00",
-      "last_used_at": "2026-10-12T19:56:21.541989+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353645+00:00",
       "history": []
     },
     "dracaufeu ex|105|EX6|ja|japonaise|normal|nonholo|standard|nostamp|regular": {
@@ -12954,7 +13015,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:38:48.342468+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542018+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353671+00:00",
       "history": []
     },
     "pikachu vmax|TG29|SWSH11|fr||normal|nonholo|standard|nostamp|regular": {
@@ -12978,7 +13039,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:40:16.987143+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542058+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353711+00:00",
       "history": []
     },
     "chochodile|079|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13002,7 +13063,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:41:09.029940+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542096+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353748+00:00",
       "history": []
     },
     "crocogril|080|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13026,7 +13087,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:41:10.440262+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542114+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353765+00:00",
       "history": []
     },
     "flamigator-ex|081|SVP|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13050,7 +13111,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:41:11.405030+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542134+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353785+00:00",
       "history": []
     },
     "gaulet|011|SV10.5B|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13074,7 +13135,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:42:11.808403+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542162+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353812+00:00",
       "history": []
     },
     "sorbouboul|113|SV10.5W|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13098,7 +13159,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:42:20.788216+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542197+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353849+00:00",
       "history": []
     },
     "sorboul|112|SV10.5W|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13122,7 +13183,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:42:24.951576+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542221+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353869+00:00",
       "history": []
     },
     "nodulithe|046|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13146,7 +13207,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:43:54.584800+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542345+00:00",
+      "last_used_at": "2026-10-13T09:34:59.353937+00:00",
       "history": []
     },
     "tortank-ex|184|SV03.5|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13170,7 +13231,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:46:32.174047+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542466+00:00",
+      "last_used_at": "2026-10-13T09:34:59.354030+00:00",
       "history": []
     },
     "ramoloss|018|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13194,7 +13255,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:47:45.795764+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542517+00:00",
+      "last_used_at": "2026-10-13T09:34:59.354077+00:00",
       "history": []
     },
     "masque de monstre|118|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13218,7 +13279,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:48:36.715454+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542547+00:00",
+      "last_used_at": "2026-10-13T09:34:59.354104+00:00",
       "history": []
     },
     "couafarel|088|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13242,7 +13303,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:48:37.844195+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542574+00:00",
+      "last_used_at": "2026-10-13T09:34:59.354131+00:00",
       "history": []
     },
     "salameche|9|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular": {
@@ -13266,7 +13327,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:49:55.228396+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542617+00:00",
+      "last_used_at": "2026-10-13T13:14:14.938382+00:00",
       "history": []
     },
     "sonistrelle|169|SV09|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13290,7 +13351,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:50:23.489391+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542636+00:00",
+      "last_used_at": "2026-10-13T13:14:14.927193+00:00",
       "history": []
     },
     "esprit vif de lem|243|SV08|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13314,7 +13375,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:52:39.604528+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542708+00:00",
+      "last_used_at": "2026-10-13T13:14:14.882717+00:00",
       "history": []
     },
     "phyllali|005|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13338,7 +13399,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:54:21.729303+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542734+00:00",
+      "last_used_at": "2026-10-13T13:14:14.867717+00:00",
       "history": []
     },
     "groudon|049|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13362,7 +13423,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:54:34.226181+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542760+00:00",
+      "last_used_at": "2026-10-13T13:14:14.854989+00:00",
       "history": []
     },
     "pikachu|025|SV03.5|fr|stamp|normal|nonholo|standard|stamp|regular": {
@@ -13386,7 +13447,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:54:42.927655+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542782+00:00",
+      "last_used_at": "2026-10-13T13:14:14.846166+00:00",
       "history": []
     },
     "suicune|024|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13410,7 +13471,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:54:59.566841+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542817+00:00",
+      "last_used_at": "2026-10-13T13:14:14.835969+00:00",
       "history": []
     },
     "heatran|068|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13434,7 +13495,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:55:14.085074+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542844+00:00",
+      "last_used_at": "2026-10-13T13:14:14.825977+00:00",
       "history": []
     },
     "teraclope|036|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
@@ -13458,7 +13519,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:55:37.166019+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542870+00:00",
+      "last_used_at": "2026-10-13T13:14:14.815946+00:00",
       "history": []
     },
     "tomberro|145|ME01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13482,7 +13543,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:56:16.753721+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542888+00:00",
+      "last_used_at": "2026-10-13T13:14:14.805616+00:00",
       "history": []
     },
     "gamblast|141|ME01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13506,7 +13567,7 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:56:21.216914+00:00",
-      "last_used_at": "2026-10-12T19:56:21.542906+00:00",
+      "last_used_at": "2026-10-13T13:14:14.794196+00:00",
       "history": []
     },
     "mega-absol-ex|161|ME01|fr||normal|nonholo|standard|nostamp|regular": {
@@ -13530,7 +13591,1560 @@
       "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
       "confidence": "saisie manuelle",
       "updated_at": "2026-10-12T19:56:25.899996+00:00",
+      "last_used_at": "2026-10-13T13:14:14.783348+00:00",
+      "history": []
+    },
+    "roserade de cynthia|184|SV10|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10-184",
+      "name": "Roserade de Cynthia",
+      "number": "184",
+      "set_id": "SV10",
+      "set": "Rivalités Destinées",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "roserade de cynthia|184|SV10|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 15.0,
+      "previous_price": 15.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:14:15.272816+00:00",
       "last_used_at": "",
+      "history": [
+        {
+          "price": 15.0,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T09:32:57.535234+00:00"
+        }
+      ]
+    },
+    "limaspeed|094|SV10.5W|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-094",
+      "name": "Limaspeed",
+      "number": "094",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "limaspeed|094|SV10.5W|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 18.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T09:33:39.363900+00:00",
+      "last_used_at": "2026-10-13T13:14:14.751798+00:00",
+      "history": []
+    },
+    "mesmerella|042|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-042",
+      "name": "Mesmérella",
+      "number": "042",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "mesmerella|042|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T09:34:46.217960+00:00",
+      "last_used_at": "2026-10-13T13:14:14.742211+00:00",
+      "history": []
+    },
+    "fossile plume ancien|079|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-079",
+      "name": "Fossile Plume Ancien",
+      "number": "079",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "fossile plume ancien|079|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T09:35:11.409944+00:00",
+      "last_used_at": "2026-10-13T13:14:14.732556+00:00",
+      "history": []
+    },
+    "trompette de verre|110|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-110",
+      "name": "Trompette de Verre",
+      "number": "110",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "trompette de verre|110|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.5,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:14:13.742530+00:00",
+      "last_used_at": "2026-10-13T13:14:14.724301+00:00",
+      "history": [
+        {
+          "price": 0.5,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T09:50:30.968380+00:00"
+        }
+      ]
+    },
+    "deusolourdo|080|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-080",
+      "name": "Deusolourdo",
+      "number": "080",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "deusolourdo|080|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.5,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:14:13.650010+00:00",
+      "last_used_at": "2026-10-13T13:14:14.715280+00:00",
+      "history": [
+        {
+          "price": 0.5,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T12:21:58.986345+00:00"
+        }
+      ]
+    },
+    "hurle-queue|042|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-042",
+      "name": "Hurle-Queue",
+      "number": "042",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "hurle-queue|042|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:22:01.086934+00:00",
+      "last_used_at": "2026-10-13T13:14:14.702385+00:00",
+      "history": []
+    },
+    "noarfang|078|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-078",
+      "name": "Noarfang",
+      "number": "078",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "noarfang|078|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:22:02.875315+00:00",
+      "last_used_at": "2026-10-13T13:14:14.691967+00:00",
+      "history": []
+    },
+    "farfaduvet|008|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-008",
+      "name": "Farfaduvet",
+      "number": "008",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "farfaduvet|008|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:22:04.420848+00:00",
+      "last_used_at": "2026-10-13T13:14:14.674118+00:00",
+      "history": []
+    },
+    "hoothoot|077|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-077",
+      "name": "Hoothoot",
+      "number": "077",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "hoothoot|077|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:22:06.090432+00:00",
+      "last_used_at": "2026-10-13T13:14:14.663364+00:00",
+      "history": []
+    },
+    "mastouffe|076|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-076",
+      "name": "Mastouffe",
+      "number": "076",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "mastouffe|076|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:23:38.378122+00:00",
+      "last_used_at": "2026-10-13T13:14:14.625770+00:00",
+      "history": []
+    },
+    "shaofouine|053|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-053",
+      "name": "Shaofouine",
+      "number": "053",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "shaofouine|053|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:23:40.091989+00:00",
+      "last_used_at": "2026-10-13T13:14:14.614679+00:00",
+      "history": []
+    },
+    "statitik|033|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-033",
+      "name": "Statitik",
+      "number": "033",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "statitik|033|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:25:47.365257+00:00",
+      "last_used_at": "2026-10-13T13:14:14.571619+00:00",
+      "history": []
+    },
+    "sorboul|028|SV10.5W|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-028",
+      "name": "Sorboul",
+      "number": "028",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "sorboul|028|SV10.5W|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 10.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:25:54.764614+00:00",
+      "last_used_at": "2026-10-13T13:14:14.561263+00:00",
+      "history": []
+    },
+    "clown|083|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-083",
+      "name": "Clown",
+      "number": "083",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "clown|083|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:26:04.283492+00:00",
+      "last_used_at": "2026-10-13T13:14:14.551561+00:00",
+      "history": []
+    },
+    "bargantua|024|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5w-024",
+      "name": "Bargantua",
+      "number": "024",
+      "set_id": "SV10.5W",
+      "set": "Flamme Blanche",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "bargantua|024|SV10.5W|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:26:53.086795+00:00",
+      "last_used_at": "2026-10-13T13:14:14.542049+00:00",
+      "history": []
+    },
+    "rubombelle de lilie|164|SV09|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv09-164",
+      "name": "Rubombelle de Lilie",
+      "number": "164",
+      "set_id": "SV09",
+      "set": "Aventures Ensemble",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "rubombelle de lilie|164|SV09|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 4.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:27:56.444174+00:00",
+      "last_used_at": "2026-10-13T13:14:14.503680+00:00",
+      "history": []
+    },
+    "sœur parasol|238|SV04|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv04-238",
+      "name": "Sœur Parasol",
+      "number": "238",
+      "set_id": "SV04",
+      "set": "Faille Paradoxe",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "sœur parasol|238|SV04|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:28:09.409990+00:00",
+      "last_used_at": "2026-10-13T13:14:14.493697+00:00",
+      "history": []
+    },
+    "pikachu|60|EX9|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "ex9-60",
+      "name": "Pikachu",
+      "number": "60",
+      "set_id": "EX9",
+      "set": "EX Émeraude",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "pikachu|60|EX9|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 7.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:29:10.943961+00:00",
+      "last_used_at": "2026-10-13T13:14:14.485236+00:00",
+      "history": []
+    },
+    "groudon|5|EX9|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "ex9-5",
+      "name": "Groudon",
+      "number": "5",
+      "set_id": "EX9",
+      "set": "EX Émeraude",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "groudon|5|EX9|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 30.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:30:12.584136+00:00",
+      "last_used_at": "2026-10-13T13:14:14.474469+00:00",
+      "history": []
+    },
+    "amis de paldea|109|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-109",
+      "name": "Amis de Paldea",
+      "number": "109",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "amis de paldea|109|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:32:09.029595+00:00",
+      "last_used_at": "2026-10-13T13:14:14.455264+00:00",
+      "history": []
+    },
+    "riolu|050|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-050",
+      "name": "Riolu",
+      "number": "050",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "riolu|050|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:32:35.428626+00:00",
+      "last_used_at": "2026-10-13T13:14:14.443112+00:00",
+      "history": []
+    },
+    "nemelios|016|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-016",
+      "name": "Némélios",
+      "number": "016",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "nemelios|016|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:32:37.218251+00:00",
+      "last_used_at": "2026-10-13T13:14:14.433895+00:00",
+      "history": []
+    },
+    "sonistrelle|090|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-090",
+      "name": "Sonistrelle",
+      "number": "090",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "sonistrelle|090|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 2.0,
+      "previous_price": 2.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:14:04.803171+00:00",
+      "last_used_at": "2026-10-13T13:14:14.423658+00:00",
+      "history": [
+        {
+          "price": 2.0,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T12:32:41.132555+00:00"
+        }
+      ]
+    },
+    "helionceau|015|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-015",
+      "name": "Hélionceau",
+      "number": "015",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "helionceau|015|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 2.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:32:47.811609+00:00",
+      "last_used_at": "2026-10-13T13:14:14.413070+00:00",
+      "history": []
+    },
+    "art secret de jeannine|112|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-112",
+      "name": "Art Secret de Jeannine",
+      "number": "112",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "art secret de jeannine|112|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:33:09.643671+00:00",
+      "last_used_at": "2026-10-13T13:14:14.402640+00:00",
+      "history": []
+    },
+    "carchacrok-ex|219|SV04|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv04-219",
+      "name": "Carchacrok-ex",
+      "number": "219",
+      "set_id": "SV04",
+      "set": "Faille Paradoxe",
+      "lang": "fr",
+      "specials": "",
+      "tags": "EX",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "carchacrok-ex|219|SV04|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 5.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:33:30.778692+00:00",
+      "last_used_at": "2026-10-13T13:14:14.392797+00:00",
+      "history": []
+    },
+    "vitalite de la professeure olim|120|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-120",
+      "name": "Vitalité de la Professeure Olim",
+      "number": "120",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "vitalite de la professeure olim|120|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:34:33.756386+00:00",
+      "last_used_at": "2026-10-13T13:14:14.350571+00:00",
+      "history": []
+    },
+    "rubepin|105|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-105",
+      "name": "Rubépin",
+      "number": "105",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "rubepin|105|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:34:36.126620+00:00",
+      "last_used_at": "2026-10-13T13:14:14.360652+00:00",
+      "history": []
+    },
+    "serpente-eau-ex|178|SV08.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-178",
+      "name": "Serpente-Eau-ex",
+      "number": "178",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "EX",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "serpente-eau-ex|178|SV08.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 9.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:34:58.668712+00:00",
+      "last_used_at": "2026-10-13T13:14:14.369979+00:00",
+      "history": []
+    },
+    "ursaking lune vermeille|054|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-054",
+      "name": "Ursaking Lune Vermeille",
+      "number": "054",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "ursaking lune vermeille|054|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:35:35.709953+00:00",
+      "last_used_at": "2026-10-13T13:14:14.339896+00:00",
+      "history": []
+    },
+    "entrainement de karateka|099|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-099",
+      "name": "Entraînement de Karatéka",
+      "number": "099",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "entrainement de karateka|099|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:35:37.492784+00:00",
+      "last_used_at": "2026-10-13T13:14:14.330467+00:00",
+      "history": []
+    },
+    "farfaduvet|008|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-008",
+      "name": "Farfaduvet",
+      "number": "008",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "farfaduvet|008|SV08.5|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 12.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:36:32.214371+00:00",
+      "last_used_at": "2026-10-13T13:14:14.320781+00:00",
+      "history": []
+    },
+    "castorno|GG25|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "swsh12.5-GG25",
+      "name": "Castorno",
+      "number": "GG25",
+      "set_id": "SWSH12.5",
+      "set": "Zénith Suprême",
+      "lang": "fr",
+      "specials": "",
+      "tags": "GG",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "castorno|GG25|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 4.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:37:02.672814+00:00",
+      "last_used_at": "2026-10-13T13:14:14.310837+00:00",
+      "history": []
+    },
+    "nounourson|154|ME01|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me01-154",
+      "name": "Nounourson",
+      "number": "154",
+      "set_id": "ME01",
+      "set": "Méga-Évolution",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "nounourson|154|ME01|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 4.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:37:07.873159+00:00",
+      "last_used_at": "2026-10-13T13:14:14.300099+00:00",
+      "history": []
+    },
+    "crabominable|149|SV07|fr|stamp|normal|nonholo|standard|stamp|regular": {
+      "source_card_id": "sv07-149",
+      "name": "Crabominable",
+      "number": "149",
+      "set_id": "SV07",
+      "set": "Couronne Stellaire",
+      "lang": "fr",
+      "specials": "Stamp",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": true,
+      "is_ed1": false,
+      "key": "crabominable|149|SV07|fr|stamp|normal|nonholo|standard|stamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:04.358258+00:00",
+      "last_used_at": "2026-10-13T13:14:14.286577+00:00",
+      "history": []
+    },
+    "hippodocus|053|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-053",
+      "name": "Hippodocus",
+      "number": "053",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "hippodocus|053|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:06.027672+00:00",
+      "last_used_at": "2026-10-13T13:14:14.275741+00:00",
+      "history": []
+    },
+    "hippopotas|052|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-052",
+      "name": "Hippopotas",
+      "number": "052",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "hippopotas|052|SV08.5|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:07.930150+00:00",
+      "last_used_at": "2026-10-13T13:14:14.265410+00:00",
+      "history": []
+    },
+    "trompette de verre|110|SV08.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-110",
+      "name": "Trompette de Verre",
+      "number": "110",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "trompette de verre|110|SV08.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:48.881936+00:00",
+      "last_used_at": "2026-10-13T13:52:11.577881+00:00",
+      "history": []
+    },
+    "taro|114|SV08.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-114",
+      "name": "Taro",
+      "number": "114",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "taro|114|SV08.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.5,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:52:14.585494+00:00",
+      "last_used_at": "",
+      "history": [
+        {
+          "price": 0.5,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T12:39:50.954748+00:00"
+        },
+        {
+          "price": 0.5,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T13:14:03.203765+00:00"
+        }
+      ]
+    },
+    "planche de sauvetage|126|SV08.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-126",
+      "name": "Planche de Sauvetage",
+      "number": "126",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "planche de sauvetage|126|SV08.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:52.726478+00:00",
+      "last_used_at": "2026-10-13T13:52:11.595534+00:00",
+      "history": []
+    },
+    "entrainement de karateka|097|SV08.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv08.5-097",
+      "name": "Entraînement de Karatéka",
+      "number": "097",
+      "set_id": "SV08.5",
+      "set": "Évolutions Prismatiques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "entrainement de karateka|097|SV08.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:39:54.486906+00:00",
+      "last_used_at": "2026-10-13T13:52:11.587396+00:00",
+      "history": []
+    },
+    "batracne|104|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-104",
+      "name": "Batracné",
+      "number": "104",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "batracne|104|SV10.5B|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 10.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:41:04.675741+00:00",
+      "last_used_at": "2026-10-13T13:52:11.567615+00:00",
+      "history": []
+    },
+    "maracachi|008|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-008",
+      "name": "Maracachi",
+      "number": "008",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "maracachi|008|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 7.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:41:16.185333+00:00",
+      "last_used_at": "2026-10-13T13:52:11.558318+00:00",
+      "history": []
+    },
+    "tranchodon|070|SV10.5B|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-070",
+      "name": "Tranchodon",
+      "number": "070",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "tranchodon|070|SV10.5B|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:41:22.814076+00:00",
+      "last_used_at": "2026-10-13T13:52:11.549295+00:00",
+      "history": []
+    },
+    "pashmilla|153|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-153",
+      "name": "Pashmilla",
+      "number": "153",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "pashmilla|153|SV10.5B|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 10.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:41:27.320015+00:00",
+      "last_used_at": "2026-10-13T13:52:11.541077+00:00",
+      "history": []
+    },
+    "pyrax|016|SV10.5B|fr|poke ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-016",
+      "name": "Pyrax",
+      "number": "016",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "Poké Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "pyrax|016|SV10.5B|fr|poke ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:42:10.458829+00:00",
+      "last_used_at": "2026-10-13T13:52:11.530078+00:00",
+      "history": []
+    },
+    "cobaltium|066|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-066",
+      "name": "Cobaltium",
+      "number": "066",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "cobaltium|066|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 14.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:43:10.154748+00:00",
+      "last_used_at": "2026-10-13T13:52:11.511544+00:00",
+      "history": []
+    },
+    "ohmassacre|032|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-032",
+      "name": "Ohmassacre",
+      "number": "032",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "Master Ball",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "ohmassacre|032|SV10.5B|fr|master ball|normal|nonholo|standard|nostamp|regular",
+      "reference_price": 15.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:43:17.664395+00:00",
+      "last_used_at": "2026-10-13T13:52:11.519900+00:00",
+      "history": []
+    },
+    "rototaupe|045|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-045",
+      "name": "Rototaupe",
+      "number": "045",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "rototaupe|045|SV10.5B|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:44:50.526952+00:00",
+      "last_used_at": "2026-10-13T13:52:11.503300+00:00",
+      "history": []
+    },
+    "crocorible|059|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-059",
+      "name": "Crocorible",
+      "number": "059",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "crocorible|059|SV10.5B|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 0.5,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:44:53.798007+00:00",
+      "last_used_at": "2026-10-13T13:52:11.495230+00:00",
+      "history": []
+    },
+    "coupenotte|145|SV10.5B|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv10.5b-145",
+      "name": "Coupenotte",
+      "number": "145",
+      "set_id": "SV10.5B",
+      "set": "Foudre Noire",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "coupenotte|145|SV10.5B|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 17.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:45:01.596864+00:00",
+      "last_used_at": "2026-10-13T13:52:11.480434+00:00",
+      "history": []
+    },
+    "sulfura de galar v|TG20|SWSH10|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "swsh10-TG20",
+      "name": "Sulfura de Galar V",
+      "number": "TG20",
+      "set_id": "SWSH10",
+      "set": "Astres Radieux",
+      "lang": "fr",
+      "specials": "",
+      "tags": "V TG",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "sulfura de galar v|TG20|SWSH10|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 25.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:45:03.342679+00:00",
+      "last_used_at": "2026-10-13T13:52:11.472012+00:00",
+      "history": []
+    },
+    "lilliterelle|096|ME02|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me02-096",
+      "name": "Lilliterelle",
+      "number": "096",
+      "set_id": "ME02",
+      "set": "Flammes Fantasmagoriques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "lilliterelle|096|ME02|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:46:42.160399+00:00",
+      "last_used_at": "2026-10-13T13:52:11.445188+00:00",
+      "history": []
+    },
+    "voltoutou|099|ME02|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me02-099",
+      "name": "Voltoutou",
+      "number": "099",
+      "set_id": "ME02",
+      "set": "Flammes Fantasmagoriques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "voltoutou|099|ME02|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 3.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T13:52:13.773811+00:00",
+      "last_used_at": "",
+      "history": [
+        {
+          "price": 3.0,
+          "source": "Estimation · Très Gros lot whatsapp ancien et recent",
+          "at": "2026-10-13T12:46:46.833065+00:00"
+        }
+      ]
+    },
+    "tiplouf|098|ME02|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me02-098",
+      "name": "Tiplouf",
+      "number": "098",
+      "set_id": "ME02",
+      "set": "Flammes Fantasmagoriques",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "tiplouf|098|ME02|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 15.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:46:59.431801+00:00",
+      "last_used_at": "2026-10-13T13:52:11.436722+00:00",
+      "history": []
+    },
+    "carchacrok v|178|SWSH10|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "swsh10-178",
+      "name": "Carchacrok V",
+      "number": "178",
+      "set_id": "SWSH10",
+      "set": "Astres Radieux",
+      "lang": "fr",
+      "specials": "",
+      "tags": "V",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "carchacrok v|178|SWSH10|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 6.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:47:33.250716+00:00",
+      "last_used_at": "2026-10-13T13:52:11.421055+00:00",
+      "history": []
+    },
+    "munja|144|ME01|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "me01-144",
+      "name": "Munja",
+      "number": "144",
+      "set_id": "ME01",
+      "set": "Méga-Évolution",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "munja|144|ME01|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:47:58.275207+00:00",
+      "last_used_at": "2026-10-13T13:52:11.412153+00:00",
+      "history": []
+    },
+    "pikachu surfeur|111|XY12|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "xy12-111",
+      "name": "Pikachu Surfeur",
+      "number": "111",
+      "set_id": "XY12",
+      "set": "Évolutions",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "pikachu surfeur|111|XY12|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 7.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:48:57.666142+00:00",
+      "last_used_at": "2026-10-13T13:52:11.390379+00:00",
+      "history": []
+    },
+    "nidorino|44|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular": {
+      "source_card_id": "xy12-44",
+      "name": "Nidorino",
+      "number": "44",
+      "set_id": "XY12",
+      "set": "Évolutions",
+      "lang": "fr",
+      "specials": "Reverse",
+      "tags": "",
+      "is_reverse": true,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "nidorino|44|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular",
+      "reference_price": 2.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:49:43.912795+00:00",
+      "last_used_at": "2026-10-13T13:52:11.383310+00:00",
+      "history": []
+    },
+    "soporifik|49|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular": {
+      "source_card_id": "xy12-49",
+      "name": "Soporifik",
+      "number": "49",
+      "set_id": "XY12",
+      "set": "Évolutions",
+      "lang": "fr",
+      "specials": "Reverse",
+      "tags": "",
+      "is_reverse": true,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "soporifik|49|XY12|fr|reverse|reverse|nonholo|standard|nostamp|regular",
+      "reference_price": 2.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:49:51.189840+00:00",
+      "last_used_at": "2026-10-13T13:52:11.376403+00:00",
+      "history": []
+    },
+    "insolourdo|GG23|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "swsh12.5-GG23",
+      "name": "Insolourdo",
+      "number": "GG23",
+      "set_id": "SWSH12.5",
+      "set": "Zénith Suprême",
+      "lang": "fr",
+      "specials": "",
+      "tags": "GG",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "insolourdo|GG23|SWSH12.5|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 3.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:51:03.430788+00:00",
+      "last_used_at": "2026-10-13T13:52:11.369552+00:00",
+      "history": []
+    },
+    "meloco|254|SV04|fr||normal|nonholo|standard|nostamp|regular": {
+      "source_card_id": "sv04-254",
+      "name": "Meloco",
+      "number": "254",
+      "set_id": "SV04",
+      "set": "Faille Paradoxe",
+      "lang": "fr",
+      "specials": "",
+      "tags": "",
+      "is_reverse": false,
+      "is_holo": false,
+      "is_promo": false,
+      "is_stamp": false,
+      "is_ed1": false,
+      "key": "meloco|254|SV04|fr||normal|nonholo|standard|nostamp|regular",
+      "reference_price": 9.0,
+      "previous_price": 0.0,
+      "origin": "manual_estimation",
+      "price_source": "Estimation · Très Gros lot whatsapp ancien et recent",
+      "confidence": "saisie manuelle",
+      "updated_at": "2026-10-13T12:51:21.300367+00:00",
+      "last_used_at": "2026-10-13T13:52:11.352963+00:00",
       "history": []
     }
   },
@@ -13540,5 +15154,5 @@
   },
   "last_import_at": "",
   "last_refresh_at": "",
-  "updated_at": "2026-10-12T19:56:25.900025+00:00"
+  "updated_at": "2026-10-13T13:52:14.585529+00:00"
 }

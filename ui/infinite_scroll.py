@@ -332,6 +332,168 @@ def render_virtual_scroll_sensor(
     return getattr(result, "scroll_request", None)
 
 
+AUTOLOAD_BUILD = "2026-10-13-r3"
+
+_AUTOLOAD_SCRIPT = r"""
+<script>
+(function() {
+    const TAG = "[PokéStock] chargement auto";
+    const BUILD = "__BUILD__";
+    const KEY = "__KEY__";
+    const ANCHOR_ID = "__ANCHOR_ID__";
+    const CONTROL_SEL = ".st-key-__CONTROL_KEY__";
+    const BATCH = "__ANCHOR_ID__:__VISIBLE__";
+    const MARGIN = __MARGIN__;
+    const win = parent.window;
+    const doc = parent.document;
+    const instKey = "__pokestockAutoloadInst_" + KEY;
+    const scrolledKey = "__pokestockAutoloadScrolled_" + KEY;
+    const observerKey = "__pokestockAutoload_" + KEY;
+    const listenerKey = "__pokestockAutoloadListeners_" + KEY;
+    const token = {};
+    win[instKey] = token;
+    function alive() { return win[instKey] === token; }
+    function log(msg, extra) {
+        try {
+            if (extra === undefined) console.log(TAG + " [" + KEY + "] " + msg);
+            else console.log(TAG + " [" + KEY + "] " + msg, extra);
+        } catch (e) {}
+    }
+
+    let anchor = null;
+    let observer = null;
+    let requested = false;
+    let failed = false;
+    let retryPending = false;
+    let tries = 0;
+    let missing = 0;
+    let lastRun = 0;
+    const startedAt = Date.now();
+    const root = doc.querySelector('[data-testid="stMain"]') || null;
+    const scrollTarget = root || win;
+
+    function control() { return doc.querySelector(CONTROL_SEL); }
+    function showFallback(reason) {
+        if (failed) return;
+        failed = true;
+        const c = control();
+        if (c) c.setAttribute("data-autoload-fallback", "1");
+        log("ÉCHEC confirmé, bouton manuel affiché : " + reason, {build: BUILD, lot: BATCH});
+    }
+    function scrolledNow() {
+        if (win[scrolledKey]) return true;
+        const top = Math.max(root ? root.scrollTop : 0, win.scrollY || 0, doc.scrollingElement ? doc.scrollingElement.scrollTop : 0);
+        if (top > 24) { win[scrolledKey] = true; return true; }
+        return false;
+    }
+    function notScrollable() {
+        // Page trop courte pour defiler (grand ecran, peu de cartes) : sans cela, aucun defilement ne pourrait jamais declencher la suite.
+        if (Date.now() - startedAt < 1500) return false;
+        if (root) return root.scrollHeight - root.clientHeight <= 24;
+        return doc.documentElement.scrollHeight - win.innerHeight <= 24;
+    }
+    function isNear() {
+        if (!anchor) return false;
+        const rect = anchor.getBoundingClientRect();
+        const rr = root ? root.getBoundingClientRect() : { top: 0, bottom: win.innerHeight };
+        return rect.top <= rr.bottom + MARGIN && rect.bottom >= rr.top - MARGIN;
+    }
+    function verify() {
+        if (!alive()) { log("lot suivant affiché, vérification terminée"); return; }
+        if (!doc.getElementById(ANCHOR_ID)) { log("fin de liste (ancre retirée), vérification terminée"); return; }
+        showFallback("aucun nouveau rendu 15 s après le clic");
+    }
+    function requestNextBatch(reason) {
+        if (!alive() || requested) return;
+        if (anchor && anchor.dataset.requested === BATCH) { requested = true; return; }
+        const c = control();
+        const btn = c ? c.querySelector("button") : null;
+        if (btn && !btn.disabled) {
+            requested = true;
+            if (anchor) anchor.dataset.requested = BATCH;
+            try { if (observer) observer.disconnect(); } catch (e) {}
+            log("clic sur le bouton caché (" + reason + ")", {lot: BATCH, scrollTop: root ? Math.round(root.scrollTop) : null, restantes: __REMAIN__});
+            btn.click();
+            setTimeout(verify, 15000);
+        } else if (!retryPending) {
+            // Le bouton cache n'est pas encore dans la page (rendu en cours) : on reessaie brievement au lieu de renoncer.
+            tries += 1;
+            if (tries > 40) {
+                showFallback("bouton caché introuvable après 40 essais (6 s)");
+                return;
+            }
+            if (tries === 1) log("bouton caché pas encore présent, nouvel essai (" + reason + ")");
+            retryPending = true;
+            setTimeout(function() { retryPending = false; maybeRequest("essai " + tries); }, 150);
+        }
+    }
+    function maybeRequest(reason) {
+        if (!alive() || requested || failed) return;
+        if (!(scrolledNow() || notScrollable())) return;
+        if (!isNear()) return;
+        requestNextBatch(reason);
+    }
+    function watchAnchor() {
+        if (!("IntersectionObserver" in win)) return;
+        try { if (observer) observer.disconnect(); } catch (e) {}
+        observer = new win.IntersectionObserver(function(entries) {
+            if (!entries.some(function(entry) { return entry.isIntersecting; })) return;
+            maybeRequest("observateur");
+        }, { root: root, rootMargin: MARGIN + "px 0px", threshold: 0 });
+        observer.observe(anchor);
+        win[observerKey] = observer;
+    }
+
+    // Ecouteurs scroll + resize (un seul jeu par liste : on retire celui du lot precedent).
+    const previous = win[listenerKey];
+    if (previous) {
+        try { previous.target.removeEventListener("scroll", previous.onScroll); } catch (e) {}
+        try { win.removeEventListener("resize", previous.onResize); } catch (e) {}
+    }
+    function onScroll() {
+        win[scrolledKey] = true;
+        const now = Date.now();
+        if (now - lastRun < 100) return;
+        lastRun = now;
+        maybeRequest("défilement");
+    }
+    function onResize() { maybeRequest("redimensionnement"); }
+    scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    win.addEventListener("resize", onResize, { passive: true });
+    win[listenerKey] = { target: scrollTarget, onScroll: onScroll, onResize: onResize };
+
+    function boot(attempt) {
+        if (!alive()) return;
+        anchor = doc.getElementById(ANCHOR_ID);
+        if (!anchor) {
+            if (attempt < 30) { setTimeout(function() { boot(attempt + 1); }, 100); return; }
+            showFallback("ancre introuvable dans la page");
+            return;
+        }
+        anchor.dataset.build = BUILD;
+        log("armé", {build: BUILD, lot: BATCH, restantes: __REMAIN__, marge: MARGIN, observateur: ("IntersectionObserver" in win), zoneDefilante: root ? "stMain" : "fenêtre"});
+        watchAnchor();
+        maybeRequest("initial");
+        // Sonde de securite : couvre les cas ou ni l'observateur ni le defilement ne remontent rien (noeud remplace, conteneur different...).
+        const probe = setInterval(function() {
+            if (!alive() || requested || failed) { clearInterval(probe); return; }
+            const current = doc.getElementById(ANCHOR_ID);
+            if (!current) {
+                missing += 1;
+                if (missing >= 4) clearInterval(probe);
+                return;
+            }
+            missing = 0;
+            if (current !== anchor) { anchor = current; watchAnchor(); }
+            maybeRequest("sonde");
+        }, 700);
+    }
+    boot(0);
+})();
+</script>
+"""
+
+
 def render_infinite_sentinel(
     key_prefix: str,
     *,
@@ -343,16 +505,17 @@ def render_infinite_sentinel(
     run_html_func=None,
     button_label: str = "Afficher plus",
     rerun_scope: str | None = None,
+    advance_in_callback: bool = False,
+    stable_key: str | None = None,
 ):
     if visible_count >= total_count:
         return
 
     safe_key = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in key_prefix)
+    stable_safe_key = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in (stable_key or key_prefix))
     control_key = f"autoload_control_{safe_key}"
     button_key = f"autoload_button_{safe_key}"
     anchor_id = f"autoload-anchor-{safe_key}"
-    observer_key = f"__pokestockAutoload_{safe_key}"
-    scrolled_key = f"__pokestockAutoloadScrolled_{safe_key}"
 
     st.markdown(
         f"""
@@ -384,12 +547,47 @@ def render_infinite_sentinel(
             padding: 0 !important;
             overflow: hidden !important;
         }}
+        /* Secours : le script d'auto-chargement a constate qu'il ne fonctionnait pas, le bouton redevient visible et utilisable. */
+        .st-key-{control_key}[data-autoload-fallback="1"],
+        .st-key-{control_key}[data-autoload-fallback="1"] > div,
+        .st-key-{control_key}[data-autoload-fallback="1"] [data-testid="stVerticalBlock"],
+        .st-key-{control_key}[data-autoload-fallback="1"] [data-testid="stElementContainer"],
+        .st-key-{control_key}[data-autoload-fallback="1"] [data-testid="stButton"],
+        .st-key-{control_key}[data-autoload-fallback="1"] button {{
+            position: static !important;
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            line-height: normal !important;
+        }}
+        .st-key-{control_key}[data-autoload-fallback="1"] {{
+            margin: 0.5rem 0 !important;
+        }}
+        .st-key-{control_key}[data-autoload-fallback="1"]::after {{
+            content: "Chargement automatique indisponible : utilisez ce bouton.";
+            display: block;
+            font-size: 0.75rem;
+            opacity: 0.65;
+            text-align: center;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
     with st.container(key=control_key):
-        if st.button(str(button_label or "\u200b"), key=button_key):
+        if advance_in_callback:
+            # Variante sans rerun supplementaire : le compteur est avance AVANT le rerun provoque par le clic (callback),
+            # donc le rendu courant n'est pas execute deux fois (utile quand chaque element affiche coute cher).
+            def _advance_count():
+                current = int(st.session_state.get(count_key, visible_count) or visible_count)
+                st.session_state[count_key] = min(int(total_count), max(current, int(visible_count)) + int(batch_size))
+
+            st.button(str(button_label or "​"), key=button_key, on_click=_advance_count)
+        elif st.button(str(button_label or "​"), key=button_key):
             st.session_state[count_key] = min(total_count, visible_count + int(batch_size))
             if rerun_scope == "fragment":
                 try:
@@ -400,66 +598,16 @@ def render_infinite_sentinel(
                 st.rerun()
 
     st.markdown(f'<div id="{anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
-    script = f"""
-    <script>
-    (function() {{
-        const win = parent.window;
-        const doc = parent.document;
-        const anchor = doc.getElementById("{anchor_id}");
-        if (!anchor || !("IntersectionObserver" in win)) return;
-        const scrollRoot = doc.querySelector('[data-testid="stMain"]') || null;
-
-        const observerKey = "{observer_key}";
-        const scrolledKey = "{scrolled_key}";
-        if (win[observerKey]) {{
-            try {{ win[observerKey].disconnect(); }} catch (e) {{}}
-        }}
-
-        let observer = null;
-        function requestNextBatch() {{
-            if (!win[scrolledKey]) return;
-            if (anchor.dataset.requested === "1") return;
-            anchor.dataset.requested = "1";
-            const root = doc.querySelector(".st-key-{control_key}");
-            const btn = root ? root.querySelector("button") : null;
-            if (btn && !btn.disabled) {{
-                try {{ if (observer) observer.disconnect(); }} catch (e) {{}}
-                btn.click();
-            }}
-        }}
-
-        function requestIfNear() {{
-            const rect = anchor.getBoundingClientRect();
-            const rootRect = scrollRoot ? scrollRoot.getBoundingClientRect() : {{ top: 0, bottom: win.innerHeight }};
-            if (rect.top <= rootRect.bottom + {int(root_margin_px)} && rect.bottom >= rootRect.top - {int(root_margin_px)}) {{
-                requestNextBatch();
-            }}
-        }}
-
-        if (!win[scrolledKey] && ((scrollRoot && scrollRoot.scrollTop > 24) || win.scrollY > 24)) win[scrolledKey] = true;
-        const scrollTarget = scrollRoot || win;
-        if (!win[scrolledKey]) {{
-            scrollTarget.addEventListener("scroll", function markScrolled() {{
-                win[scrolledKey] = true;
-                requestIfNear();
-            }}, {{ once: true, passive: true }});
-        }} else {{
-            requestIfNear();
-        }}
-
-        observer = new win.IntersectionObserver(function(entries) {{
-            if (!entries.some(function(entry) {{ return entry.isIntersecting; }})) return;
-            requestNextBatch();
-        }}, {{
-            root: scrollRoot,
-            rootMargin: "{int(root_margin_px)}px 0px",
-            threshold: 0
-        }});
-        observer.observe(anchor);
-        win[observerKey] = observer;
-    }})();
-    </script>
-    """
+    script = (
+        _AUTOLOAD_SCRIPT
+        .replace("__BUILD__", AUTOLOAD_BUILD)
+        .replace("__KEY__", stable_safe_key)
+        .replace("__ANCHOR_ID__", anchor_id)
+        .replace("__CONTROL_KEY__", control_key)
+        .replace("__VISIBLE__", str(int(visible_count)))
+        .replace("__REMAIN__", str(max(0, int(total_count) - int(visible_count))))
+        .replace("__MARGIN__", str(int(root_margin_px)))
+    )
     if callable(run_html_func):
         run_html_func(script, height=0)
     else:
