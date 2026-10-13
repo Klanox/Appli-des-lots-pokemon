@@ -128,35 +128,6 @@ class CardAutosaveTest(unittest.TestCase):
         self.assertEqual(self.qty("c1").key, "est_card_qty_e1_c1")
         self.assertEqual(self.cote("c2").key, "est_card_cote_e1_c2")
 
-    def test_use_auto_price_button_has_no_exception_and_updates_field_with_one_save(self):
-        btn = next(b for b in self.at.button if b.key == "use_auto_price_e1_c3")
-        self.assertEqual(self.card("c3")["market_price_origin"], "manual")
-        before = self.saves()
-        btn.click().run()
-        self.assertEqual(len(self.at.exception), 0, [e.value for e in self.at.exception])
-        card = self.card("c3")
-        self.assertEqual(card["cote"], 11.0)
-        self.assertEqual(card["market_price_origin"], "auto")
-        self.assertNotIn("manual_price", card)
-        self.assertEqual(self.cote("c3").value, "11,00")
-        self.assertEqual(self.saves() - before, 1)
-        self.cache_save.assert_not_called()
-        self.assertNotIn("use_auto_price_e1_c3", [b.key for b in self.at.button])   # la carte n'est plus manuelle
-
-    def test_use_auto_price_then_other_edits_chain_without_double_save(self):
-        next(b for b in self.at.button if b.key == "use_auto_price_e1_c3").click().run()
-        self.qty("c1").set_value(5).run()
-        self.assertEqual(len(self.at.exception), 0)
-        self.cote("c3").set_value("8,00").run()
-        self.assertEqual(len(self.at.exception), 0)
-        self.assertEqual(self.card("c1")["quantity"], 5)
-        self.assertEqual(self.card("c3")["market_price_origin"], "manual")
-        self.assertAlmostEqual(self.card("c3")["cote"], 8.0)
-        self.assertEqual(self.saves(), 3)
-        self.assertEqual(self.cache_save.call_count, 1)
-        self.at.run()
-        self.assertEqual(self.saves(), 3)
-
     def test_image_buttons_do_not_write_widget_state_after_instantiation(self):
         src = inspect.getsource(estimations._render_open_estimation)
         block = src[src.index('"Utiliser la cote auto"'):src.index('foot_cols = st.columns')]

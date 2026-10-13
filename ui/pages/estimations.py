@@ -1089,10 +1089,31 @@ def _is_local_image_source(value):
     return not text.lower().startswith(("http://", "https://", "data:image/"))
 
 
+_DATA_URI_CACHE = {}
+_DATA_URI_CACHE_MAX = 64
+
+
 def _image_file_to_data_uri(path):
     path = _normalize_image_source(path)
     if not path or not os.path.exists(path):
         return ""
+    # Même résultat que la lecture directe : le cache est invalidé dès que la date ou la taille du fichier change.
+    try:
+        file_stat = os.stat(path)
+        cache_key = (path, file_stat.st_mtime_ns, file_stat.st_size)
+    except OSError:
+        cache_key = None
+    if cache_key is not None and cache_key in _DATA_URI_CACHE:
+        return _DATA_URI_CACHE[cache_key]
+    result = _image_file_to_data_uri_uncached(path)
+    if cache_key is not None and result:
+        if len(_DATA_URI_CACHE) >= _DATA_URI_CACHE_MAX:
+            _DATA_URI_CACHE.clear()
+        _DATA_URI_CACHE[cache_key] = result
+    return result
+
+
+def _image_file_to_data_uri_uncached(path):
     ext = os.path.splitext(path)[1].lower()
     mime = {
         ".jpg": "image/jpeg",
@@ -1263,6 +1284,8 @@ def _safe_image_filename(card, uploaded_name):
 
 def _fold_text(value):
     text = str(value or "").strip().lower()
+    if text.isascii():
+        return text                                                             # NFD d'un texte ASCII = lui-même, sans accent à retirer (même résultat, bien plus rapide)
     text = "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
     return text
 
@@ -1431,6 +1454,29 @@ def _cardmarket_search_query(card):
     return " ".join(x for x in [name, number] if x).strip()
 
 
+# Options du champ « Spécial » (Estimations) : « Japonaise » n'y figure plus, la case « Cartes japonaises » la remplace.
+_ESTIMATION_SPECIAL_OPTIONS = ["Reverse", "1ère Éd", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"]
+
+
+# Galeries : leurs lettres font peut-être partie du numéro sur Cardmarket, on ne les retire pas.
+_CARDMARKET_KEEP_NUMBER_PREFIXES = {"GG", "TG", "RC", "SV"}
+
+
+def _cardmarket_search_number(number):
+    """Numéro pour la recherche Cardmarket uniquement : « SWSH286 » -> « 286 » (préfixe de lettres + chiffres).
+    Galeries (GG, TG, RC, SV), numéros vides ou d'un autre format : inchangés."""
+    text = str(number or "").strip()
+    match = re.fullmatch(r"([A-Za-z]+)(\d+)", text)
+    if not match or match.group(1).upper() in _CARDMARKET_KEEP_NUMBER_PREFIXES:
+        return text
+    return match.group(2)
+
+
+def _cardmarket_search_term(name):
+    """Cardmarket ne trouve rien avec un tiret dans le nom (Koraidon-ex) : on cherche avec des espaces. URL de recherche uniquement."""
+    return " ".join(str(name or "").replace("-", " ").split())
+
+
 def _estimation_cardmarket_url(card, cardmarket_search_url_func):
     condition = str((card or {}).get("condition") or "NM").strip()
     is_japanese = _card_is_japanese(card)
@@ -1454,8 +1500,10 @@ def _estimation_cardmarket_url(card, cardmarket_search_url_func):
     special_hint = ", ".join(_estimation_card_specials(card))
     if is_japanese:
         jp_context = " ".join(x for x in ["JP", set_hint, special_hint] if x).strip()
-        query_name = " ".join(x for x in [card.get("name", ""), jp_context] if x).strip()
-        search_url = cardmarket_search_url_func(query_name, number, "", "")
+        # Recherche Cardmarket japonaise : seulement « nom numéro » (sans JP, extension, langue ni variante) ; « 154/131 » → « 154 ».
+        query_name = _cardmarket_search_term(card.get("name", ""))
+        jp_number = _cardmarket_search_number(number.split("/")[0].strip())
+        search_url = cardmarket_search_url_func(query_name, jp_number, "", "")
         final_url = _append_cardmarket_filters(search_url, condition, language=language_code)
         link_type = "japanese_search" if jp_context else "generic_fallback"
         reason = "" if jp_context else ' reason="insufficient_japanese_metadata"'
@@ -1468,7 +1516,7 @@ def _estimation_cardmarket_url(card, cardmarket_search_url_func):
         return final_url
 
     query = _cardmarket_search_query(card)
-    search_url = cardmarket_search_url_func(card.get("name", ""), number, "", "")
+    search_url = cardmarket_search_url_func(_cardmarket_search_term(card.get("name", "")), _cardmarket_search_number(number), "", "")
     final_url = _append_cardmarket_filters(search_url, condition, language=language_code)
     _log_once(
         "cardmarket_link",
@@ -1606,7 +1654,8 @@ def _estimation_image_html(url, url_en="", *, style="", placeholder_class="est-c
     )
     return (
         '<div class="est-img-safe-wrap">'
-        f'<img src="{src}" loading="lazy" decoding="async" onerror="{html.escape(onerror, quote=True)}" style="width:100%;{html.escape(style, quote=True)}">'
+        f'<img src="{src}" loading="lazy" decoding="async" onerror="{html.escape(onerror, quote=True)}" '
+        f'data-ps-fallbacks="{html.escape(json.dumps(sources[1:]), quote=True)}" style="width:100%;{html.escape(style, quote=True)}">'
         f'<div class="{placeholder_class}" style="display:none;">Image indisponible</div>'
         "</div>"
     )
@@ -1631,6 +1680,7 @@ def _suggestion_image_cache_key(card):
             str(card.get("number") or card.get("localId") or ""),
             str(card.get("image_url") or ""),
             str(card.get("image_url_ja") or ""),
+            str(_custom_registry_mtime()),
         ]
     )
 
@@ -1646,6 +1696,7 @@ def _suggestion_image_info(card):
     fields = _fast_index_image_fields(card, card.get("number") or card.get("localId"), lang)
     sources = []
     for value in (
+        _custom_image_for_estimation(card),
         fields.get("image_url_ja") if lang == "ja" else "",
         fields.get("image_url"),
         fields.get("image_url_en"),
@@ -1695,10 +1746,21 @@ def _extract_shiny_filter(normalized_query, normalize_name_func):
     return query, found
 
 
+_KNOWN_SET_TAGS_CACHE = {"key": None, "ref": None, "tags": None}
+
+
 def _known_set_tags(indexed_cards=None):
+    # L'index de recherche (21 000 cartes) est une liste construite une fois ; on ne le reparcourt que s'il change (même objet et même taille).
+    cacheable = isinstance(indexed_cards, list)
+    key = (id(indexed_cards), len(indexed_cards)) if cacheable else None
+    cached = _KNOWN_SET_TAGS_CACHE
+    if cacheable and cached["key"] == key and cached["ref"] is indexed_cards:
+        return set(cached["tags"])
     tags = set(_STATIC_SET_TAG_ALIASES)
     for item in indexed_cards or []:
         tags.update(item.get("set_tags") or [])
+    if cacheable:
+        cached.update(key=key, ref=indexed_cards, tags=frozenset(tags))
     return tags
 
 
@@ -2110,6 +2172,27 @@ def _fast_index_image_fields(card, number, lang):
     return {"image_url": image_url, "image_url_en": image_url_en, "image_url_ja": image_url_ja}
 
 
+_OFFICIAL_IMAGE_FIELDS = ("image_url", "image_url_en", "image_url_ja", "image", "imageUrl", "resolved_collection_image_url")
+
+
+def _custom_image_for_estimation(card):
+    """Image personnalisée (custom_card_images.json) avec la même clé que les lots (resolve_custom_card_image), mais
+    prioritaire sur l'URL du cache cartes : resolve_custom_card_image renvoie vide pour une carte qui a une URL officielle
+    quand l'entrée n'a pas le drapeau override_official (anciennes entrées), donc on l'interroge sans ces URL."""
+    card = card or {}
+    probe = {key: value for key, value in card.items() if key not in _OFFICIAL_IMAGE_FIELDS}
+    probe["card_id"] = card.get("card_id") or card.get("id")
+    probe["number"] = card.get("number") or card.get("localId")
+    return resolve_custom_card_image(probe)
+
+
+def _custom_registry_mtime():
+    try:
+        return os.path.getmtime(CUSTOM_CARD_IMAGES_FILE) if os.path.exists(CUSTOM_CARD_IMAGES_FILE) else 0
+    except OSError:
+        return 0
+
+
 def _estimation_image_cache_key(card):
     card = card or {}
     registry_mtime = os.path.getmtime(CUSTOM_CARD_IMAGES_FILE) if os.path.exists(CUSTOM_CARD_IMAGES_FILE) else 0
@@ -2133,7 +2216,9 @@ def _resolve_estimation_card_image(card, *, log=True):
     is_japanese = _card_is_japanese(card)
     card_id = card.get("card_id") or card.get("id")
     number = card.get("number") or card.get("localId")
-    custom_image_url = resolve_custom_card_image({**card, "card_id": card_id, "number": number})
+    # Image propre à cette carte d'estimation (téléversée à la main) d'abord ; sinon image personnalisée de la bibliothèque (comme dans les lots), avant l'URL du cache.
+    has_card_upload = any(_normalize_image_source(card.get(key)) for key in ("manual_image_path", "manual_image_url"))
+    custom_image_url = "" if has_card_upload else _custom_image_for_estimation(card)
     if custom_image_url:
         result = {"url": custom_image_url, "url_en": "", "fallbacks": [], "source": "custom_library"}
         if len(_ESTIMATION_IMAGE_RESOLUTION_CACHE) >= _ESTIMATION_IMAGE_RESOLUTION_CACHE_MAX:
@@ -3359,6 +3444,8 @@ def _apply_market_price_suggestion(card, market_cache):
         card["manual_price"] = _safe_float(card.get("cote"))
         card["market_price_origin"] = "legacy_manual"
         return {"applied": False, "reason": "legacy_manual_preserved", "entry": None}
+    if _card_is_japanese(card):
+        return {"applied": False, "reason": "japanese_no_auto_price", "entry": None}
     if _safe_float(card.get("cote")) <= 0:
         return apply_market_price_to_card(card, market_cache)
     return {"applied": False, "reason": "manual_or_existing_preserved", "entry": None}
@@ -3369,7 +3456,8 @@ def _market_badge_info(card, market_cache):
     try:
         from services.market_price_cache_service import lookup_market_price
 
-        entry = lookup_market_price(market_cache, card)
+        # Carte japonaise : jamais de cote auto issue de la carte FR correspondante.
+        entry = None if _card_is_japanese(card) else lookup_market_price(market_cache, card)
     except Exception:
         entry = None
     label = market_price_badge(card, entry)
@@ -3981,6 +4069,11 @@ def _market_refresh_signature(card):
     )
 
 
+# Design : ces deux boutons ne sont plus affichés sur les cartes suivies (les fonctions et callbacks restent en place).
+_SHOW_CARD_AUTO_PRICE_BUTTON = False
+_SHOW_CARD_REVERT_IMAGE_BUTTON = False
+
+
 def _use_auto_price_on_card(*, card, estimate, edata, save_estimations_func, cote_key, auto_price):
     """Callback on_click : exécuté avant la création des widgets au rerun, donc le champ Cote peut être mis à jour."""
     _mark_estimation_needs_review(estimate)
@@ -3989,6 +4082,229 @@ def _use_auto_price_on_card(*, card, estimate, edata, save_estimations_func, cot
     card.pop("manual_price", None)
     st.session_state[cote_key] = f"{auto_price:.2f}".replace(".", ",")
     save_estimations_func(edata)
+
+
+_EST_CARD_AUTOSAVE_DEBOUNCE_MS = 900
+_est_front_helpers_component = None
+
+
+def _get_est_front_helpers_component():
+    """Petit composant front-end (même mécanisme que le pont d'image des lots), injecté une fois par page :
+    1) après une pause de frappe dans Qté ou Cote d'une carte suivie, il valide le champ comme Entrée (on_change existant) ;
+    2) il remplace par le placeholder une image dont le chargement a RÉELLEMENT échoué (Streamlit retire les attributs onerror du HTML
+       de st.markdown), sans jamais masquer une image qui se charge, et il restaure l'image si sa source change ou se charge ensuite ;
+    3) après un ajout réussi, il vide EN PLACE le champ Nom (st_keyup) : l'iframe n'est jamais recréée, le champ ne disparaît pas."""
+    global _est_front_helpers_component
+    if _est_front_helpers_component is not None:
+        return _est_front_helpers_component
+    try:
+        import streamlit.components.v2 as components_v2
+    except Exception:
+        return None
+    js = r"""
+    export default function(component) {
+        const { parentElement, data } = component;
+        parentElement.style.height = "0px";
+        parentElement.style.minHeight = "0px";
+        parentElement.style.overflow = "hidden";
+        parentElement.style.pointerEvents = "none";
+
+        const doc = parentElement.ownerDocument;
+        const win = doc.defaultView || window;
+        const delay = Number((data && data.delay) || 900);
+        const nameUid = String((data && data.name_uid) || "");
+        const nameEpoch = Number((data && data.name_epoch) || 0);
+        const namePlaceholder = String((data && data.name_placeholder) || "");
+        const FIELD = '[class*="st-key-est_card_qty_"], [class*="st-key-est_card_cote_"]';
+        const GRID = '[class*="st-key-est_tracked_grid_"]';
+        const stateKey = "__pokestockEstFrontHelpers";
+        const previous = win[stateKey];
+        if (previous && previous.cleanup) { try { previous.cleanup(); } catch (e) {} }
+        const me = { cleanup: null };
+        win[stateKey] = me;
+
+        const timers = new Map();
+        const pending = new Set();
+
+        function cardField(target) {
+            if (!target || target.tagName !== "INPUT" || !target.closest) return null;
+            if (!target.closest(GRID) || !target.closest(FIELD)) return null;
+            return target;
+        }
+        function clear(el) {
+            const t = timers.get(el);
+            if (t) { clearTimeout(t); timers.delete(el); }
+        }
+        function fire(el) {
+            timers.delete(el);
+            if (!doc.contains(el) || doc.activeElement !== el) return;
+            if (el.value === el.dataset.psCommitted) return;
+            el.dataset.psCommitted = el.value;
+            const init = { key: "Enter", code: "Enter", keyCode: 13, which: 13, charCode: 13, bubbles: true, cancelable: true };
+            el.dispatchEvent(new KeyboardEvent("keydown", init));
+            el.dispatchEvent(new KeyboardEvent("keypress", init));
+            el.dispatchEvent(new KeyboardEvent("keyup", init));
+        }
+        const onFocusIn = (e) => { const el = cardField(e.target); if (el) el.dataset.psCommitted = el.value; };
+        const onInput = (e) => {
+            const el = cardField(e.target);
+            if (!el) return;
+            clear(el);
+            timers.set(el, setTimeout(() => fire(el), delay));
+        };
+        const onFocusOut = (e) => { const el = cardField(e.target); if (el) { clear(el); el.dataset.psCommitted = el.value; } };
+        const onKeyDown = (e) => {
+            if (e.key !== "Enter" || !e.isTrusted) return;
+            const el = cardField(e.target);
+            if (el) { clear(el); el.dataset.psCommitted = el.value; }
+        };
+
+        // ---- Images : le placeholder n'apparaît qu'après un échec CONFIRMÉ, et il est retiré dès que l'image se charge ou change de source.
+        const isSafeImg = (img) => !!(img && img.tagName === "IMG" && img.closest && img.closest(".est-img-safe-wrap"));
+        const imgState = (img) => (img.__psImg || (img.__psImg = { idx: 0, expect: null }));
+        function showImage(img) {
+            img.style.removeProperty("display");
+            const ph = img.nextElementSibling;
+            if (ph && ph.classList && /placeholder/.test(ph.className)) ph.style.display = "none";
+            delete img.dataset.psFailed;
+        }
+        function failImage(img) {
+            try { console.warn("[PokéStock] image en échec (placeholder affiché) :", String(img.getAttribute("src") || "").slice(0, 90)); } catch (err) {}
+            img.dataset.psFailed = img.getAttribute("src") || "";
+            img.style.display = "none";
+            const ph = img.nextElementSibling;
+            if (ph) ph.style.display = "flex";
+        }
+        function onConfirmedError(img) {
+            let list = [];
+            try { list = JSON.parse(img.getAttribute("data-ps-fallbacks") || "[]"); } catch (err) { list = []; }
+            const st = imgState(img);
+            const cur = img.getAttribute("src") || "";
+            if (st.expect !== cur) st.idx = 0;           // source posée par la page (pas par nous) : on repart du début de la chaîne
+            if (st.idx < list.length) { const next = list[st.idx]; st.idx += 1; st.expect = next; img.setAttribute("src", next); return; }
+            failImage(img);
+        }
+        const onImgError = (e) => {
+            const img = e.target;
+            if (isSafeImg(img) && img.getAttribute("src")) onConfirmedError(img);
+        };
+        const onImgLoad = (e) => {
+            const img = e.target;
+            if (isSafeImg(img) && img.dataset.psFailed !== undefined && img.naturalWidth > 0) showImage(img);
+        };
+        const observer = new win.MutationObserver((records) => {
+            for (const r of records) {
+                const img = r.target;
+                if (!isSafeImg(img)) continue;
+                const st = imgState(img);
+                const cur = img.getAttribute("src") || "";
+                if (st.expect === cur) continue;          // changement fait par nous (chaîne de repli)
+                st.idx = 0; st.expect = null;
+                if (img.dataset.psFailed !== undefined && img.dataset.psFailed !== cur) showImage(img);
+            }
+        });
+        try { observer.observe(doc.body, { subtree: true, attributes: true, attributeFilter: ["src"] }); } catch (err) {}
+        const scanBrokenImages = () => {
+            doc.querySelectorAll(".est-img-safe-wrap img").forEach((img) => {
+                const src = img.getAttribute("src");
+                if (!src) return;
+                if (img.dataset.psFailed !== undefined) {
+                    if (img.complete && img.naturalWidth > 0) showImage(img);   // image chargée malgré tout : on la rend
+                    return;
+                }
+                if (!(img.complete && img.naturalWidth === 0 && img.currentSrc)) return;   // en cours de chargement, ou différée (lazy) : on n'y touche pas
+                if (img.getAttribute("loading") === "lazy") {                              // image différée hors de l'écran : certains navigateurs la disent « complete »
+                    const box = img.getBoundingClientRect();
+                    const vh = win.innerHeight || 800;
+                    if ((box.width === 0 && box.height === 0) || box.bottom < -600 || box.top > vh + 600) return;
+                }
+                if (pending.has(img)) return;
+                pending.add(img);
+                setTimeout(() => {                                                          // confirmation avant de conclure à un échec
+                    pending.delete(img);
+                    if ((img.getAttribute("src") || "") === src && img.complete && img.naturalWidth === 0 && img.currentSrc) onConfirmedError(img);
+                }, 400);
+            });
+        };
+        doc.addEventListener("error", onImgError, true);
+        doc.addEventListener("load", onImgLoad, true);
+        const scanTimers = [setTimeout(scanBrokenImages, 600), setTimeout(scanBrokenImages, 2000), setTimeout(scanBrokenImages, 5000)];
+
+        // ---- Champ Nom : remise à zéro en place après un ajout réussi (le jeton change à chaque ajout réussi).
+        function findNameInput() {
+            const frames = doc.querySelectorAll("iframe");
+            for (const f of frames) {
+                try {
+                    const inp = f.contentDocument && f.contentDocument.getElementById("input_box");
+                    if (inp && inp.placeholder === namePlaceholder) return { frame: f, input: inp };
+                } catch (err) {}
+            }
+            return null;
+        }
+        let nameTries = 0;
+        let nameTimer = null;
+        function clearNameField() {
+            const hit = findNameInput();
+            if (!hit) { if (nameTries++ < 40) nameTimer = setTimeout(clearNameField, 150); return; }
+            if (hit.input.value === "") return;
+            hit.input.value = "";
+            try { hit.input.dispatchEvent(new hit.frame.contentWindow.Event("keyup", { bubbles: true })); } catch (err) {}
+        }
+        if (nameUid) {
+            const seen = win.__pokestockEstNameSeen || (win.__pokestockEstNameSeen = {});
+            const before = seen[nameUid];
+            seen[nameUid] = nameEpoch;
+            if (before !== undefined && nameEpoch > before) clearNameField();
+        }
+
+        doc.addEventListener("focusin", onFocusIn, true);
+        doc.addEventListener("input", onInput, true);
+        doc.addEventListener("focusout", onFocusOut, true);
+        doc.addEventListener("keydown", onKeyDown, true);
+        const cleanup = () => {
+            doc.removeEventListener("focusin", onFocusIn, true);
+            doc.removeEventListener("input", onInput, true);
+            doc.removeEventListener("focusout", onFocusOut, true);
+            doc.removeEventListener("keydown", onKeyDown, true);
+            doc.removeEventListener("error", onImgError, true);
+            doc.removeEventListener("load", onImgLoad, true);
+            try { observer.disconnect(); } catch (err) {}
+            scanTimers.forEach((t) => clearTimeout(t));
+            if (nameTimer) clearTimeout(nameTimer);
+            timers.forEach((t) => clearTimeout(t));
+            timers.clear();
+        };
+        me.cleanup = cleanup;
+        return () => { cleanup(); if (win[stateKey] === me) win[stateKey] = null; };
+    }
+    """
+    try:
+        _est_front_helpers_component = components_v2.component(
+            "pokestock_est_front_helpers",
+            html='<div aria-hidden="true"></div>',
+            css="",
+            js=js,
+            isolate_styles=False,
+        )
+    except Exception:
+        _est_front_helpers_component = None
+    return _est_front_helpers_component
+
+
+def _render_estimations_front_helpers(name_uid="", name_epoch=0, name_placeholder=""):
+    """Injecté une fois par page. En cas d'échec, Entrée / clic ailleurs continuent de valider les champs."""
+    try:
+        component = _get_est_front_helpers_component()
+        if component is not None:
+            component(
+                key="est_front_helpers",
+                data={"delay": _EST_CARD_AUTOSAVE_DEBOUNCE_MS, "name_uid": name_uid, "name_epoch": name_epoch, "name_placeholder": name_placeholder},
+                default={},
+                width="stretch",
+                height=0,
+            )
+    except Exception:
+        pass
 
 
 def _autosave_estimation_card_field(field, *, card, estimate, edata, market_cache, save_estimations_func,
@@ -4038,6 +4354,8 @@ def _auto_refresh_card_market_price(card, market_cache, memo_key):
     (apply_market_price_to_card : cache local, aucun appel réseau, cote manuelle préservée),
     déclenchée seulement quand l'identité, l'état ou la quantité de la carte changent.
     La première vue d'une carte dans la session sert de référence (aucune mise à jour en masse)."""
+    if _card_is_japanese(card):
+        return None
     signature = _market_refresh_signature(card)
     previous = st.session_state.get(memo_key)
     st.session_state[memo_key] = signature
@@ -4159,16 +4477,26 @@ _DETAIL_LAYOUT_CSS = """
 /* ---------- Suggestions : grille 2 colonnes de tuiles avec vignette ---------- */
 [class*="st-key-est_sugg_grid_"] { container-type:inline-size; display:flex !important; flex-direction:row !important; flex-wrap:wrap !important; gap:0.4rem !important; width:100% !important; }
 [class*="st-key-est_sugg_grid_"] > [data-testid="stElementContainer"] { flex:0 0 100% !important; }
-[class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 calc((100% - 0.4rem - 2px) / 2) !important; width:calc((100% - 0.4rem - 2px) / 2) !important; max-width:calc((100% - 0.4rem - 2px) / 2) !important; min-width:0 !important; }
-@container (max-width:560px) {
-    [class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex-basis:100% !important; width:100% !important; max-width:100% !important; }
+[class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 100% !important; width:100% !important; max-width:100% !important; min-width:0 !important; }
+/* Colonnes selon la largeur de la zone : 1 / 2 / 3 / 4, avec retour à la ligne (-2px : arrondis flex). */
+@container (min-width:480px) {
+    [class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 calc((100% - 0.4rem - 2px) / 2) !important; width:calc((100% - 0.4rem - 2px) / 2) !important; max-width:calc((100% - 0.4rem - 2px) / 2) !important; }
 }
-[class*="st-key-est_sugg_tile_"] { display:flex !important; flex-direction:row !important; align-items:center !important; gap:0.4rem !important; background:#FFFFFF; border:1px solid #E6E3F3; border-radius:12px; padding:0.35rem 0.5rem; }
-[class*="st-key-est_sugg_tile_"] > [data-testid="stElementContainer"]:first-child { flex:1 1 0 !important; min-width:0 !important; width:auto !important; }
+@container (min-width:720px) {
+    [class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 calc((100% - 0.8rem - 2px) / 3) !important; width:calc((100% - 0.8rem - 2px) / 3) !important; max-width:calc((100% - 0.8rem - 2px) / 3) !important; }
+}
+@container (min-width:1040px) {
+    [class*="st-key-est_sugg_grid_"] > [data-testid="stLayoutWrapper"] { flex:0 0 calc((100% - 1.2rem - 2px) / 4) !important; width:calc((100% - 1.2rem - 2px) / 4) !important; max-width:calc((100% - 1.2rem - 2px) / 4) !important; }
+}
+[class*="st-key-est_sugg_tile_"] { display:flex !important; flex-direction:row !important; align-items:center !important; justify-content:flex-start !important; gap:0.4rem !important; background:#FFFFFF; border:1px solid #E6E3F3; border-radius:12px; padding:0.35rem 0.5rem; }
+[class*="st-key-est_sugg_tile_"] > [data-testid="stElementContainer"]:first-child { flex:0 1 auto !important; min-width:0 !important; width:auto !important; }
+[class*="st-key-est_sugg_tile_"] .est-suggestion-copy { flex:1 1 auto; min-width:0; overflow:hidden; }
+[class*="st-key-est_sugg_tile_"] .est-suggestion-copy strong, [class*="st-key-est_sugg_tile_"] .est-suggestion-copy span, [class*="st-key-est_sugg_tile_"] .est-suggestion-copy em { white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; overflow-wrap:normal !important; max-width:100%; }
+[class*="st-key-est_sugg_tile_"] .est-suggestion-copy em { display:-webkit-box !important; -webkit-box-orient:vertical; -webkit-line-clamp:2; white-space:normal !important; overflow-wrap:anywhere !important; }
 [class*="st-key-est_sugg_tile_"] > [data-testid="stElementContainer"]:last-child { flex:0 0 auto !important; width:auto !important; }
 [class*="st-key-est_sugg_tile_"] button { min-height:1.8rem !important; padding:0.1rem 0.7rem !important; font-size:0.75rem !important; width:auto !important; }
 .est-suggestion-card.compact { display:flex !important; align-items:center; gap:0.5rem; border:0 !important; background:transparent !important; padding:0 !important; margin:0 !important; min-height:0 !important; box-shadow:none !important; }
-.est-sugg-thumb { width:40px; flex:0 0 40px; aspect-ratio:0.716; border-radius:6px; overflow:hidden; background:#F0ECFF; }
+.est-sugg-thumb { width:68px; flex:0 0 68px; aspect-ratio:0.716; border-radius:6px; overflow:hidden; background:#F0ECFF; }
 .est-sugg-thumb .est-img-safe-wrap { width:100%; height:100%; gap:0 !important; }
 .est-sugg-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .est-sugg-thumb .est-sugg-thumb-ph { font-size:0; width:100%; height:100%; background:#E6E3F3; }
@@ -5048,6 +5376,16 @@ def _render_css():
             border-radius:14px !important;
             box-shadow:0 8px 18px rgba(76,29,149,0.065) !important;
         }
+        /* Même hauteur pour toutes les cartes d'une rangée : la ligne Cardmarket / image / Retirer reste calée en bas. */
+        [class*="st-key-search_result_card_"] > [data-testid="stLayoutWrapper"]:last-child {
+            flex:1 1 auto !important;
+        }
+        [class*="st-key-search_result_card_"] > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] {
+            height:100% !important;
+        }
+        [class*="st-key-search_result_card_"] [data-testid="stElementContainer"]:has(.est-retirer-marker) {
+            margin-top:auto !important;
+        }
         .est-tracked-body {
             border-color:rgba(124,58,237,0.14) !important;
             border-radius:14px !important;
@@ -5547,7 +5885,12 @@ def _render_open_estimation(
     with main_col:
         with st.container(key=f"est_add_bar_{uid}"):
             st.markdown('<div class="est-section-title">Ajouter une carte</div>', unsafe_allow_html=True)
+            # Le composant st_keyup garde sa valeur côté navigateur. Sa clé reste CONSTANTE (l'iframe n'est jamais recréée, donc le champ
+            # ne disparaît jamais) ; après un ajout réussi, le compteur ci-dessous est transmis au composant front-end, qui vide le champ en place.
+            name_epoch_key = f"est_add_name_epoch_{uid}"
+            name_epoch = int(st.session_state.get(name_epoch_key, 0) or 0)
             name_key = f"est_add_name_keyup_{uid}"
+            name_reset_this_run = False
             number_key = f"est_add_number_box_{uid}"
             qty_key = f"est_add_qty_box_{uid}"
             condition_key = f"est_add_condition_box_{uid}"
@@ -5572,12 +5915,16 @@ def _render_open_estimation(
                 if isinstance(previous_values, dict):
                     previous_values.pop(name_key, None)
                     previous_values.pop(name_component_state_key, None)
+                name_epoch += 1
+                st.session_state[name_epoch_key] = name_epoch
+                name_reset_this_run = True
                 st.session_state.pop(f"est_add_name_fallback_{uid}", None)
                 st.session_state[number_key] = ""
                 st.session_state[qty_key] = "1"
                 st.session_state[condition_key] = "NM"
                 st.session_state[special_key] = []
                 st.session_state[note_key] = ""
+                st.session_state[lang_key] = False
                 st.session_state.pop(f"est_selected_match_{uid}", None)
                 st.session_state.pop(f"est_selected_details_{uid}", None)
                 _log_once(
@@ -5585,11 +5932,15 @@ def _render_open_estimation(
                     f'{uid}|{estimate.get("name", "Estimation")}',
                     f'[Estimations Form Reset] estimate="{estimate.get("name", "Estimation")}" applied=yes',
                 )
+            _render_estimations_front_helpers(name_uid=str(uid), name_epoch=name_epoch, name_placeholder=name_placeholder)
             if qty_key not in st.session_state:
                 st.session_state[qty_key] = "1"
             if lang_key not in st.session_state:
                 st.session_state[lang_key] = False
-            _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key)
+            # Emplacement TOUJOURS présent pour l'avertissement doublon : s'il apparaissait/disparaissait directement dans la barre, il décalerait
+            # la rangée du champ Nom, et Streamlit recréerait son iframe (bloc gris). Le conteneur garde sa place, seul son contenu change.
+            with st.container(key=f"est_dup_slot_{uid}"):
+                _render_duplicate_pending(uid, estimate, edata, save_estimations_func, add_estimation_card_func, pending_reset_key)
             bar_cols = st.columns([3.0, 1.0, 0.7, 1.1, 1.7, 1.05], vertical_alignment="center")
             with bar_cols[0]:
                 try:
@@ -5608,12 +5959,18 @@ def _render_open_estimation(
                         f'[Estimations Add Form] name_field_rendered=no reason="{type(exc).__name__}: {exc}"',
                     )
                     card_name = st.text_input("Nom / Rechercher une carte", value="", key=f"est_add_name_fallback_{uid}", placeholder=name_placeholder, label_visibility="collapsed")
+            if name_reset_this_run:
+                # L'iframe garde encore l'ancien texte pendant ce rerun : on force le champ vide côté Python (le composant front le vide ensuite en place).
+                card_name = ""
             card_number = bar_cols[1].text_input("Numéro", placeholder="N° 199/165", key=number_key, label_visibility="collapsed")
             card_qty = bar_cols[2].text_input("Qté", key=qty_key, placeholder="Qté", help="Quantité", label_visibility="collapsed")
             card_condition = bar_cols[3].selectbox("État", ["NM", "EX", "GD", "LP", "PL", "POOR"], key=condition_key, label_visibility="collapsed", format_func=lambda value: f"État {value}")
+            _stored_specials = st.session_state.get(special_key)
+            if isinstance(_stored_specials, list) and "Japonaise" in _stored_specials:
+                st.session_state[special_key] = [tag for tag in _stored_specials if tag != "Japonaise"]
             card_specials = bar_cols[4].multiselect(
                 "Spécial",
-                ["Reverse", "1ère Éd", "Japonaise", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
+                _ESTIMATION_SPECIAL_OPTIONS,
                 key=special_key,
                 placeholder="Spécial",
                 label_visibility="collapsed",
@@ -5627,13 +5984,11 @@ def _render_open_estimation(
                     help="Cherche dans les cartes japonaises du cache, avec images et liens Cardmarket japonais quand les données existent.",
                 )
             card_note = opt_cols[1].text_input("Note rapide", placeholder="Note rapide : photo floue, coin abîmé...", key=note_key, label_visibility="collapsed")
-            search_language = "ja" if jp_mode else "fr"
+            # La recherche utilise toujours le cache FR ; la case « Cartes japonaises » ne sert qu'à marquer la carte ajoutée.
+            search_language = "fr"
+            card_language = "ja" if jp_mode else "fr"
             if jp_mode:
-                jp_cache = _ensure_japanese_cards_cache(normalize_name_func)
-                if jp_cache.get("loaded"):
-                    st.caption(f"Mode japonais : {jp_cache.get('count', 0)} cartes JP indexées, sans mélange avec les résultats FR.")
-                else:
-                    st.caption("Mode japonais : cache JP indisponible pour le moment, aucune bascule automatique vers les cartes FR.")
+                st.caption("Recherche dans le cache FR (cartes japonaises : cote auto désactivée)")
 
             search_context = _search_context(card_name, normalize_name_func)
             suggestion_limit = 8 if is_mobile_mode_func() else 12
@@ -5686,15 +6041,15 @@ def _render_open_estimation(
                                             f'{uid}|{details.get("id","")}|{details.get("number","")}',
                                             f'[Estimations Perf] choose card="{details.get("name", "")}" image_ready={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} total_ms={int((time.perf_counter() - action_started) * 1000)}',
                                         )
-                                        details["lang"] = search_language
-                                        details["language"] = search_language
-                                        if search_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
+                                        details["lang"] = card_language
+                                        details["language"] = card_language
+                                        if card_language == "ja" and "Japonaise" not in str(details.get("special") or ""):
                                             details["special"] = ", ".join(x for x in [details.get("special", ""), "Japonaise"] if str(x or "").strip())
                                         direct_specials = st.session_state.get(special_key, [])
                                         if not isinstance(direct_specials, list):
                                             direct_specials = []
                                         direct_clean_specials = [tag for tag in direct_specials if tag != "Collection"]
-                                        if search_language == "ja" and "Japonaise" not in direct_clean_specials:
+                                        if card_language == "ja" and "Japonaise" not in direct_clean_specials:
                                             direct_clean_specials.append("Japonaise")
                                         add_params = {
                                             "name": details.get("name") or card_name,
@@ -5724,7 +6079,7 @@ def _render_open_estimation(
                                             f'selected="{details.get("name", "")}" number="{details.get("number", "")}" '
                                             f'set="{details.get("set", "")}" rarity="{details.get("rarity", "")}" '
                                             f'image={"yes" if details.get("image_url") or details.get("image_url_en") or details.get("image_url_ja") else "no"} '
-                                            f'language="{search_language}" '
+                                            f'language="{card_language}" '
                                             f'exact_cm={"yes" if _exact_cardmarket_url(details) else "no"}',
                                         )
                                         add_estimation_card_func(
@@ -5767,7 +6122,7 @@ def _render_open_estimation(
                                         _perf_log_once(
                                             "add",
                                             f'{uid}|suggestion|{details.get("id","")}|{details.get("number","")}',
-                                            f'[Estimations Perf] add card="{details.get("name", "")}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
+                                            f'[Estimations Perf] add card="{details.get("name", "")}" lang={card_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
                                         )
                                         st.session_state.pop(f"pending_est_choice_{uid}", None)
                                         st.session_state.pop(f"est_selected_match_{uid}", None)
@@ -5859,14 +6214,14 @@ def _render_open_estimation(
                         matches = [manual_candidates[0]["match"]] if manual_match_status == "exact" else []
                         selected_details = _selected_card_details(manual_candidates[0]["card"]) if manual_match_status == "exact" else None
                         if selected_details:
-                            selected_details["lang"] = search_language
-                            selected_details["language"] = search_language
-                            if search_language == "ja" and "Japonaise" not in str(selected_details.get("special") or ""):
+                            selected_details["lang"] = card_language
+                            selected_details["language"] = card_language
+                            if card_language == "ja" and "Japonaise" not in str(selected_details.get("special") or ""):
                                 selected_details["special"] = ", ".join(x for x in [selected_details.get("special", ""), "Japonaise"] if str(x or "").strip())
-                        elif search_language == "ja":
+                        elif card_language == "ja":
                             selected_details = {"lang": "ja", "language": "ja", "special": "Japonaise"}
                         manual_specials = list(clean_specials)
-                        if search_language == "ja" and "Japonaise" not in manual_specials:
+                        if card_language == "ja" and "Japonaise" not in manual_specials:
                             manual_specials.append("Japonaise")
                         add_params = {
                             "name": selected_details.get("name", card_name) if selected_details else card_name,
@@ -5910,7 +6265,7 @@ def _render_open_estimation(
                             "manual_add",
                             f'{uid}|{manual_match_status}|{card_name}|{card_number}|{image_status}',
                             "[Estimations Manual Add] "
-                            f'name="{card_name}" number="{card_number}" match={manual_match_status} language="{search_language}" image={image_status}',
+                            f'name="{card_name}" number="{card_number}" match={manual_match_status} language="{card_language}" image={image_status}',
                         )
                         if after_count > before_count and estimate.get("cards"):
                             added_card = estimate["cards"][-1]
@@ -5942,7 +6297,7 @@ def _render_open_estimation(
                         _perf_log_once(
                             "add",
                             f'{uid}|manual|{card_name}|{card_number}|{manual_match_status}',
-                            f'[Estimations Perf] add card="{card_name}" lang={search_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
+                            f'[Estimations Perf] add card="{card_name}" lang={card_language} local_save_ms={save_ms} cloud_ms=unknown total_ms={int((time.perf_counter() - action_started) * 1000)}',
                         )
                         st.rerun()
 
@@ -6188,7 +6543,7 @@ def _render_open_estimation(
                                     on_change=_autosave_estimation_card_field, args=("cote",), kwargs=autosave_kwargs,
                                 )
                                 auto_price = _safe_float(card.get("auto_price"))
-                                if auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"}:
+                                if _SHOW_CARD_AUTO_PRICE_BUTTON and auto_price > 0 and card.get("market_price_origin") in {"manual", "legacy_manual"} and not _card_is_japanese(card):
                                     st.button(
                                         "Utiliser la cote auto", key=f"use_auto_price_{uid}_{card_uid}", width="stretch",
                                         on_click=_use_auto_price_on_card,
@@ -6204,7 +6559,7 @@ def _render_open_estimation(
                                             _mark_estimation_needs_review(estimate)
                                             save_estimations_func(edata)
                                         st.rerun()
-                                if card_meta.get("has_manual_image"):
+                                if _SHOW_CARD_REVERT_IMAGE_BUTTON and card_meta.get("has_manual_image"):
                                     if st.button("Revenir à l’image officielle", key=f"est_manual_img_delete_{uid}_{card_uid}", width="stretch"):
                                         _mark_estimation_needs_review(estimate)
                                         remove_custom_card_image(card)
@@ -6430,7 +6785,16 @@ def _render_open_estimation(
                         st.rerun()
 
             if st.button("Actualiser les cotes de cette estimation", key=f"refresh_market_prices_{uid}", width="stretch"):
-                updated_cache, refresh_summary = refresh_estimation_prices(market_cache, estimate, only_due=True)
+                # Les cartes japonaises sont ignorées (jamais de cote auto issue de la carte FR) ; mêmes cartes, même objet carte.
+                jp_cards = [c for c in estimate.get("cards", []) or [] if _card_is_japanese(c)]
+                updated_cache, refresh_summary = refresh_estimation_prices(
+                    market_cache, {**estimate, "cards": [c for c in estimate.get("cards", []) or [] if not _card_is_japanese(c)]}, only_due=True
+                )
+                for jp_card in jp_cards:
+                    if str(jp_card.get("market_price_origin") or "") in {"manual", "legacy_manual"} or (not jp_card.get("market_price_origin") and _safe_float(jp_card.get("cote")) > 0):
+                        refresh_summary["manual_preserved"] = refresh_summary.get("manual_preserved", 0) + 1
+                    else:
+                        refresh_summary["unavailable"] = refresh_summary.get("unavailable", 0) + 1
                 save_market_price_cache(updated_cache)
                 st.session_state["market_price_cache"] = updated_cache
                 save_estimations_func(edata)

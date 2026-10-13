@@ -4,35 +4,35 @@
       "fingerprint": "a4e739db42a1e675c27ed6d3e9c35157ed99c50507280c0f9fe9bc882bc1dde7",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-10-12T16:56:32.405823+00:00",
+      "last_read_at": "2026-10-13T09:29:41.903981+00:00",
       "last_save_at": "2026-10-12T11:50:23.830215+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "push_pending": false
     },
     "lot_estimations": {
-      "fingerprint": "d87576a792062e51a1be5c395ce4e59476010f449e928a356585cf08227498ff",
-      "source": "local",
+      "fingerprint": "798bf7451c714fbcd4e3c25fd648a7e3682cfc391eefafd3a046e4af7afae1bf",
+      "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-10-12T16:51:30.570469+00:00",
-      "last_save_at": "2026-10-12T16:56:43.065886+00:00",
+      "last_read_at": "2026-10-13T09:29:41.944259+00:00",
+      "last_save_at": "2026-10-12T19:56:30.124982+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "push_pending": false
     },
     "estimation_market_price_cache": {
-      "fingerprint": "23d81be6074e20ec5ba4a4200df1a4cb9fe1eab64f6ed572761088f186910176",
-      "source": "local",
+      "fingerprint": "bf740aba3c4116af2a4ddc799f0d6c51973c2a1910a052541cfc4faba6fff74c",
+      "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-10-12T16:51:38.008256+00:00",
-      "last_save_at": "2026-10-12T16:56:43.061178+00:00",
+      "last_read_at": "2026-10-13T09:29:42.014358+00:00",
+      "last_save_at": "2026-10-12T19:56:30.120349+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "push_pending": false
     },
     "monthly_goals": {
-      "fingerprint": "3c17b2ac00d6a293235f93fb4e0c10150b30a1922f7a6e762ae77b755ff92269",
+      "fingerprint": "da20f527891a11e94e02feb81f44afcdd66d3a60027bf87e253a7ab72c5a3285",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-09-02T11:23:59.302655+00:00",
-      "last_read_at": "2026-10-12T16:56:32.444270+00:00",
+      "last_save_at": "2026-10-12T17:14:57.837289+00:00",
+      "last_read_at": "2026-10-13T09:29:41.961738+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "push_pending": false
     },
@@ -40,7 +40,7 @@
       "fingerprint": "28b38abaf05704b5ef17b7ba1d6a6d21ab30f490c7b39f6ec6300f95add43c0f",
       "source": "cloud",
       "local_dirty": false,
-      "last_read_at": "2026-10-12T16:56:32.439953+00:00",
+      "last_read_at": "2026-10-13T09:29:41.957283+00:00",
       "last_save_at": "2026-10-12T11:50:23.837899+00:00",
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "push_pending": false
@@ -51,7 +51,7 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-09-19T18:29:10.606490+00:00",
-      "last_read_at": "2026-10-12T16:56:32.434492+00:00",
+      "last_read_at": "2026-10-13T09:29:41.952229+00:00",
       "push_pending": false
     },
     "counters": {
@@ -60,7 +60,7 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-09-21T18:50:33.527417+00:00",
-      "last_read_at": "2026-10-12T16:56:32.448632+00:00",
+      "last_read_at": "2026-10-13T09:29:41.972054+00:00",
       "push_pending": false
     },
     "vinted_drops": {
@@ -69,15 +69,15 @@
       "local_dirty": false,
       "safe_start_guard_at": "2026-08-09T08:17:04.949835+00:00",
       "last_save_at": "2026-10-12T12:05:56.426859+00:00",
-      "last_read_at": "2026-10-12T16:56:32.463104+00:00",
+      "last_read_at": "2026-10-13T09:29:41.990013+00:00",
       "push_pending": false
     },
     "custom_card_images": {
-      "fingerprint": "8e25f43d75c300f90ee94740deec760c70f3e393245ad6f87b6877384acddca2",
+      "fingerprint": "ada0e68b0b9d18f77c779c5a30f55a53e6807bb11fe9a1c72d7a19ef24c557ea",
       "source": "cloud",
       "local_dirty": false,
-      "last_save_at": "2026-10-07T16:01:11.736345+00:00",
-      "last_read_at": "2026-10-12T16:56:32.477587+00:00",
+      "last_save_at": "2026-10-12T19:52:05.616433+00:00",
+      "last_read_at": "2026-10-13T09:29:42.025518+00:00",
       "push_pending": false
     },
     "brocantes": {
@@ -85,7 +85,7 @@
       "source": "cloud",
       "local_dirty": false,
       "last_save_at": "2026-10-06T10:31:03.336823+00:00",
-      "last_read_at": "2026-10-12T16:56:32.471351+00:00",
+      "last_read_at": "2026-10-13T09:29:41.998201+00:00",
       "push_pending": false
     }
   }

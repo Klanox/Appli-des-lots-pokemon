@@ -105,12 +105,12 @@ class RedesignRenderTest(unittest.TestCase):
             self.assertIn(expected, expanders)
         self.assertNotIn("Ajouter une carte dans cette estimation", expanders)
 
-    def test_special_options_are_the_existing_list(self):
+    def test_special_options_are_the_existing_list_without_japanese_stamp(self):
         at = _run()
         special = next(m for m in at.multiselect if m.label == "Spécial")
         self.assertEqual(
             list(special.options),
-            ["Reverse", "1ère Éd", "Japonaise", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
+            ["Reverse", "1ère Éd", "Collection", "Scellé", "Stamp", "Promo", "Master Ball", "Poké Ball"],
         )
 
     def test_add_button_without_name_does_not_call_business_functions(self):
@@ -142,7 +142,7 @@ class RedesignSourceTest(unittest.TestCase):
     def test_business_calls_are_still_in_the_detail_view(self):
         source = inspect.getsource(estimations._render_open_estimation)
         for needle in (
-            "add_estimation_card_func(", "_apply_market_price_suggestion(", "refresh_estimation_prices(market_cache, estimate, only_due=True)",
+            "add_estimation_card_func(", "_apply_market_price_suggestion(", "refresh_estimation_prices(", "only_due=True",
             "_new_quick_bulk_entry(", "sd_func(cd_real)", 'new_uid_func("lot")', "_find_duplicate_card(",
             "_auto_refresh_card_market_price(", "save_estimations_func(edata)",
         ):

@@ -40,8 +40,7 @@ class TrackedCardsRemovedElementsTest(unittest.TestCase):
                         "est-card-mini-grid", "st.file_uploader"):
             self.assertNotIn(removed, source)
         self.assertIn("Écart à la cote", source)  # KPI du total de l'estimation : conservé
-        for kept in ("Chercher la cote sur Cardmarket", "Utiliser la cote auto", "Actualiser les cotes de cette estimation",
-                     "Revenir à l’image officielle", "ps-lot-inline-image-btn"):
+        for kept in ("Chercher la cote sur Cardmarket", "Actualiser les cotes de cette estimation", "ps-lot-inline-image-btn"):
             self.assertIn(kept, source)
 
     def test_totals_do_not_depend_on_the_removed_per_card_blocks(self):
