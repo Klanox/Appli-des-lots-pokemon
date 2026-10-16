@@ -222,6 +222,13 @@ def load_drop_photo_session(drop_id: str) -> dict[str, Any]:
         "validations": dict(payload.get("validations") or {}),
         "grouping_confirmations": dict(payload.get("grouping_confirmations") or {}),
         "poc_validation_reconciliation": dict(payload.get("poc_validation_reconciliation") or {}),
+        # Decisions de verification (hors JSON metier) : groupes ignores / pas dans le stock,
+        # photos deplacees, regroupement signale. Tous optionnels (sessions anterieures compatibles).
+        "review_dispositions": dict(payload.get("review_dispositions") or {}),
+        "published_rejected": dict(payload.get("published_rejected") or {}),
+        "photo_moves": dict(payload.get("photo_moves") or {}),
+        "regroup_log": list(payload.get("regroup_log") or []),
+        "grouping_flagged": dict(payload.get("grouping_flagged") or {}),
     }
 
 
@@ -627,6 +634,42 @@ def effective_candidate(
     return current_candidate(match), "manual" if validation.get("compatible") and validation.get("state") == "correct" else "auto"
 
 
+REVIEW_DISPOSITION_PUBLISHED = "published"
+REVIEW_DISPOSITION_NOT_IN_STOCK = "not_in_stock"
+OCR_CONFLICT_VISUAL_PROOF = 60.0
+
+
+def group_disposition(session: dict[str, Any], group: dict[str, Any]) -> str:
+    """« published » (deja publiee, ignoree) ou « not_in_stock » (carte hors stock), sinon vide.
+
+    La decision est liee aux photos du groupe : si les photos du groupe changent, elle n'est plus valable.
+    """
+    entries = (session or {}).get("review_dispositions") or {}
+    if not entries:
+        return ""
+    entry = entries.get(stable_group_id(group))
+    if not isinstance(entry, dict):
+        return ""
+    if str(entry.get("photo_signature") or "") != engine.group_photo_signature(_group_photo_payload(group)):
+        return ""
+    kind = str(entry.get("kind") or "")
+    return kind if kind in {REVIEW_DISPOSITION_PUBLISHED, REVIEW_DISPOSITION_NOT_IN_STOCK} else ""
+
+
+def ocr_conflict_blocks_recognition(match: dict[str, Any]) -> bool:
+    """Garde-fou faux positif : numero complet lu par l'OCR incompatible avec la carte proposee.
+
+    Si la proposition ne repose que sur le nom (ni numero, ni preuve visuelle), elle ne peut pas
+    etre « Reconnu » : elle passe a verifier. Ne modifie pas le moteur : lecture des champs existants.
+    """
+    if not match.get("v15_ocr_identity_conflict") or str(match.get("status") or "") != "recognized":
+        return False
+    row = (match.get("candidates") or [{}])[0] or {}
+    if row.get("number_match"):
+        return False
+    return engine._safe_float(row.get("visual_score"), 0.0) < OCR_CONFLICT_VISUAL_PROOF
+
+
 def _match_needs_manual_review(
     session: dict[str, Any],
     group: dict[str, Any],
@@ -637,6 +680,8 @@ def _match_needs_manual_review(
     if validation.get("compatible") and validation.get("state") in {"correct", "manual"}:
         return False
     if validation.get("compatible") and validation.get("state") == "wrong":
+        return True
+    if ocr_conflict_blocks_recognition(match):
         return True
     return str(match.get("status") or "fail") != "recognized" or not current_candidate(match)
 
@@ -712,6 +757,8 @@ def next_pending_subcard_index(
 
 
 def group_review_reasons(session: dict[str, Any], group: dict[str, Any]) -> list[str]:
+    if group_disposition(session, group):
+        return []  # ignoree (deja publiee) ou carte hors stock : ne bloque plus la suite
     reasons = []
     matches = group.get("matches") or []
     if grouping_needs_confirmation(session, group):
@@ -753,10 +800,14 @@ def analysis_summary(result: dict[str, Any], session: dict[str, Any] | None = No
         or any(str(match.get("status") or "fail") in {"fail", "unrecognized"} for match in group.get("matches", []) or [])
     )
     review_groups = max(0, len(unresolved) - fail_groups)
+    ignored = sum(1 for group in groups if group_disposition(session, group) == REVIEW_DISPOSITION_PUBLISHED)
+    not_in_stock = sum(1 for group in groups if group_disposition(session, group) == REVIEW_DISPOSITION_NOT_IN_STOCK)
     return {
         "photos": len(result.get("sample_photos", []) or []),
         "announcements": len(groups),
-        "auto": max(0, len(groups) - len(unresolved)),
+        "auto": max(0, len(groups) - len(unresolved) - ignored - not_in_stock),
+        "ignored": ignored,
+        "not_in_stock": not_in_stock,
         "review": review_groups,
         "fail": fail_groups,
         "unresolved": len(unresolved),
@@ -765,7 +816,9 @@ def analysis_summary(result: dict[str, Any], session: dict[str, Any] | None = No
     }
 
 
-def restore_drop_analysis(folder: str | Path, drop_id: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+def restore_drop_analysis(
+    folder: str | Path, drop_id: str, *, progress_callback=None
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     ordered = list_ordered_photos(folder)
     result = load_cached_analysis_result(
         folder=folder,
@@ -792,7 +845,7 @@ def restore_drop_analysis(folder: str | Path, drop_id: str) -> tuple[dict[str, A
             != LANGUAGE_COMPATIBILITY_VERSION
         )
         if cached_signature != current_signature or proposal_version_stale or language_version_stale:
-            result = refresh_result_candidates(result, drop_id=drop_id)
+            result = refresh_result_candidates(result, drop_id=drop_id, progress_callback=progress_callback)
         session = initialize_drop_photo_session(drop_id, folder, result)
         session, _metrics = reconcile_poc_validations(
             result,
@@ -808,6 +861,7 @@ def analyze_drop_photos(
     drop_id: str,
     *,
     force_rebuild=False,
+    progress_callback=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     photos = list_ordered_photos(folder)
     if not photos:
@@ -820,6 +874,7 @@ def analyze_drop_photos(
         max_photos=len(photos),
         force_rebuild=force_rebuild,
         ordered_photos=photos,
+        progress_callback=progress_callback,
     )
     session = initialize_drop_photo_session(drop_id, folder, result)
     session, _metrics = reconcile_poc_validations(result, session, folder=folder, drop_id=drop_id)
@@ -831,8 +886,10 @@ def refresh_drop_analysis_candidates(
     session: dict[str, Any],
     *,
     drop_id: str,
+    progress_callback=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    refreshed = refresh_result_candidates(result, drop_id=drop_id)
+    refreshed = refresh_result_candidates(result, drop_id=drop_id, progress_callback=progress_callback)
+    engine._report_progress(progress_callback, "enregistrement", 0, 1)
     session["candidate_signature"] = str((refreshed.get("analysis_meta") or {}).get("candidate_signature") or "")
     session["proposal_reliability_version"] = str(
         (refreshed.get("analysis_meta") or {}).get("proposal_reliability_version")
@@ -851,7 +908,177 @@ def refresh_drop_analysis_candidates(
             folder=folder,
             drop_id=drop_id,
         )
+    engine._report_progress(progress_callback, "enregistrement", 1, 1)
     return refreshed, session
+
+
+PUBLISHED_DROP_STATUSES = {"online", "sold"}
+
+
+def _group_has_user_validation(session: dict[str, Any], group: dict[str, Any]) -> bool:
+    """Au moins une sous-carte validee (« Correct » ou association manuelle) et toujours compatible."""
+    return any(
+        validation_for_match(session, group, match, index).get("compatible")
+        and validation_for_match(session, group, match, index).get("state") in {"correct", "manual"}
+        for index, match in enumerate(group.get("matches") or [])
+    )
+
+
+def _group_is_published(session: dict[str, Any], group: dict[str, Any], status_by_key: dict[str, str]) -> bool:
+    """Annonce deja traitee (aucun point a verifier) dont toutes les cartes sont publiees (en ligne / vendues)."""
+    matches = group.get("matches") or []
+    if not matches or group_review_reasons(session, group):
+        # une annonce encore « à vérifier » qui vise une carte en ligne est une proposition à recalculer
+        return False
+    for index, match in enumerate(matches):
+        candidate, _source = effective_candidate(session, group, match, index)
+        if not candidate:
+            return False
+        key = str(candidate.get("drop_card_key") or candidate.get("_drop_card_key") or "")
+        status = status_by_key.get(key) or str(candidate.get("drop_status") or "")
+        if status not in PUBLISHED_DROP_STATUSES:
+            return False
+    return True
+
+
+def _group_top_keys(group: dict[str, Any]) -> list[str]:
+    return [
+        str(((proposed_candidate(match) or {}).get("drop_card_key")) or "")
+        for match in group.get("matches") or []
+    ]
+
+
+def reverify_unvalidated_groups(
+    result: dict[str, Any],
+    session: dict[str, Any],
+    *,
+    drop_id: str,
+    progress_callback=None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+    """Recalcule les propositions des seules annonces NON validees.
+
+    * annonces validees (« Correct », association manuelle) et annonces deja publiees : jamais touchees ;
+    * groupings, validations, photos : jamais modifies (seul ``matches`` des annonces non validees change) ;
+    * les cartes attribuees a une annonce validee ou publiee sont retirees des propositions des autres
+      annonces (sauf si le Drop en contient plusieurs exemplaires) ;
+    * l'OCR deja lu est reutilise : seule la reconnaissance des annonces concernees est recalculee.
+    """
+    drop, candidates = engine.active_drop_candidates(drop_id=drop_id)
+    groups = result.get("groups", []) or []
+    status_by_key = {
+        str(candidate.get("drop_card_key") or ""): str(candidate.get("drop_status") or "")
+        for candidate in candidates
+    }
+
+    protected_validated = []
+    protected_published = []
+    protected_disposed = []
+    targets = []
+    for group in groups:
+        if group_disposition(session, group):
+            protected_disposed.append(group)  # ignoree / hors stock : decision de l'utilisateur ou garde-fou
+        elif _group_has_user_validation(session, group):
+            protected_validated.append(group)
+        elif _group_is_published(session, group, status_by_key):
+            protected_published.append(group)
+        else:
+            targets.append(group)
+
+    blocked_counts: dict[str, int] = {}
+    for group in protected_validated + protected_published:
+        for index, match in enumerate(group.get("matches") or []):
+            candidate, _source = effective_candidate(session, group, match, index)
+            key = str((candidate or {}).get("drop_card_key") or (candidate or {}).get("_drop_card_key") or "")
+            if key:
+                blocked_counts[key] = blocked_counts.get(key, 0) + 1
+
+    before = {
+        stable_group_id(group): (_group_top_keys(group), bool(group_review_reasons(session, group)))
+        for group in targets
+    }
+
+    previous_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
+    current_signature = candidate_set_signature(candidates)
+    candidate_indexes = engine._candidate_indexes(candidates)
+    ocr_available, ocr_note = engine._ocr_status()
+    reference_images_loaded = 0
+    if targets:
+        cached_ocr = engine._cached_ocr_from_groups(groups)
+        engine._clear_candidate_derived_group_state(targets)
+        ocr_available, ocr_note, reference_images_loaded = engine._recognize_groups(
+            targets,
+            candidates,
+            cached_ocr_by_path=cached_ocr,
+            candidate_indexes=candidate_indexes,
+            initial_used_candidate_counts=dict(blocked_counts),
+            progress_callback=progress_callback,
+            blocked_counts=blocked_counts,
+        )
+
+    meta = result.setdefault("analysis_meta", {})
+    result["drop"] = drop
+    result["candidates"] = candidates
+    result["candidate_indexes"] = engine._candidate_index_debug(candidate_indexes)
+    meta["candidate_signature_previous"] = previous_signature
+    meta["candidate_signature"] = current_signature
+    meta["candidate_refreshed_at"] = datetime.now().isoformat(timespec="seconds")
+    metrics = engine._metrics_for_groups(
+        ordered=result.get("ordered_photos", []) or [],
+        photo_window=result.get("sample_photos", []) or [],
+        candidates=candidates,
+        classifications=result.get("classifications", {}) or {},
+        groups=groups,
+        duration=0.0,
+        ocr_available=ocr_available,
+        ocr_note=ocr_note,
+        reference_images_loaded=reference_images_loaded,
+    )
+    metrics["candidate_refresh_mode"] = "reverify_unvalidated"
+    metrics["candidate_groups_rematched"] = len(targets)
+    result["metrics"] = metrics
+    cache_info = engine.save_cached_analysis_result(result)
+    metrics["persistent_cache_write_seconds"] = round(cache_info["write_seconds"], 4)
+    metrics["persistent_cache_size_bytes"] = cache_info["size_bytes"]
+
+    session["candidate_signature"] = current_signature
+    session = save_drop_photo_session(session)
+    folder = str(session.get("folder") or "")
+    if folder:
+        session, _metrics = reconcile_poc_validations(result, session, folder=folder, drop_id=drop_id)
+
+    changed = 0
+    now_recognized = 0
+    for group in targets:
+        previous_keys, was_unresolved = before[stable_group_id(group)]
+        if _group_top_keys(group) != previous_keys:
+            changed += 1
+        if was_unresolved and not group_review_reasons(session, group):
+            now_recognized += 1
+    report = {
+        "rechecked": len(targets),
+        "changed": changed,
+        "recognized": now_recognized,
+        "remaining": len(unresolved_groups(result, session)),
+        "kept_validated": len(protected_validated),
+        "kept_published": len(protected_published),
+        "kept_ignored": len(protected_disposed),
+        "excluded": sum(
+            1
+            for group in targets
+            for match in group.get("matches") or []
+            if match.get("reuse_excluded")
+        ),
+    }
+    return result, session, report
+
+
+def reverify_report_text(report: dict[str, int]) -> str:
+    return (
+        f"{report.get('rechecked', 0)} annonces revérifiées · "
+        f"{report.get('changed', 0)} propositions changées · "
+        f"{report.get('recognized', 0)} passées en « Reconnu » · "
+        f"{report.get('remaining', 0)} restent à vérifier"
+    )
 
 
 def search_drop_candidates(result: dict[str, Any], query: str, *, limit=30) -> list[dict[str, Any]]:
@@ -898,6 +1125,36 @@ def _photo_role(group: dict[str, Any], entry: dict[str, Any]) -> str:
     return "extra"
 
 
+def _with_drop_item_identity(
+    candidate: dict[str, Any] | None,
+    drop_candidates: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Rattache un choix manuel a sa reference du Drop.
+
+    Une association manuelle ne conserve que l'identite de la carte (candidate_identity),
+    sans ``drop_item_id``. On la complete avec le candidat courant du Drop (meme
+    ``drop_card_key``, a defaut meme ``card_uid`` s'il est unique), afin que le payload
+    designe la bonne reference. Sans correspondance, le choix est renvoye tel quel.
+    """
+    if not isinstance(candidate, dict) or str(candidate.get("drop_item_id") or "").strip():
+        return candidate
+    key = str(candidate.get("drop_card_key") or candidate.get("_drop_card_key") or "").strip()
+    uid = str(candidate.get("card_uid") or "").strip()
+    found = None
+    if key:
+        found = next(
+            (row for row in drop_candidates if str(row.get("drop_card_key") or "").strip() == key),
+            None,
+        )
+    if found is None and uid:
+        same_uid = [row for row in drop_candidates if str(row.get("card_uid") or "").strip() == uid]
+        if len(same_uid) == 1:
+            found = same_uid[0]
+    if not found or not str(found.get("drop_item_id") or "").strip():
+        return candidate
+    return {**candidate, **found}
+
+
 def build_step4_payload(
     result: dict[str, Any],
     session: dict[str, Any],
@@ -910,6 +1167,11 @@ def build_step4_payload(
     seen_photos = set()
     for group in result.get("groups", []) or []:
         group_id = stable_group_id(group)
+        if group_disposition(session, group):
+            # groupe ignore (deja publie) ou carte hors stock : aucune annonce, photos comptees
+            for entry in group.get("photos", []) or []:
+                seen_photos.add(photo_key(normalize_photo_identity(entry.get("photo") or {})))
+            continue
         reasons = group_review_reasons(session, group)
         cards = []
         for index, match in enumerate(group.get("matches", []) or []):
@@ -917,6 +1179,7 @@ def build_step4_payload(
             if not candidate:
                 errors.append(f"{group_id}: sous-carte {index + 1} sans candidat")
                 continue
+            candidate = _with_drop_item_identity(candidate, result.get("candidates", []) or [])
             validation = validation_for_match(session, group, match, index)
             cards.append(
                 {

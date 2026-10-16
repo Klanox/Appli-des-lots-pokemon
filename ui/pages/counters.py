@@ -13,6 +13,7 @@ from datetime import datetime
 import streamlit as st
 
 from services.vinted_channels import VINTED_CHANNELS, sale_channel_key, vinted_channel_key
+from services.counters_archive_service import ensure_yearly_reset, make_lots_loader
 
 
 VINTED_COUNTER_ICONS = {
@@ -149,8 +150,9 @@ def default_vinted_counter_state(channel_def, year):
     }
 
 
-def collect_channel_counter_totals(lots, *, vinted_states, main_year):
+def collect_channel_counter_totals(lots, *, vinted_states, main_year, end_date=None):
     """Aggregate every persisted sale line with one shared channel normalization."""
+    # end_date (optionnel, "AAAA-MM-JJ", inclus) borne les canaux Vinted à une période ; None = sans limite.
     totals = {
         "main_brocante": {"nb": 0, "ca": 0.0},
         **{key: {"nb": 0, "ca": 0.0} for key in vinted_states},
@@ -175,7 +177,7 @@ def collect_channel_counter_totals(lots, *, vinted_states, main_year):
                 totals["main_brocante"]["nb"] += quantity
             return
         state = vinted_states.get(channel_key)
-        if state and sale_after_start(sale_date, state["start_date"], state["start_datetime"]):
+        if state and sale_after_start(sale_date, state["start_date"], state["start_datetime"]) and (end_date is None or str(sale_date)[:10] <= str(end_date)[:10]):
             totals[channel_key]["ca"] += price
             totals[channel_key]["nb"] += quantity
 
@@ -205,6 +207,20 @@ def render_counters_page(*, ld_func, safe_write_json_func, canal_key_func):
             counters = json.load(f)
     else:
         counters = {}
+
+    # Reset annuel automatique (idempotent) : archive l'année écoulée dans counters.json puis remet les compteurs à zéro.
+    reset_result = ensure_yearly_reset(
+        counters,
+        make_lots_loader(ld_func, "lots_archives.json"),
+        now.date(),
+        lambda payload: safe_write_json_func(COUNTERS_FILE, payload),
+    )
+    counters = reset_result["counters"]
+    if reset_result["error"]:
+        st.warning(f"Archivage annuel des compteurs impossible pour l'instant : {reset_result['error']}")
+    elif reset_result["archived_years"]:
+        years_text = ", ".join(str(year) for year in reset_result["archived_years"])
+        st.info(f"Compteurs {years_text} archivés : ils sont consultables dans Statistiques > Performance > Années précédentes.")
 
     # Structure par défaut
     counters.setdefault("main_brocante", {

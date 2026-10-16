@@ -3513,6 +3513,69 @@ def build_groups(photos: list[PhotoInfo], classifications: dict[str, dict[str, A
     return _reconcile_v12_sequence(v11_groups, classifications)
 
 
+def _report_progress(callback, phase: str, done: int, total: int) -> None:
+    """Prévient l'interface de l'avancement ; ne doit jamais perturber l'analyse."""
+    if callback is None:
+        return
+    try:
+        callback(phase, int(done), int(total))
+    except Exception:
+        pass
+
+
+def _group_photo_count(group: dict[str, Any]) -> int:
+    return max(1, len(group.get("photos") or []))
+
+
+def _candidate_row_key(candidate: dict[str, Any] | None) -> str:
+    candidate = candidate or {}
+    return str(candidate.get("drop_card_key") or candidate.get("_drop_card_key") or "")
+
+
+def _exclude_exhausted_candidates(match: dict[str, Any], blocked_counts: dict[str, int]) -> None:
+    """Retire des propositions les cartes deja attribuees a une annonce validee.
+
+    ``blocked_counts`` compte, par carte du Drop, les attributions deja actees (annonces
+    validees ou publiees). Une carte n'est retiree que si toutes ses occurrences dans le Drop
+    sont deja attribuees (``quantity``). La proposition n'est jamais « Reconnu » apres un retrait.
+    """
+    rows = match.get("candidates") or []
+    if not rows or not blocked_counts:
+        return
+    kept = []
+    removed = []
+    for row in rows:
+        candidate = row.get("candidate") or {}
+        key = _candidate_row_key(candidate)
+        quantity = max(1, _safe_int(candidate.get("quantity"), 1))
+        if key and blocked_counts.get(key, 0) >= quantity:
+            removed.append(key)
+        else:
+            kept.append(row)
+    if not removed:
+        return
+    top_removed = _candidate_row_key((rows[0] or {}).get("candidate")) in removed
+    match["candidates"] = kept
+    match["reuse_excluded"] = removed
+    if not top_removed:
+        return
+    reason = "carte déjà attribuée à une annonce validée"
+    previous = str(match.get("diagnostic_reason") or "").strip()
+    match["diagnostic_reason"] = f"{reason} · {previous}" if previous else reason
+    if kept:
+        top_score = _safe_float((kept[0] or {}).get("score"), 0.0)
+        second_score = _safe_float((kept[1] or {}).get("score"), 0.0) if len(kept) > 1 else 0.0
+        match["score"] = top_score
+        match["second_score"] = second_score
+        match["margin"] = round(top_score - second_score, 3)
+        if match.get("status") == "recognized":
+            match["status"] = "review"
+    else:
+        match["score"] = 0.0
+        match["margin"] = 0.0
+        match["status"] = "unrecognized"
+
+
 def _recognize_groups(
     groups: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
@@ -3521,13 +3584,19 @@ def _recognize_groups(
     cached_ocr_by_path: dict[str, dict[str, Any]] | None = None,
     candidate_indexes: dict[str, Any] | None = None,
     initial_used_candidate_counts: dict[str, int] | None = None,
+    progress_callback=None,
+    blocked_counts: dict[str, int] | None = None,
 ) -> tuple[bool, str, int]:
     ocr_available, ocr_note = _ocr_status()
     reference_features = {} if ocr_available else build_reference_features(candidates)
     candidate_indexes = candidate_indexes or _candidate_indexes(candidates)
     candidate_numbers = set((candidate_indexes.get("by_number") or {}).keys())
     used_candidate_counts = dict(initial_used_candidate_counts or {})
+    progress_total = sum(_group_photo_count(group) for group in groups)
+    progress_done = 0
     for group in groups:
+        _report_progress(progress_callback, "reconnaissance", progress_done, progress_total)
+        progress_done += _group_photo_count(group)
         front = group.get("primary_front")
         if not front:
             group["matches"] = []
@@ -3785,6 +3854,9 @@ def _recognize_groups(
                     )
                     rematched_children.append(rematched)
                 group["matches"] = rematched_children
+        if blocked_counts:
+            for match in group["matches"]:
+                _exclude_exhausted_candidates(match, blocked_counts)
         statuses = [match.get("status") for match in group["matches"]]
         recognized_cards = []
         for match_index, match in enumerate(group["matches"]):
@@ -3835,6 +3907,7 @@ def _recognize_groups(
             group["confidence_level"] = "red"
     for group in groups:
         _apply_v13_group_language_diagnostic(group)
+    _report_progress(progress_callback, "reconnaissance", progress_total, progress_total)
     return ocr_available, ocr_note, len(reference_features)
 
 
@@ -4056,6 +4129,7 @@ def analyze_sample(
     max_photos=90,
     force_rebuild=False,
     ordered_photos: list[PhotoInfo] | None = None,
+    progress_callback=None,
 ):
     started = time.perf_counter()
     discovery_started = time.perf_counter()
@@ -4095,6 +4169,7 @@ def analyze_sample(
                     data_path=data_path,
                     drops_path=drops_path,
                     drop_id=resolved_drop_id,
+                    progress_callback=progress_callback,
                 )
             metrics = cached_result.setdefault("metrics", {})
             metrics["photo_discovery_seconds"] = round(discovery_duration, 4)
@@ -4104,11 +4179,15 @@ def analyze_sample(
 
     classification_started = time.perf_counter()
     classifications = {}
-    for photo in photo_window:
+    _report_progress(progress_callback, "lecture", 0, len(photo_window))
+    for photo_number, photo in enumerate(photo_window, start=1):
         classifications[photo.filename] = classify_photo(photo.path)
+        _report_progress(progress_callback, "lecture", photo_number, len(photo_window))
     classification_duration = time.perf_counter() - classification_started
     grouping_started = time.perf_counter()
+    _report_progress(progress_callback, "regroupement", 0, 1)
     groups = build_groups(photo_window, classifications, target_announcements=target_announcements)
+    _report_progress(progress_callback, "regroupement", 1, 1)
     grouping_duration = time.perf_counter() - grouping_started
     candidate_indexes = _candidate_indexes(candidates)
     recognition_started = time.perf_counter()
@@ -4116,6 +4195,7 @@ def analyze_sample(
         groups,
         candidates,
         candidate_indexes=candidate_indexes,
+        progress_callback=progress_callback,
     )
     recognition_duration = time.perf_counter() - recognition_started
     duration = time.perf_counter() - started
@@ -4360,6 +4440,7 @@ def refresh_result_candidates(
     data_path="data.json",
     drops_path="vinted_drops.json",
     drop_id: str | None = None,
+    progress_callback=None,
 ) -> dict[str, Any]:
     """Rematch an existing POC result after the Drop candidate set changes.
 
@@ -4368,11 +4449,13 @@ def refresh_result_candidates(
     """
     started = time.perf_counter()
     resolved_drop_id = drop_id or (result.get("analysis_meta") or {}).get("drop_id")
+    _report_progress(progress_callback, "candidats", 0, 1)  # lecture du stock et des cartes du Drop
     drop, candidates = active_drop_candidates(
         data_path=data_path,
         drops_path=drops_path,
         drop_id=resolved_drop_id,
     )
+    _report_progress(progress_callback, "candidats", 1, 1)
     previous_signature = str((result.get("analysis_meta") or {}).get("candidate_signature") or "")
     current_signature = candidate_set_signature(candidates)
     groups = result.get("groups", []) or []
@@ -4462,8 +4545,12 @@ def refresh_result_candidates(
     candidate_indexes = _candidate_indexes(candidates)
     ocr_available, ocr_note = _ocr_status()
     reference_images_loaded = 0
+    refresh_total = sum(_group_photo_count(groups[index]) for index in affected_indexes)
+    refresh_done = 0
     for group_index in affected_indexes:
+        _report_progress(progress_callback, "reconnaissance", refresh_done, refresh_total)
         group = groups[group_index]
+        refresh_done += _group_photo_count(group)
         initial_counts = _used_candidate_counts_before(groups, group_index)
         _clear_candidate_derived_group_state([group])
         ocr_available, ocr_note, loaded = _recognize_groups(
@@ -4474,6 +4561,8 @@ def refresh_result_candidates(
             initial_used_candidate_counts=initial_counts,
         )
         reference_images_loaded += loaded
+    if affected_indexes:
+        _report_progress(progress_callback, "reconnaissance", refresh_total, refresh_total)
     duration = time.perf_counter() - started
     result["drop"] = drop
     result["candidates"] = candidates

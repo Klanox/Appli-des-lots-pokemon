@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import hashlib
 import os
 import re
+import time
 from collections import Counter, OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,11 +44,15 @@ from services.vinted_drops_service import (
     resolve_drop_cards_from_data,
     save_vinted_drops,
     set_drop_card_status,
+    VINTED_DROPS_FILE,
     toggle_drop_card_posted,
     update_drop_channel,
 )
 from services.vinted_channels import VINTED_CHANNELS, normalize_vinted_channel
+from services.card_extension_service import card_extension_name
+from ui.pages.extension_queue import extension_badge_html, render_extension_shortcut
 from services.vinted_listing_service import (
+    card_listing_keywords,
     filter_cards_for_listing,
     full_card_number,
     listing_price_text,
@@ -54,6 +60,15 @@ from services.vinted_listing_service import (
     prepare_listing,
     suggested_price,
 )
+from services.analysis_progress import (
+    REFRESH_PHASE_LABELS,
+    REFRESH_PHASE_RANGES,
+    AnalysisProgress,
+    format_duration,
+)
+from services import listing_text_service as listing_texts
+from services import drop_online_marking_service as online_marking
+from services import photo_review_actions as review_actions
 from services.custom_card_image_service import resolve_custom_card_image
 from services.card_identity import card_identity_fingerprint
 from services.photo_recognition_service import (
@@ -73,6 +88,7 @@ from services.photo_recognition_service import (
     grouping_needs_confirmation as photo_grouping_needs_confirmation,
     group_review_reasons,
     list_ordered_photos,
+    ocr_conflict_blocks_recognition as photo_ocr_conflict_blocks_recognition,
     load_drop_photo_session,
     next_pending_subcard_index as photo_next_pending_subcard_index,
     pending_review_subcard_indexes as photo_pending_review_subcard_indexes,
@@ -80,6 +96,8 @@ from services.photo_recognition_service import (
     receive_browser_upload_batch,
     refresh_drop_analysis_candidates,
     resolve_historical_drop_candidate,
+    reverify_report_text,
+    reverify_unvalidated_groups,
     restore_drop_analysis,
     search_drop_candidates,
     set_match_validation,
@@ -235,18 +253,30 @@ def _inject_vinted_styles():
     font-size:1.05rem;
     margin-top:.2rem;
 }
-.ps-recognition-identity-title {
+.st-key-ps_cockpit_identity .ps-recognition-identity-title {
     color:#111827;
     font-size:1.06rem;
     font-weight:850;
     line-height:1.25;
     margin:.05rem 0;
 }
-.ps-recognition-identity-meta {
+.st-key-ps_cockpit_identity .ps-recognition-identity-meta {
     color:#64748b;
     font-size:.82rem;
     font-weight:650;
     margin:0 0 .32rem;
+}
+.ps-ext-missing-badge {
+    display:inline-block;
+    background:#fee2e2;
+    color:#b91c1c;
+    border:1px solid #fca5a5;
+    border-radius:999px;
+    padding:.05rem .55rem;
+    font-size:.74rem;
+    font-weight:800;
+    line-height:1.5;
+    white-space:nowrap;
 }
 .ps-recognition-photo-caption {
     color:#64748b;
@@ -272,7 +302,7 @@ def _inject_vinted_styles():
 }
 @media (max-width: 640px) {
     .ps-recognition-toolbar-label { font-size:.8rem; }
-    .ps-recognition-identity-title { font-size:1rem; }
+    .st-key-ps_cockpit_identity .ps-recognition-identity-title { font-size:1rem; }
     .ps-recognition-focus-header { font-size:.92rem; line-height:1.4; margin-bottom:.45rem; }
 }
 .ps-photo-state {
@@ -476,6 +506,28 @@ def _inject_vinted_styles():
     border-color:#fed7aa;
     background:#fff7ed;
     color:#c2410c !important;
+}
+.ps-price-chip {
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:.12rem .6rem;
+    border:1px solid #ddd6fe;
+    background:#f5f3ff;
+    color:#5b21b6;
+    font-size:.88rem;
+    font-weight:800;
+    margin:.1rem .4rem .1rem 0;
+}
+.ps-price-chip.missing {
+    border-color:#fecaca;
+    background:#fef2f2;
+    color:#b91c1c;
+}
+.ps-price-chip.total {
+    border-color:#bbf7d0;
+    background:#f0fdf4;
+    color:#166534;
 }
 .ps-vinted-section-title {
     display:flex;
@@ -1062,25 +1114,171 @@ div[class*="st-key-vinted_drop_drawer_header_"] {
     )
 
 
-def _inject_vinted_analytics_compact_styles():
-    """Tighten only the analytics step without changing the shared workflow shell."""
-    st.markdown(
-        """
-<style>
-.main .block-container { padding-top:.65rem !important; }
-.ps-app-header { padding:.45rem 0 !important; margin-bottom:.35rem !important; }
-.ps-app-title { font-size:1.15rem !important; }
-.ps-app-tagline { font-size:.72rem !important; margin-top:.04rem !important; }
-.ps-page-header { padding:.46rem .72rem !important; margin-bottom:.38rem !important; }
-.ps-page-icon { width:2rem !important; height:2rem !important; font-size:.96rem !important; }
-.ps-page-title, h2.ps-page-title { font-size:1.18rem !important; }
-.ps-page-subtitle { font-size:.76rem !important; margin-top:.08rem !important; }
-div[class*="st-key-vinted_drop_step_"] button { min-height:36px !important; padding:.34rem .56rem !important; }
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-vinted-drop-head) { margin-top:-.16rem; margin-bottom:-.16rem; }
-</style>
-""",
-        unsafe_allow_html=True,
-    )
+COCKPIT_MIN_VIEWPORT_HEIGHT_PX = 720  # 60 px d'en-tete Streamlit + 660 px de hauteur utile (cadre commun compris) : en dessous, le defilement normal revient
+COCKPIT_MIN_VIEWPORT_WIDTH_PX = 1180
+
+_COCKPIT_CSS = """
+/* Cockpit etape 4 : uniquement quand la page contient .ps-cockpit-marker (@S = son conteneur principal). */
+.ps-cockpit-title { font-size:1.2rem; font-weight:800; color:#0f172a; line-height:1.25; white-space:nowrap; letter-spacing:-.01em; }
+.ps-cockpit-sub { font-size:.78rem; font-weight:400; color:#64748b; white-space:nowrap; margin-top:.05rem; }
+.ps-cockpit-count { font-size:.78rem; font-weight:500; color:#64748b; margin-bottom:.15rem; }
+.ps-cockpit-progress { font-size:.8rem; font-weight:400; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:right; margin-bottom:.15rem; }
+.ps-cockpit-progress b { color:#0f172a; font-weight:600; }
+.ps-cockpit-pill { display:inline-block; background:#fff7ed; color:#9a3412; border:1px solid #fed7aa; border-radius:999px; padding:.08rem .6rem; font-size:.74rem; font-weight:500; white-space:nowrap; }
+.ps-cockpit-chip { display:inline-block; background:#f8fafc; color:#475569; border:1px solid #e2e8f0; border-radius:999px; padding:.1rem .65rem; font-size:.76rem; font-weight:500; margin:0 .35rem .2rem 0; white-space:nowrap; }
+.ps-cockpit-chip-accent { background:#f5f3ff; color:#6d28d9; border-color:#ddd6fe; }
+.st-key-ps_cockpit_identity .ps-recognition-identity-title { font-size:1.1rem; font-weight:800; color:#0f172a; line-height:1.3; margin-bottom:.3rem; }
+.st-key-ps_cockpit_identity .ps-recognition-identity-meta { margin-bottom:.15rem; }
+.ps-cockpit-plus { display:block; font-size:.74rem; font-weight:400; color:#6b7280 !important; text-decoration:none !important; text-align:center; line-height:1.3; }
+.ps-cockpit-plus:hover { color:#6d28d9 !important; }
+body:has(.ps-cockpit-marker) [data-testid="stPopoverBody"] { max-height:72vh; overflow-y:auto; }
+@media (min-width: %(minw)dpx) and (min-height: %(minh)dpx) {
+  @S { overflow:hidden !important; }
+  @S [data-testid="stMainBlockContainer"] { height:100vh !important; max-height:100vh !important; box-sizing:border-box !important; padding:62px 1.2rem 10px !important; overflow:hidden !important; }
+  @S [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] { position:relative !important; height:100%% !important; min-height:0 !important; display:flex !important; flex-direction:column !important; flex-wrap:nowrap !important; gap:16px !important; }
+  @S [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * { flex:0 0 auto !important; min-height:0 !important; }
+  /* elements invisibles (scripts / styles) : ne prennent plus d'espace dans la colonne */
+  @S [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:is(:has(> [data-testid="stHtml"]), :has(.ps-cockpit-marker), :has(.ps-dropframe-marker), :has([data-testid="stMarkdownContainer"] > style:only-child)) { position:absolute !important; width:0 !important; height:0 !important; overflow:hidden !important; margin:0 !important; padding:0 !important; }
+  /* le gabarit Markdown de Streamlit compte sur l'espacement de 1rem de la page pour ses marges negatives */
+  @S [data-testid="stMarkdownContainer"] { margin-bottom:0 !important; }
+  @S [data-testid="stMarkdownContainer"] p { margin:0 0 .2rem !important; }
+  /* apercu en lecture seule : bandeau de l'application sur une ligne */
+  @S [data-testid="stElementContainer"]:has(.ps-app-header) { height:40px !important; }
+  @S .ps-app-header { height:40px !important; box-sizing:border-box !important; margin:0 !important; border-radius:12px !important; display:flex !important; align-items:center !important; padding:0 .8rem !important; overflow:hidden !important; }
+  @S .ps-app-header-brand { gap:.6rem !important; }
+  @S .ps-app-logo { width:28px !important; height:28px !important; border-radius:8px !important; padding:2px !important; box-shadow:none !important; }
+  @S .ps-app-header-brand > div { display:flex !important; align-items:baseline !important; gap:.6rem !important; white-space:nowrap !important; }
+  @S .ps-app-title { font-size:1rem !important; line-height:1.2 !important; }
+  @S .ps-app-tagline { font-size:.72rem !important; margin:0 !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+  @S [data-testid="stHorizontalBlock"] { gap:.6rem !important; }
+  @S [data-testid="stAlert"] { padding:.25rem .7rem !important; }
+  @S [data-testid="stAlert"] p { font-size:.8rem !important; margin:0 !important; line-height:1.3 !important; }
+  /* la carte : prend toute la hauteur restante */
+  @S [data-testid="stLayoutWrapper"]:has(> .st-key-ps_cockpit_workspace), @S [data-testid="stLayoutWrapper"]:has(> .st-key-ps_cockpit_body) { flex:1 1 0 !important; min-height:0 !important; display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_cockpit_workspace { flex:1 1 0 !important; min-height:0 !important; display:flex !important; flex-direction:column !important; gap:12px !important; padding:.95rem 1.15rem 1rem !important; background:#ffffff !important; border:1px solid #e5e7eb !important; border-radius:18px !important; box-shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.04) !important; }
+  @S .st-key-ps_cockpit_workspace > [data-testid="stLayoutWrapper"], @S .st-key-ps_cockpit_workspace > [data-testid="stElementContainer"] { min-height:0 !important; }
+  /* en-tete de la carte */
+  @S .st-key-ps_cockpit_head { flex:0 0 auto !important; position:relative !important; z-index:20 !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stHorizontalBlock"] { align-items:center !important; gap:.5rem !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(1), @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(3) { flex:0 0 38px !important; width:38px !important; min-width:38px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(2) { flex:0 1 auto !important; width:auto !important; min-width:0 !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(4) { flex:1 1 0 !important; min-width:140px !important; margin-left:auto !important; max-width:360px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(5) { flex:0 0 44px !important; width:44px !important; min-width:44px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(5):not(:has(.st-key-ps_info_menu)) { display:none !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stColumn"]:nth-child(6) { flex:0 0 112px !important; width:112px !important; min-width:112px !important; }
+  @S div[class*="st-key-step4_prev_"] button, @S div[class*="st-key-step4_next_"] button { min-height:36px !important; height:36px !important; width:36px !important; min-width:36px !important; padding:0 !important; }
+  @S div[class*="st-key-step4_prev_"] button p, @S div[class*="st-key-step4_next_"] button p { font-size:1.35rem !important; font-weight:400 !important; line-height:1 !important; margin:0 !important; }
+  @S div[class*="st-key-step4_prev_"] button:disabled, @S div[class*="st-key-step4_next_"] button:disabled { opacity:.4 !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stProgress"] { margin:0 !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stProgress"] > div:first-child { display:none !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stProgress"] [role="progressbar"] > div > div { background:#ede9fe !important; height:5px !important; border-radius:999px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stProgress"] [role="progressbar"] > div > div > div { background:#7c3aed !important; height:5px !important; border-radius:999px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stProgress"] [role="progressbar"] > div { margin:0 !important; }
+  /* apercu en lecture seule : liste deroulante des photos (meme expander), s'ouvre par-dessus sans pousser la page */
+  @S .st-key-ps_cockpit_head > [data-testid="stElementContainer"], @S .st-key-ps_cockpit_head > [data-testid="stLayoutWrapper"], @S .st-key-ps_cockpit_head [data-testid="stExpander"], @S .st-key-ps_cockpit_head [data-testid="stExpander"] details { position:static !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stExpander"] details { border-radius:999px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stExpander"] summary { padding:.15rem .8rem !important; min-height:0 !important; font-size:.8rem !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stExpander"] details[open] { border-radius:12px !important; }
+  @S .st-key-ps_cockpit_head [data-testid="stExpander"] details[open] > summary + div { position:absolute !important; top:calc(100%% + 4px) !important; left:0 !important; z-index:60 !important; width:min(560px, 100%%) !important; max-height:40vh !important; overflow:auto !important; background:#fff !important; border:1px solid #dbe3ee !important; border-radius:12px !important; box-shadow:0 12px 32px rgba(15,23,42,.18) !important; padding:.6rem .7rem !important; }
+  /* corps : 3 colonnes de meme hauteur */
+  @S .st-key-ps_cockpit_body { flex:1 1 0 !important; min-height:0 !important; display:grid !important; grid-template-columns:minmax(190px,300px) minmax(0,1fr) minmax(210px,280px) !important; grid-template-rows:minmax(0,1fr) !important; gap:1.4rem !important; }
+  @S .st-key-ps_cockpit_body:not(:has(.st-key-ps_cockpit_actions)) { grid-template-columns:minmax(190px,300px) minmax(0,1fr) !important; }
+  @S .st-key-ps_cockpit_body > [data-testid="stLayoutWrapper"] { min-height:0 !important; min-width:0 !important; height:100%% !important; display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_cockpit_body > [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlock"] { flex:1 1 0 !important; min-height:0 !important; overflow-y:auto !important; overflow-x:hidden !important; padding-right:.2rem !important; gap:.55rem !important; }
+  /* colonne photo : image limitee en hauteur, miniatures juste dessous */
+  @S .st-key-ps_cockpit_photo > [data-testid="stElementContainer"] [data-testid="stImage"] img { max-height:calc(100vh - 560px) !important; min-height:120px; width:100%% !important; height:auto !important; object-fit:contain !important; object-position:center top !important; border-radius:12px !important; }
+  @S .st-key-ps_cockpit_photo > [data-testid="stElementContainer"]:has([data-testid="stImage"]) { flex:0 0 auto !important; }
+  @S .st-key-ps_cockpit_photo p { font-size:.8rem !important; }
+  @S .st-key-ps_cockpit_thumbs [data-testid="stImage"] img { border-radius:8px !important; border:1px solid #e5e7eb !important; }
+  @S .st-key-ps_cockpit_thumbs .ps-recognition-photo-caption { font-size:.72rem !important; font-weight:400 !important; color:#64748b !important; }
+  /* colonne centrale : identite, titre, description (la description prend la hauteur restante) */
+  @S .st-key-ps_cockpit_identity { flex:0 0 auto !important; max-height:30vh !important; overflow-y:auto !important; }
+  @S .st-key-ps_cockpit_text > [data-testid="stLayoutWrapper"]:has(.st-key-ps_field_desc) { flex:1 1 0 !important; min-height:110px !important; display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_cockpit_text .st-key-ps_field_desc { flex:1 1 0 !important; min-height:0 !important; display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_field_desc > [data-testid="stElementContainer"]:has(textarea) { flex:1 1 0 !important; min-height:0 !important; display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_field_desc [data-testid="stTextArea"], @S .st-key-ps_field_desc [data-testid="stTextArea"] > div:last-child, @S .st-key-ps_field_desc [data-baseweb="textarea"], @S .st-key-ps_field_desc textarea { flex:1 1 0 !important; min-height:90px !important; height:100%% !important; }
+  @S .st-key-ps_field_desc [data-testid="stTextArea"] { display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_field_desc [data-testid="stTextArea"] > div:last-child { display:flex !important; flex-direction:column !important; }
+  @S .st-key-ps_field_desc [data-testid="stTextAreaRootElement"] > div { flex:1 1 0 !important; min-height:0 !important; height:100%% !important; }
+  /* « Copier » DANS le champ, a droite */
+  @S .st-key-ps_field_title, @S .st-key-ps_field_desc, @S .st-key-ps_field_price { position:relative !important; }
+  @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) > [data-testid="stElementContainer"]:is(:has(button[id^="copy_"]), [class*="st-key-copy_"]) { position:absolute !important; top:26px !important; right:9px !important; width:auto !important; height:auto !important; min-height:0 !important; z-index:5 !important; margin:0 !important; }
+  @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) button[id^="copy_"], @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) [class*="st-key-copy_"] button { min-width:0 !important; width:auto !important; min-height:26px !important; height:26px !important; padding:0 .55rem !important; font-size:.72rem !important; font-weight:500 !important; color:#6d28d9 !important; background:#f5f3ff !important; border:1px solid #ddd6fe !important; border-radius:8px !important; box-shadow:none !important; line-height:1 !important; }
+  @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) button[id^="copy_"]:hover, @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) [class*="st-key-copy_"] button:hover { background:#ede9fe !important; border-color:#c4b5fd !important; }
+  @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) input, @S :is(.st-key-ps_field_title, .st-key-ps_field_desc, .st-key-ps_field_price) textarea { padding-right:6.4rem !important; }
+  /* colonne droite : prix, Vinted, action principale, menu Plus */
+  @S .st-key-ps_cockpit_actions > [data-testid="stVerticalBlock"] { gap:.7rem !important; }
+  @S .st-key-ps_cockpit_actions [data-testid="stLinkButton"] a, @S .st-key-ps_cockpit_actions [data-testid="stBaseLinkButton-secondary"] { min-height:40px !important; }
+  @S .st-key-ps_cockpit_actions div[class*="st-key-draft_ready_recognition_group_"] button { min-height:48px !important; }
+  @S .st-key-ps_cockpit_actions [data-testid="stLayoutWrapper"]:has(> .st-key-ps_plus_shortcut) { margin-top:auto !important; }
+  @S .st-key-ps_plus_shortcut { padding-top:.4rem; }
+  @S .st-key-ps_plus_shortcut [data-testid="stElementContainer"] { height:auto !important; }
+  @S .st-key-ps_cockpit_search_results { max-height:24vh !important; overflow-y:auto !important; flex:0 0 auto !important; }
+}
+"""
+
+_DROPFRAME_CSS = """
+/* Cadre commun des 5 etapes du Drop (bandeau PokéStock, bloc Drop Vinted, pastilles, selecteur, carte du Drop) :
+   meme version compacte partout. Uniquement avec .ps-dropframe-marker (@D = son conteneur principal). */
+@D [data-testid="stMainBlockContainer"] { padding-top:62px !important; padding-left:1.2rem !important; padding-right:1.2rem !important; }
+/* espacement entre les 5 elements du cadre : 8 px (1rem de Streamlit - 8 px) ; le contenu de l'etape garde le sien */
+@D [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :is([data-testid="stElementContainer"]:has(.ps-app-header), [data-testid="stElementContainer"]:has(.ps-page-header), [data-testid="stLayoutWrapper"]:has(div[class*="st-key-vinted_drop_step_"]), [data-testid="stLayoutWrapper"]:has(.st-key-vinted_drop_view), [data-testid="stLayoutWrapper"]:has(.ps-vinted-drop-head)) { margin-bottom:-8px !important; }
+/* elements invisibles (scripts / styles) : ne comptent plus dans l'espacement de la colonne */
+@D [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:is(:has(> [data-testid="stHtml"]), :has(.ps-cockpit-marker), :has(.ps-dropframe-marker), :has([data-testid="stMarkdownContainer"] > style:only-child)) { position:absolute !important; width:0 !important; height:0 !important; overflow:hidden !important; margin:0 !important; padding:0 !important; }
+/* bandeau PokéStock */
+@D [data-testid="stElementContainer"]:has(.ps-app-header) { height:40px !important; }
+@D .ps-app-header { height:40px !important; box-sizing:border-box !important; margin:0 !important; border-radius:12px !important; display:flex !important; align-items:center !important; padding:0 .8rem !important; overflow:hidden !important; }
+@D .ps-app-header-brand { gap:.6rem !important; }
+@D .ps-app-logo { width:28px !important; height:28px !important; border-radius:8px !important; padding:2px !important; box-shadow:none !important; }
+@D .ps-app-header-brand > div { display:flex !important; align-items:baseline !important; gap:.6rem !important; white-space:nowrap !important; }
+@D .ps-app-title { font-size:1rem !important; line-height:1.2 !important; }
+@D .ps-app-tagline { font-size:.72rem !important; margin:0 !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+/* bloc « Drop Vinted » */
+@D [data-testid="stElementContainer"]:has(.ps-page-header) { height:46px !important; }
+@D .ps-page-header { box-sizing:border-box !important; height:46px !important; margin:0 !important; padding:0 .8rem !important; border-radius:12px !important; display:flex !important; align-items:center !important; gap:.6rem !important; overflow:hidden !important; }
+@D .ps-page-icon { width:28px !important; height:28px !important; min-width:28px !important; font-size:.9rem !important; border-radius:8px !important; }
+@D .ps-page-header > div { display:flex !important; align-items:baseline !important; gap:.6rem !important; white-space:nowrap !important; }
+@D .ps-page-title, @D h2.ps-page-title { font-size:1.05rem !important; line-height:1.2 !important; margin:0 !important; padding:0 !important; }
+@D .ps-page-subtitle { font-size:.76rem !important; margin:0 !important; line-height:1.2 !important; }
+/* rangee des 5 pastilles d'etapes */
+@D [data-testid="stHorizontalBlock"]:has(div[class*="st-key-vinted_drop_step_"]) { gap:.5rem !important; }
+@D div[class*="st-key-vinted_drop_step_"] button { min-height:34px !important; height:34px !important; padding:0 .5rem !important; }
+@D div[class*="st-key-vinted_drop_step_"] button p { white-space:nowrap !important; line-height:1.1 !important; font-size:clamp(.7rem, .92vw, .84rem) !important; overflow:hidden !important; text-overflow:ellipsis !important; }
+/* « Drop à afficher » + « Nouveau Drop » */
+@D [data-testid="stHorizontalBlock"]:has(.st-key-vinted_drop_view) { align-items:center !important; gap:.6rem !important; }
+@D .st-key-vinted_drop_view [data-testid="stSelectbox"] { display:flex !important; flex-direction:row !important; align-items:center !important; gap:.7rem !important; }
+@D .st-key-vinted_drop_view [data-testid="stWidgetLabel"] { width:auto !important; min-height:0 !important; margin:0 !important; flex:0 0 auto !important; }
+@D .st-key-vinted_drop_view [data-testid="stWidgetLabel"] p { white-space:nowrap !important; margin:0 !important; }
+@D .st-key-vinted_drop_view [data-testid="stSelectbox"] > div:last-child { flex:1 1 0 !important; min-width:0 !important; }
+@D .st-key-vinted_drop_view [data-baseweb="select"] > div { min-height:36px !important; }
+@D [data-testid="stPopover"] button { min-height:36px !important; padding-top:.05rem !important; padding-bottom:.05rem !important; }
+/* carte du Drop */
+@D div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-vinted-drop-head) { padding:.3rem .8rem !important; margin:0 !important; }
+@D div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-vinted-drop-head) [data-testid="stHorizontalBlock"] { align-items:center !important; }
+@D div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-vinted-drop-head) [data-testid="stMarkdownContainer"] { margin:0 !important; }
+@D .ps-vinted-drop-head { display:flex !important; align-items:center !important; flex-wrap:wrap !important; gap:.2rem .8rem !important; padding:0 !important; }
+@D .ps-vinted-drop-head strong { display:inline-block !important; font-size:1rem !important; }
+@D .ps-vinted-drop-meta { margin-top:0 !important; }
+@D [data-testid="stAlert"] { padding:.25rem .7rem !important; }
+@D [data-testid="stAlert"] p { margin:0 !important; line-height:1.3 !important; }
+"""
+
+
+def _inject_vinted_cockpit_styles():
+    scope = '[data-testid="stMain"]:has(.ps-cockpit-marker)'
+    css = (_COCKPIT_CSS % {"minw": COCKPIT_MIN_VIEWPORT_WIDTH_PX, "minh": COCKPIT_MIN_VIEWPORT_HEIGHT_PX}).replace("@S", scope)
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+DROPFRAME_MARKER_HTML = '<div class="ps-dropframe-marker"></div>'
+
+
+def _inject_vinted_dropframe_styles():
+    """Cadre commun compact des 5 etapes du Drop (ecran large). Le style de l'ancienne etape 5 seule a disparu."""
+    scope = '[data-testid="stMain"]:has(.ps-dropframe-marker)'
+    st.markdown(f"<style>{_DROPFRAME_CSS.replace('@D', scope)}</style>", unsafe_allow_html=True)
+    st.markdown(DROPFRAME_MARKER_HTML, unsafe_allow_html=True)
+
 
 def _html_escape(value):
     import html
@@ -1415,15 +1613,95 @@ def _available_cards(d, card_available_qty_func, is_collection_system_lot_func, 
     return options
 
 
+LISTING_TEXT_FIELDS = (
+    ("title", "vinted_listing_title"),
+    ("description", "vinted_listing_description"),
+    ("price", "vinted_listing_price"),
+)
+LISTING_TEXT_SHADOW_KEY = "vinted_listing_text_shadow"
+LISTING_TEXT_STATE_KEY = "vinted_listing_text_state"  # a_jour / ancien_format / manuel (texte affiche vs regles actuelles)
+
+
 def _sync_listing_text(selected_cards, listing_type, fp_func):
+    """Remplit titre / description / prix dans st.session_state pour la selection courante.
+
+    Pourquoi ce n'est pas un simple « si la signature change » : Streamlit SUPPRIME la valeur d'un widget (cle
+    `key=`) dès qu'un rerun n'affiche pas ce widget (autre etape, autre menu, boite de dialogue...). La signature,
+    elle, n'est pas un widget et reste : au retour sur l'ecran la signature etait identique, rien n'etait
+    recalcule et le titre, la description et le prix s'affichaient VIDES (bug du 15/10/2026).
+    On reremplit donc aussi quand une valeur manque ou est vide, en reprenant d'abord la derniere valeur vue
+    (modification manuelle comprise, gardee dans LISTING_TEXT_SHADOW_KEY), et on suit la generation quand le texte
+    n'a pas ete modifie a la main (ex. extension corrigee entre-temps).
+
+    Un texte « non modifie » est : identique a la derniere generation vue, OU identique a ce que produisait
+    l'ANCIEN generateur (services/listing_legacy) : une session ouverte avant le changement de regles garde ainsi
+    un texte a jour sans ecraser une vraie modification manuelle (bug du 15/10/2026 : « Courrousinge 171/198 …
+    Shiny Chromatique » reste affiche apres le changement de regles, y compris au retour sur l'ecran).
+    """
     prepared = prepare_listing(selected_cards, listing_type)
     signature = prepared["signature"]
-    if signature != st.session_state.get("vinted_listing_signature"):
-        st.session_state["vinted_listing_title"] = prepared["title"]
-        st.session_state["vinted_listing_description"] = prepared["description"]
-        st.session_state["vinted_listing_price"] = listing_price_text(selected_cards, fp_func)
+    generated = {
+        "title": prepared["title"],
+        "description": prepared["description"],
+        "price": listing_price_text(selected_cards, fp_func),
+    }
+    legacy = listing_texts.legacy_texts(selected_cards, listing_type) or {}
+    shadow = st.session_state.get(LISTING_TEXT_SHADOW_KEY)
+    shadow = shadow if isinstance(shadow, dict) else {}
+    same_selection = signature == st.session_state.get("vinted_listing_signature")
+
+    if not same_selection:
+        for name, key in LISTING_TEXT_FIELDS:
+            st.session_state[key] = generated[name]
         st.session_state["vinted_listing_signature"] = signature
+    else:
+        same_shadow = shadow.get("signature") == signature
+        last_values = shadow.get("values", {}) if same_shadow else {}
+        last_generated = shadow.get("generated", {}) if same_shadow else {}
+        for name, key in LISTING_TEXT_FIELDS:
+            current = st.session_state.get(key)
+            old_text = legacy.get(name)  # l'ancien generateur ne calcule pas le prix
+            if current is None or not str(current).strip():
+                # widget supprime par Streamlit (ecran non affiche) ou reste vide : on restaure
+                restored = last_values.get(name)
+                unmodified = bool(restored) and (restored == last_generated.get(name) or (old_text is not None and restored == old_text))
+                st.session_state[key] = generated[name] if (unmodified or not restored) else restored
+            elif generated[name] != current and (last_generated.get(name) == current or (old_text is not None and old_text == current)):
+                st.session_state[key] = generated[name]  # non modifie a la main : on suit la generation
+
+    st.session_state[LISTING_TEXT_STATE_KEY] = listing_texts.text_state(
+        st.session_state.get("vinted_listing_title", ""), st.session_state.get("vinted_listing_description", ""),
+        generated, legacy or None,
+    )
+    st.session_state[LISTING_TEXT_SHADOW_KEY] = {
+        "signature": signature,
+        "rules": listing_texts.RULES_VERSION,
+        "generated": generated,
+        "values": {name: st.session_state.get(key, "") for name, key in LISTING_TEXT_FIELDS},
+    }
     return prepared
+
+
+def _listing_text_problem(prepared):
+    """Message d'erreur si le titre ou la description ne peut pas etre genere / est vide, sinon chaine vide."""
+    missing = []
+    if not str(st.session_state.get("vinted_listing_title", "") or "").strip():
+        missing.append("le titre")
+    if not str(st.session_state.get("vinted_listing_description", "") or "").strip():
+        missing.append("la description")
+    if not missing and prepared.get("title") and prepared.get("description"):
+        return ""
+    if not missing:
+        missing = ["le titre" if not prepared.get("title") else "", "la description" if not prepared.get("description") else ""]
+        missing = [m for m in missing if m]
+    return "Impossible d'afficher " + " et ".join(missing) + " de cette annonce. Rien n'a été enregistré : rouvre l'annonce ou régénère le texte."
+
+
+def _show_listing_text_problem(prepared):
+    problem = _listing_text_problem(prepared)
+    if problem:
+        st.error(problem)
+    return problem
 
 
 def _reset_vinted_form():
@@ -2356,6 +2634,239 @@ def _review_pass_remaining_group_ids(pass_state, result, session):
     return [group_id for group_id in pass_state.get("group_ids", []) if group_id in unresolved_ids]
 
 
+def _rebase_review_pass_after_refresh(pass_state, result, session, *, mode):
+    """Garde la position de l'utilisateur dans la file apres « Actualiser l'analyse ».
+
+    Les groupes ne changent jamais (identifiants stables) : seule leur resolution peut changer.
+    * mode « review » : les annonces devenues « Reconnu » quittent la file, les autres gardent leur ordre ;
+      une annonce redevenue a verifier est ajoutee a la fin ;
+    * mode « all » : la file reste identique ;
+    * la position pointe sur la meme annonce, ou sur la suivante si elle a quitte la file.
+    """
+    state = dict(pass_state or {})
+    old_ids = list(state.get("group_ids") or [])
+    position = max(0, _safe_int(state.get("position"), 0))
+    was_completed = bool(state.get("completed"))
+    if mode == "all":
+        return state
+    unresolved_ids = [photo_stable_group_id(group) for group in photo_unresolved_groups(result, session)]
+    unresolved_set = set(unresolved_ids)
+    kept = [group_id for group_id in old_ids if group_id in unresolved_set]
+    added = [group_id for group_id in unresolved_ids if group_id not in set(old_ids)]
+    if was_completed or position >= len(old_ids):
+        new_position = len(kept)
+    else:
+        new_position = sum(1 for group_id in old_ids[:position] if group_id in unresolved_set)
+    state["group_ids"] = kept + added
+    state["position"] = min(new_position, len(state["group_ids"]))
+    state["visited_group_ids"] = [
+        group_id for group_id in state.get("visited_group_ids") or [] if group_id in set(state["group_ids"])
+    ]
+    state["completed"] = state["position"] >= len(state["group_ids"])
+    return state
+
+
+def _move_notice_key(drop_id):
+    return f"vinted_photo_recognition_move_notice_{drop_id}"
+
+
+def _rebase_review_pass_after_regroup(pass_state, result, session, *, mode, destination_group_id=""):
+    """Apres un deplacement de photo : file recalculee dans l'ordre des annonces, positionnee sur la
+    annonce qui a recu la photo (meme si elle est maintenant « Reconnu », pour voir l'effet)."""
+    state = dict(pass_state or {})
+    if mode == "all":
+        ids = [photo_stable_group_id(group) for group in result.get("groups", []) or []]
+    else:
+        unresolved = {photo_stable_group_id(group) for group in photo_unresolved_groups(result, session)}
+        ids = [
+            photo_stable_group_id(group)
+            for group in result.get("groups", []) or []
+            if photo_stable_group_id(group) in unresolved or photo_stable_group_id(group) == destination_group_id
+        ]
+    state["group_ids"] = ids
+    state["position"] = ids.index(destination_group_id) if destination_group_id in ids else min(
+        max(0, _safe_int(state.get("position"), 0)), max(0, len(ids) - 1)
+    )
+    state["visited_group_ids"] = [group_id for group_id in state.get("visited_group_ids") or [] if group_id in ids]
+    state["completed"] = not ids
+    return state
+
+
+def _run_photo_move(active_drop, result, session, key, action, *, mode):
+    """Execute une action sur une photo (rattacher / detail), rematch limite, file reajustee."""
+    drop_id = str(active_drop.get("id") or "")
+    outcome = {}
+
+    def runner(progress):
+        outcome["value"] = review_actions.move_photo(
+            result, session, key, action, drop_id=drop_id, progress_callback=progress
+        )
+
+    with st.spinner("Mise à jour des annonces touchées..."):
+        _run_with_analysis_progress(drop_id, runner)
+    st.session_state.pop(_analysis_done_key(drop_id), None)
+    new_result, new_session, report = outcome["value"]
+    if not report.get("ok"):
+        st.session_state[_move_notice_key(drop_id)] = report.get("message") or "Action impossible."
+        return False
+    _store_photo_workflow_state(active_drop, new_result, new_session)
+    pass_key = _photo_review_pass_key(drop_id)
+    st.session_state[pass_key] = _rebase_review_pass_after_regroup(
+        st.session_state.get(pass_key), new_result, new_session,
+        mode=mode, destination_group_id=report.get("destination_group_id") or "",
+    )
+    st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
+    st.session_state.pop(_photo_queue_focus_key(drop_id), None)
+    message = report.get("message") or "Photo déplacée."
+    if report.get("invalidated"):
+        message += " Validations invalidées (les deux annonces ont été rematchées) : " + " ; ".join(report["invalidated"]) + "."
+    else:
+        message += " Aucune validation n'était concernée."
+    st.session_state[_move_notice_key(drop_id)] = message
+    return True
+
+
+def _render_photo_regroup_panel(active_drop, result, session, group, *, mode):
+    """Actions sous chaque photo : rattacher a l'annonce precedente / suivante, photo de detail."""
+    drop_id = str(active_drop.get("id") or "")
+    group_id = photo_stable_group_id(group)
+    flagged = review_actions.is_grouping_flagged(session, group)
+    groups = result.get("groups", []) or []
+    group_position = next((i for i, g in enumerate(groups) if photo_stable_group_id(g) == group_id), 0)
+    with st.expander("Corriger le regroupement des photos", expanded=flagged):
+        if flagged:
+            st.caption("Regroupement signalé comme incorrect : déplace la photo concernée.")
+        for entry in group.get("photos", []) or []:
+            photo = _photo_from_entry(entry)
+            path = _photo_path(photo)
+            key = review_actions._entry_key(entry)
+            token = hashlib.sha1(f"{group_id}|{key}".encode("utf-8")).hexdigest()[:12]
+            role = "détail" if review_actions._is_detail(entry) else ""
+            thumb_col, action_col = st.columns([1, 3])
+            with thumb_col:
+                if path and Path(path).exists():
+                    st.image(_review_photo_thumbnail(path, max_width=240, max_height=320), width="stretch")
+                st.caption(f"#{_photo_capture_index(photo)}" + (f" · {role}" if role else ""))
+            with action_col:
+                if st.button(
+                    "Rattacher à l'annonce précédente", key=f"vinted_photo_move_prev_{token}",
+                    disabled=group_position <= 0, width="stretch",
+                ):
+                    _run_photo_move(active_drop, result, session, key, "prev", mode=mode)
+                    st.rerun(scope="fragment")
+                if st.button(
+                    "Rattacher à l'annonce suivante", key=f"vinted_photo_move_next_{token}",
+                    disabled=group_position >= len(groups) - 1, width="stretch",
+                ):
+                    _run_photo_move(active_drop, result, session, key, "next", mode=mode)
+                    st.rerun(scope="fragment")
+                if st.button(
+                    "Photo de détail", key=f"vinted_photo_move_detail_{token}",
+                    disabled=bool(role), width="stretch",
+                    help="Photo de défaut rattachée à la carte, sans servir à l'identification. "
+                    "Si elle est seule dans son annonce, elle est rattachée à l'annonce précédente.",
+                ):
+                    _run_photo_move(active_drop, result, session, key, "detail", mode=mode)
+                    st.rerun(scope="fragment")
+
+
+def _render_review_disposition_panels(active_drop, result, session):
+    """Groupes ignores (deja publies) et cartes a enregistrer dans le stock, toujours visibles."""
+    changed = False
+    ignored = review_actions.disposition_rows(result, session, "published")
+    if ignored:
+        with st.expander(f"{len(ignored)} groupe(s) ignoré(s) (déjà publiés)", expanded=False):
+            st.caption("Ces annonces ne sont pas créées et ne bloquent pas « Continuer ». Rien n'est masqué en silence.")
+            for row in ignored:
+                group = row["group"]
+                ref = (row["entry"].get("reference") or {})
+                photo = _photo_from_entry((group.get("photos") or [{}])[0])
+                path = _photo_path(photo)
+                thumb_col, text_col, action_col = st.columns([1, 3, 2])
+                with thumb_col:
+                    if path and Path(path).exists():
+                        st.image(_review_photo_thumbnail(path, max_width=240, max_height=320), width="stretch")
+                with text_col:
+                    st.markdown(
+                        f"**Annonce #{group.get('announcement_index')}** · Déjà publiée dans le Drop : "
+                        f"{_ui_text(ref.get('name'))} {_ui_text(ref.get('number'))} · {_ui_text(ref.get('set'))} "
+                        f"({_ui_text(ref.get('status_label'))})"
+                    )
+                with action_col:
+                    if st.button("Ce n'est pas la bonne carte", key=f"vinted_photo_reject_published_{row['group_id']}", width="stretch"):
+                        session = review_actions.reject_published(session, group)
+                        _store_photo_workflow_state(active_drop, result, session)
+                        changed = True
+    stock = review_actions.disposition_rows(result, session, "not_in_stock")
+    if stock:
+        st.warning(f"{len(stock)} carte(s) à enregistrer dans le stock")
+        with st.expander("Cartes à ajouter au stock puis au Drop", expanded=True):
+            st.caption(
+                "Ajoute ces cartes au stock (par exemple dans un lot « Divers ») puis au Drop, "
+                "et clique sur « Actualiser l'analyse » : elles repasseront normalement. Aucune carte n'est créée automatiquement."
+            )
+            for row in stock:
+                group = row["group"]
+                ocr = row["entry"].get("ocr") or {}
+                read = " ".join(bit for bit in (_ui_text(ocr.get("name")), _ui_text(ocr.get("number")), _ui_text(ocr.get("set"))) if bit)
+                st.markdown(f"**Annonce #{group.get('announcement_index')}** · " + (f"lu : {read}" if read else "nom / numéro illisibles"))
+                entries = group.get("photos") or []
+                cols = st.columns(max(1, min(4, len(entries))))
+                for col, entry in zip(cols, entries):
+                    photo = _photo_from_entry(entry)
+                    path = _photo_path(photo)
+                    with col:
+                        if path and Path(path).exists():
+                            st.image(_review_photo_thumbnail(path, max_width=320, max_height=420), width="stretch")
+                        st.caption(f"#{_photo_capture_index(photo)}")
+                if st.button("Remettre dans la vérification", key=f"vinted_photo_restore_review_{row['group_id']}"):
+                    session = review_actions.restore_to_review(session, group)
+                    _store_photo_workflow_state(active_drop, result, session)
+                    changed = True
+    return session, changed
+
+
+def _reverify_report_key(drop_id):
+    return f"vinted_photo_recognition_reverify_report_{drop_id}"
+
+
+def _run_reverify_unvalidated(drops_data, active_drop, result, session, *, mode):
+    """« 🔄 Actualiser l'analyse » : recalcule uniquement les annonces non validees."""
+    drop_id = str(active_drop.get("id") or "")
+    pass_key = _photo_review_pass_key(drop_id)
+    previous_pass = st.session_state.get(pass_key)
+    previous_group = ""
+    ids = list((previous_pass or {}).get("group_ids") or [])
+    position = _safe_int((previous_pass or {}).get("position"), 0)
+    if 0 <= position < len(ids):
+        previous_group = ids[position]
+    session, _sync = review_actions.sync_review_dispositions(result, session, active_drop)
+    with st.spinner("Actualisation des annonces non validées..."):
+        outcome = {}
+
+        def runner(progress):
+            new_result, new_session, report = reverify_unvalidated_groups(
+                result, session, drop_id=drop_id, progress_callback=progress
+            )
+            outcome.update(result=new_result, session=new_session, report=report)
+
+        _run_with_analysis_progress(drop_id, runner)
+    new_result, new_session, report = outcome["result"], outcome["session"], outcome["report"]
+    _store_photo_workflow_state(active_drop, new_result, new_session)
+    st.session_state.pop(_analysis_done_key(drop_id), None)
+    if isinstance(previous_pass, dict) and previous_pass.get("mode") == mode:
+        rebased = _rebase_review_pass_after_refresh(previous_pass, new_result, new_session, mode=mode)
+        st.session_state[pass_key] = rebased
+        new_ids = list(rebased.get("group_ids") or [])
+        new_position = _safe_int(rebased.get("position"), 0)
+        current = new_ids[new_position] if 0 <= new_position < len(new_ids) else ""
+        if current != previous_group:
+            st.session_state.pop(_photo_queue_next_group_key(drop_id), None)
+            st.session_state.pop(_photo_queue_focus_key(drop_id), None)
+    st.session_state[_reverify_report_key(drop_id)] = reverify_report_text(report)
+    return report
+
+
 def _mark_photo_review_pass_group_visited(drop_id, group_id):
     state = st.session_state.get(_photo_review_pass_key(drop_id)) or {}
     visited = list(state.get("visited_group_ids") or [])
@@ -2410,7 +2921,9 @@ def _photo_capture_index(photo):
     return _safe_int(getattr(photo, "capture_index", 0), 0)
 
 
-def _load_photo_workflow_state(active_drop):
+def _load_photo_workflow_state(active_drop, progress_slot=None):
+    """Etat photo du Drop. ``progress_slot`` : emplacement d'une barre pour la mise à jour AUTOMATIQUE des cartes du
+    Drop faite à l'ouverture (stock modifié depuis la dernière analyse), qui peut durer plusieurs secondes."""
     drop_id = str(active_drop.get("id") or "")
     session_key = _photo_session_key(drop_id)
     folder_key = _photo_folder_key(drop_id)
@@ -2424,7 +2937,13 @@ def _load_photo_workflow_state(active_drop):
         st.session_state[folder_key] = default_folder
     folder = str(st.session_state.get(folder_key) or "").strip()
     if result_key not in st.session_state and folder and Path(folder).exists():
-        result, restored_session = restore_drop_analysis(folder, drop_id)
+        result, restored_session = _run_with_analysis_progress(
+            drop_id,
+            lambda progress: restore_drop_analysis(folder, drop_id, progress_callback=progress),
+            slot=progress_slot, phase_ranges=REFRESH_PHASE_RANGES,
+            phase_labels={**REFRESH_PHASE_LABELS, "reconnaissance": "Mise à jour automatique des cartes du Drop"},
+            done_message=lambda _value, _seconds: "",  # ouverture de l'écran : pas de message de fin différé
+        )
         if result is not None:
             st.session_state[result_key] = result
             st.session_state[session_key] = restored_session
@@ -2436,14 +2955,44 @@ def _load_photo_workflow_state(active_drop):
         or str((current_result.get("analysis_meta") or {}).get("language_compatibility_version") or "")
         != PHOTO_LANGUAGE_COMPATIBILITY_VERSION
     ):
-        current_result, current_session = refresh_drop_analysis_candidates(
-            current_result,
-            current_session,
-            drop_id=drop_id,
+        current_result, current_session = _run_with_analysis_progress(
+            drop_id,
+            lambda progress: refresh_drop_analysis_candidates(
+                current_result, current_session, drop_id=drop_id, progress_callback=progress
+            ),
+            slot=progress_slot, phase_ranges=REFRESH_PHASE_RANGES,
+            phase_labels={**REFRESH_PHASE_LABELS, "reconnaissance": "Mise à jour automatique des cartes du Drop"},
+            done_message=lambda _value, _seconds: "",  # ouverture de l'écran : pas de message de fin différé
         )
         st.session_state[result_key] = current_result
         st.session_state[session_key] = current_session
+    if current_result is not None:
+        current_result, current_session = _apply_review_layers(active_drop, current_result, current_session)
+        st.session_state[result_key] = current_result
+        st.session_state[session_key] = current_session
     return current_result, current_session, folder
+
+
+def _apply_review_layers(active_drop, result, session):
+    """Deplacements memorises, regle du verso orphelin et groupes ignores (idempotent, rapide si rien a faire)."""
+    drop_id = str(active_drop.get("id") or "")
+    try:
+        result, session, report = review_actions.apply_review_layers(result, session, active_drop, drop_id=drop_id)
+    except Exception as error:  # ne jamais bloquer l'ecran de verification
+        st.warning(f"Regroupement automatique non appliqué : {error}")
+        return result, session
+    applied = (report.get("rule") or {}).get("applied") or []
+    if applied:
+        st.session_state[_regroup_notice_key(drop_id)] = [
+            f"Verso de l'annonce {row['from_announcement']} rattaché à l'annonce {row['to_announcement']} (règle du verso orphelin)"
+            + (" · " + " ; ".join(row["invalidated"]) + " invalidé(s)" if row.get("invalidated") else "")
+            for row in applied
+        ]
+    return result, session
+
+
+def _regroup_notice_key(drop_id):
+    return f"vinted_photo_recognition_regroup_notice_{drop_id}"
 
 
 def _store_photo_workflow_state(active_drop, result, session):
@@ -2465,11 +3014,12 @@ def _apply_photo_workflow_statuses(drops_data, active_drop, result, session):
     return payload, changed
 
 
-def _photo_match_semantic_status(session, group, match, match_index):
+def _photo_match_semantic_status(session, group, match, match_index, drop=None, result=None):
     """Return the display-only status for one physical card proposal."""
     validation = validation_for_match(session, group, match, match_index)
     candidate, source = photo_effective_candidate(session, group, match, match_index)
     raw_status = str(match.get("status") or "fail")
+    hint = review_actions.match_hint_message(match, drop, result or {}) if drop is not None else ""
 
     if validation.get("compatible") and validation.get("state") in {"correct", "manual"}:
         return {
@@ -2487,7 +3037,13 @@ def _photo_match_semantic_status(session, group, match, match_index):
         return {
             "tone": "warning",
             "label": "! À vérifier",
-            "message": "Carte peut-être absente du Drop",
+            "message": hint or "Carte peut-être absente du Drop",
+        }
+    if photo_ocr_conflict_blocks_recognition(match):
+        return {
+            "tone": "warning",
+            "label": "! À vérifier",
+            "message": hint or "Numéro lu incompatible avec la carte proposée",
         }
     if validation.get("state") in {"wrong", "stale"}:
         return {
@@ -2508,9 +3064,9 @@ def _photo_match_semantic_status(session, group, match, match_index):
     }
 
 
-def _photo_group_semantic_status(session, group, reasons):
+def _photo_group_semantic_status(session, group, reasons, drop=None, result=None):
     match_statuses = [
-        _photo_match_semantic_status(session, group, match, index)
+        _photo_match_semantic_status(session, group, match, index, drop, result)
         for index, match in enumerate(group.get("matches", []) or [])
     ]
     if any(item["tone"] == "danger" for item in match_statuses):
@@ -2536,6 +3092,11 @@ def _render_photo_status_message(status):
 
 def _render_photo_analysis_summary(result, session):
     summary = photo_analysis_summary(result, session)
+    extra_spans = ""
+    if summary.get("ignored"):
+        extra_spans += f'<span><strong>{summary["ignored"]}</strong> ignorées (déjà publiées)</span>'
+    if summary.get("not_in_stock"):
+        extra_spans += f'<span><strong>{summary["not_in_stock"]}</strong> à enregistrer dans le stock</span>'
     st.markdown(
         f"""
 <div class="ps-photo-summary-line">
@@ -2544,6 +3105,7 @@ def _render_photo_analysis_summary(result, session):
   <span class="auto"><strong>{summary['auto']}</strong> reconnues</span>
   <span class="review"><strong>{summary['review']}</strong> à vérifier</span>
   <span class="fail"><strong>{summary['fail']}</strong> non reconnues</span>
+  {extra_spans}
 </div>
 """,
         unsafe_allow_html=True,
@@ -2711,9 +3273,114 @@ def _legacy_analysis_blocked(active_drop, result, staleness):
     return not (staleness or {}).get("photos")
 
 
+ANALYSIS_PROGRESS_MIN_SECONDS = 0.4  # en dessous, aucun affichage (résultat quasi instantané / cache)
+
+
+def _analysis_done_key(drop_id):
+    return f"vinted_photo_analysis_done_{drop_id}"
+
+
+def _run_with_analysis_progress(
+    drop_id, runner, *, slot=None, always_show=False, start_text="", phase_ranges=None, phase_labels=None,
+    done_message=None,
+):
+    """Lance ``runner(progress_callback)`` en affichant barre + temps restant.
+
+    L'analyse n'est pas modifiée : le callback ne reçoit que des compteurs.
+
+    * ``slot`` : emplacement (``st.empty()`` créé PLUS HAUT dans la page) où dessiner la barre ; sans lui, la barre
+      s'affiche là où la fonction est appelée (souvent sous le bouton, parfois hors de l'écran) ;
+    * ``always_show`` : affiche tout de suite ``start_text`` (une opération qui finit en une demi-seconde montre
+      quand même quelque chose) ; sinon la barre n'apparaît qu'au-delà de ``ANALYSIS_PROGRESS_MIN_SECONDS`` ;
+    * ``done_message(value, seconds)`` : texte de fin (résultat chiffré) ; il survit au ``st.rerun()`` qui suit.
+      Sans lui : « Analyse terminée en X » seulement si la barre a été affichée.
+    """
+    placeholder = slot if slot is not None else st.empty()
+    started = time.monotonic()
+    shown = {"value": False}
+
+    def draw(fraction, text):
+        shown["value"] = True
+        placeholder.progress(max(0.0, min(1.0, float(fraction))), text=text)
+
+    if always_show and start_text:
+        draw(0.0, start_text)
+
+    def on_update(snapshot):
+        if not shown["value"] and (time.monotonic() - started) < ANALYSIS_PROGRESS_MIN_SECONDS:
+            return
+        draw(snapshot.fraction, snapshot.text)
+
+    tracker = AnalysisProgress(on_update, phase_ranges=phase_ranges, phase_labels=phase_labels)
+    try:
+        value = runner(tracker)
+    finally:
+        tracker.on_update = None
+        placeholder.empty()
+    message = ""
+    if done_message is not None:
+        try:
+            message = str(done_message(value, time.monotonic() - started) or "")
+        except Exception:
+            message = ""
+    elif shown["value"]:
+        try:
+            message = tracker.finish().text
+        except Exception:
+            message = ""
+    if message:
+        st.session_state[_analysis_done_key(drop_id)] = message
+    return value
+
+
+def _duration_text(seconds):
+    return "moins d'1 s" if seconds < 1 else format_duration(seconds)
+
+
+def _refresh_done_message(value, seconds):
+    """« Actualisation terminée en 12 s : 420 cartes du Drop prises en compte, 41 annonce(s) recalculée(s). »"""
+    result = value[0] if isinstance(value, tuple) else value
+    metrics = (result or {}).get("metrics") or {}
+    cards = len((result or {}).get("candidates") or [])
+    rematched = int(metrics.get("candidate_groups_rematched") or 0)
+    changes = metrics.get("candidate_changes") or {}
+    changed_cards = sum(int(changes.get(key) or 0) for key in ("added", "removed", "changed"))
+    base = f"Actualisation terminée en {_duration_text(seconds)} : {cards} carte(s) du Drop prises en compte"
+    if not rematched and not changed_cards:
+        return f"{base}, 0 changement (les cartes du Drop n'ont pas bougé depuis la dernière analyse)."
+    return f"{base}, {changed_cards} carte(s) modifiée(s), {rematched} annonce(s) recalculée(s)."
+
+
+def _refresh_candidates_with_progress(drops_data, active_drop, result, session, drop_id, slot):
+    """« Actualiser les cartes du Drop » : lecture du stock, recalcul, enregistrement, statuts. Barre + message de fin."""
+    outcome = {}
+
+    def runner(progress):
+        new_result, new_session = refresh_drop_analysis_candidates(
+            result, session, drop_id=drop_id, progress_callback=progress
+        )
+        progress("statuts", 0, 1)
+        _store_photo_workflow_state(active_drop, new_result, new_session)
+        _apply_photo_workflow_statuses(drops_data, active_drop, new_result, new_session)
+        progress("statuts", 1, 1)
+        outcome["value"] = (new_result, new_session)
+        return outcome["value"]
+
+    return _run_with_analysis_progress(
+        drop_id, runner, slot=slot, always_show=True, start_text="Lecture du stock et des cartes du Drop…",
+        phase_ranges=REFRESH_PHASE_RANGES, phase_labels=REFRESH_PHASE_LABELS, done_message=_refresh_done_message,
+    )
+
+
 def _render_photo_analysis_step(drops_data, active_drop, mobile):
-    result, session, folder = _load_photo_workflow_state(active_drop)
     drop_id = str(active_drop.get("id") or "")
+    # Emplacement de la barre de progression, en HAUT de l'étape : toujours visible, même quand le bouton cliqué
+    # (« Options de l'analyse ») est plus bas dans la page. Rempli plus bas par les opérations longues.
+    progress_slot = st.empty()
+    result, session, folder = _load_photo_workflow_state(active_drop, progress_slot=progress_slot)
+    analysis_done_message = st.session_state.pop(_analysis_done_key(drop_id), "")
+    if analysis_done_message:
+        st.success(analysis_done_message)
     st.markdown('<div class="ps-vinted-section-title">Photos et analyse</div>', unsafe_allow_html=True)
     analyze_clicked = False
     refresh_clicked = False
@@ -2830,32 +3497,38 @@ def _render_photo_analysis_step(drops_data, active_drop, mobile):
         current_staleness = _photo_analysis_staleness(result, folder, drop_id) if result is not None else {"photos": True}
         if result is not None and not current_staleness.get("photos"):
             with st.spinner("Mise à jour des cartes du Drop..."):
-                result, session = refresh_drop_analysis_candidates(result, session, drop_id=drop_id)
-                _store_photo_workflow_state(active_drop, result, session)
-                _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+                result, session = _refresh_candidates_with_progress(
+                    drops_data, active_drop, result, session, drop_id, progress_slot
+                )
         else:
-            progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
             with st.spinner("Analyse en cours. Le résultat sera conservé pour la prochaine ouverture."):
-                result, session = analyze_drop_photos(folder, drop_id)
+                result, session = _run_with_analysis_progress(
+                    drop_id,
+                    lambda progress: analyze_drop_photos(folder, drop_id, progress_callback=progress),
+                    slot=progress_slot, always_show=True, start_text="Lecture des photos…",
+                )
                 _store_photo_workflow_state(active_drop, result, session)
                 _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-            progress.progress(1.0, text="Analyse terminée")
         st.rerun()
 
     if refresh_clicked and result is not None:
         with st.spinner("Actualisation des cartes du Drop..."):
-            result, session = refresh_drop_analysis_candidates(result, session, drop_id=drop_id)
-            _store_photo_workflow_state(active_drop, result, session)
-            _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
+            result, session = _refresh_candidates_with_progress(
+                drops_data, active_drop, result, session, drop_id, progress_slot
+            )
         st.rerun()
 
     if force_clicked:
-        progress = st.progress(0, text=f"Préparation de {len(photos)} photos...")
         with st.spinner("Nouvelle analyse en cours..."):
-            result, session = analyze_drop_photos(folder, drop_id, force_rebuild=True)
+            result, session = _run_with_analysis_progress(
+                drop_id,
+                lambda progress: analyze_drop_photos(
+                    folder, drop_id, force_rebuild=True, progress_callback=progress
+                ),
+                slot=progress_slot, always_show=True, start_text="Lecture des photos…",
+            )
             _store_photo_workflow_state(active_drop, result, session)
             _apply_photo_workflow_statuses(drops_data, active_drop, result, session)
-        progress.progress(1.0, text="Analyse terminée")
         st.rerun()
 
 
@@ -2866,6 +3539,41 @@ def _candidate_label(candidate):
     if candidate.get("set"):
         bits.append(str(candidate.get("set")))
     return " · ".join(bit for bit in bits if bit)
+
+
+def _price_text(value):
+    """« 10,00 € » (format demandé pour l'étape Vérification ; affichage uniquement)."""
+    return f"{_safe_float(value):.2f}".replace(".", ",") + " €"
+
+
+def _stock_by_uid(available_cards):
+    return {str(card.get("card_uid") or ""): card for card in available_cards or [] if card.get("card_uid")}
+
+
+def _candidate_stock_price(candidate, stock_by_uid, *, in_drop=True):
+    """Prix de vente d'une carte reconnue, comme pour l'annonce (_recognition_listing_cards + suggested_price).
+
+    Retourne ``(prix, etat)`` : etat = "ok" (prix > 0), "missing" (carte connue, prix vide ou 0) ou
+    "no_stock" (ni dans le stock ni dans le Drop). Lecture seule : aucune donnee n'est modifiee.
+    """
+    candidate = candidate or {}
+    card = (stock_by_uid or {}).get(str(candidate.get("card_uid") or ""))
+    if card is None and not in_drop:
+        return 0.0, "no_stock"
+    price = _safe_float(suggested_price(card if card is not None else candidate))
+    return price, ("ok" if price > 0 else "missing")
+
+
+def _price_chip_html(price, state, *, label=""):
+    if state == "no_stock":
+        return '<span class="ps-price-chip missing">Pas en stock</span>'
+    if state == "missing":
+        return f'<span class="ps-price-chip missing">{_html_escape(label)}Prix manquant</span>'
+    return f'<span class="ps-price-chip">{_html_escape(label)}{_html_escape(_price_text(price))}</span>'
+
+
+def _price_option_text(price, state):
+    return "Pas en stock" if state == "no_stock" else ("Prix manquant" if state == "missing" else _price_text(price))
 
 
 def _review_photo_thumbnail(path, *, max_width=900, max_height=560):
@@ -2919,7 +3627,7 @@ def _render_physical_group_photos(group, mobile):
                 st.caption(f"#{_photo_capture_index(photo)} · {_photo_filename(photo)}")
 
 
-def _render_candidate_identity(candidate, match, proxy_img_func):
+def _render_candidate_identity(candidate, match, proxy_img_func, stock_by_uid=None):
     image = _card_image(candidate or {}, proxy_img_func)
     image_col, text_col = st.columns([1, 2.2])
     with image_col:
@@ -2928,9 +3636,31 @@ def _render_candidate_identity(candidate, match, proxy_img_func):
     with text_col:
         st.markdown(f"**{_ui_text((candidate or {}).get('name'), 'Aucun candidat')}**")
         st.write(f"{_ui_text((candidate or {}).get('number'), 'Numéro inconnu')} · {_ui_text((candidate or {}).get('set'), 'Extension inconnue')}")
+        if candidate:
+            price, price_state = _candidate_stock_price(candidate, stock_by_uid or {})
+            st.markdown(_price_chip_html(price, price_state), unsafe_allow_html=True)
         score = _safe_float(match.get("score"))
         margin = _safe_float(match.get("margin"))
         st.caption(f"Confiance {score:.0f} · marge {margin:.0f}")
+
+
+def _render_group_price_total(session, group, stock_by_uid):
+    """Annonce multi-cartes : total des prix (meme calcul que le prix de l'annonce) ; alerte si un prix manque."""
+    total = 0.0
+    missing = 0
+    for index, match in enumerate(group.get("matches", []) or []):
+        candidate, _source = photo_effective_candidate(session, group, match, index)
+        if not candidate:
+            missing += 1
+            continue
+        price, state = _candidate_stock_price(candidate, stock_by_uid)
+        total += price
+        if state != "ok":
+            missing += 1
+    html = f'<span class="ps-price-chip total">Total annonce : {_html_escape(_price_text(total))}</span>'
+    if missing:
+        html += f'<span class="ps-price-chip missing">{missing} prix manquant(s)</span>'
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def _render_candidate_correction(
@@ -2960,6 +3690,7 @@ def _render_candidate_correction(
             st.caption("Aucune carte exacte trouvée dans ce Drop.")
         return session
     labels = {}
+    stock_index = _stock_by_uid(available_cards)
     for candidate in candidates:
         resolved_candidate, membership = resolve_historical_drop_candidate(candidate, historical_candidates)
         in_drop = bool(membership.get("in_drop"))
@@ -2969,7 +3700,13 @@ def _render_candidate_correction(
             suffix += " · Vendue"
         if not in_drop:
             suffix = " · hors Drop"
-        label = _candidate_label(resolved_candidate) + suffix + f" · {resolved_candidate.get('card_uid', '')}"
+        # prix AVANT l'identifiant technique (la ligne reste lisible quand elle est tronquee)
+        price, price_state = _candidate_stock_price(resolved_candidate, stock_index, in_drop=in_drop)
+        label = (
+            _candidate_label(resolved_candidate)
+            + " · " + _price_option_text(price, price_state)
+            + suffix + f" · {resolved_candidate.get('card_uid', '')}"
+        )
         labels[label] = (resolved_candidate, in_drop)
     selected_label = st.selectbox("Carte exacte", list(labels), key=f"vinted_photo_candidate_select_{group_id}_{subcard_id}")
     selected_candidate, is_in_drop = labels[selected_label]
@@ -3026,7 +3763,7 @@ def _render_photo_match_review(
 ):
     candidate, source = photo_effective_candidate(session, group, match, match_index)
     validation = validation_for_match(session, group, match, match_index)
-    semantic_status = _photo_match_semantic_status(session, group, match, match_index)
+    semantic_status = _photo_match_semantic_status(session, group, match, match_index, active_drop, result)
     subcard_id = photo_stable_subcard_id(match, match_index)
     group_id = photo_stable_group_id(group)
     with st.container(border=True):
@@ -3047,7 +3784,7 @@ def _render_photo_match_review(
             if is_focused:
                 progress_label += " · Prochaine carte"
             st.caption(progress_label)
-        _render_candidate_identity(candidate, match, proxy_img_func)
+        _render_candidate_identity(candidate, match, proxy_img_func, _stock_by_uid(available_cards))
         _render_photo_status_message(semantic_status)
         correction_open_key = f"vinted_photo_candidate_correction_open_{group_id}_{subcard_id}"
         if candidate:
@@ -3121,8 +3858,40 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
         return
 
     summary = _render_photo_analysis_summary(result, session)
+    reverify_message = st.session_state.pop(_reverify_report_key(drop_id), "")
+    if reverify_message:
+        st.success(reverify_message)
     show_all = st.toggle("Consulter aussi les reconnaissances automatiques", key=f"vinted_photo_show_all_{drop_id}")
     mode = "all" if show_all else "review"
+    if st.button(
+        "🔄 Actualiser l'analyse",
+        key=f"vinted_photo_reverify_{drop_id}",
+        help=(
+            "Relance la reconnaissance des seules annonces non validées, en tenant compte de ce que tu as déjà "
+            "validé. Tes validations, associations, regroupements et corrections ne sont jamais modifiés."
+        ),
+    ):
+        _run_reverify_unvalidated(drops_data, active_drop, result, session, mode=mode)
+        st.rerun(scope="fragment")
+        return
+    st.caption(
+        "Actualiser l'analyse revérifie uniquement les annonces non validées. "
+        "Pour prendre en compte des cartes ajoutées au Drop, utilise « Mettre à jour l'analyse » à l'étape 2."
+    )
+    for notice in st.session_state.pop(_regroup_notice_key(drop_id), []) or []:
+        st.info(notice)
+    move_notice = st.session_state.pop(_move_notice_key(drop_id), "")
+    if move_notice:
+        st.warning(move_notice)
+    session, panels_changed = _render_review_disposition_panels(active_drop, result, session)
+    if panels_changed:
+        pass_key_now = _photo_review_pass_key(drop_id)
+        if isinstance(st.session_state.get(pass_key_now), dict):
+            st.session_state[pass_key_now] = _rebase_review_pass_after_refresh(
+                st.session_state[pass_key_now], result, session, mode=mode
+            )
+        st.rerun(scope="fragment")
+        return
     initial_queue = list(result.get("groups", []) or []) if show_all else photo_unresolved_groups(result, session)
     pass_key = _photo_review_pass_key(drop_id)
     pass_state = st.session_state.get(pass_key)
@@ -3204,7 +3973,7 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
         st.rerun(scope="fragment")
         return
     reasons = group_review_reasons(session, group)
-    group_status = _photo_group_semantic_status(session, group, reasons)
+    group_status = _photo_group_semantic_status(session, group, reasons, active_drop, result)
     st.markdown(
         f"""
 <div class="ps-photo-review-header">
@@ -3214,7 +3983,12 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
 """,
         unsafe_allow_html=True,
     )
-    st.caption(f"Annonce #{group.get('announcement_index')} · " + (" · ".join(reasons) if reasons else "reconnaissance automatique"))
+    processed_label = review_actions.group_processed_label(group, session, active_drop)
+    st.caption(
+        f"Annonce #{group.get('announcement_index')} · "
+        + (" · ".join(reasons) if reasons else "reconnaissance automatique")
+        + (f" · {processed_label}" if processed_label else "")
+    )
 
     def advance_to_next_group(feedback_message):
         _mark_photo_review_pass_group_visited(drop_id, photo_stable_group_id(group))
@@ -3274,6 +4048,7 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
         with photo_col:
             st.markdown("**Photos physiques**")
             _render_physical_group_photos(group, mobile)
+            _render_photo_regroup_panel(active_drop, result, session, group, mode=mode)
         with match_col:
             st.markdown("**Identification**")
             focus = st.session_state.get(_photo_queue_focus_key(drop_id), {}) or {}
@@ -3301,6 +4076,21 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     advance_after_subcard,
                     is_focused=photo_stable_subcard_id(match, match_index) == focus_subcard_id,
                 )
+            if len(group.get("matches", []) or []) > 1:
+                _render_group_price_total(session, group, _stock_by_uid(available_cards))
+            if group_review_reasons(session, group):
+                multi = len(group.get("matches", []) or []) > 1
+                if st.button(
+                    "Ce groupe n'est pas dans mon stock" if multi else "Cette carte n'est pas dans mon stock",
+                    key=f"vinted_photo_not_in_stock_{photo_stable_group_id(group)}",
+                    width="stretch",
+                    help="Le groupe sort de « À vérifier », ne bloque plus « Continuer » et ne crée aucune annonce. "
+                    "Il est listé dans « cartes à enregistrer dans le stock ». Aucune carte n'est créée automatiquement.",
+                ):
+                    session = review_actions.mark_not_in_stock(session, group)
+                    _store_photo_workflow_state(active_drop, result, session)
+                    advance_to_next_group("Carte hors stock — à enregistrer dans le stock")
+                    st.rerun(scope="fragment")
             grouping_needs_confirmation = photo_grouping_needs_confirmation(session, group)
             subcards_pending = photo_pending_review_subcard_indexes(session, group)
             if grouping_needs_confirmation and not subcards_pending:
@@ -3314,7 +4104,11 @@ def _render_photo_review_step(drops_data, active_drop, proxy_img_func, mobile, a
                     key=f"vinted_photo_group_incorrect_{photo_stable_group_id(group)}",
                     width="stretch",
                 ):
-                    advance_to_next_group("Grouping à corriger — cas conservé")
+                    session = review_actions.flag_grouping(session, group)
+                    _store_photo_workflow_state(active_drop, result, session)
+                    st.session_state[_photo_queue_feedback_key(drop_id)] = (
+                        "Regroupement signalé — déplace la photo concernée (panneau « Corriger le regroupement des photos »)"
+                    )
                     st.rerun(scope="fragment")
                 if grouping_actions[1].button(
                     "Confirmer le grouping",
@@ -3525,6 +4319,8 @@ def _drop_mark_to_prepare(drops_data, drop_id, card_key):
     ref = find_drop_ref(drop, card_key)
     if ref is None:
         return False
+    if drop_item_status(ref) in {"online", "sold"} or ref.get("online_at") or ref.get("sold_at"):
+        return False  # une carte en ligne / vendue ne repasse jamais en « a preparer »
     ref["status"] = "to_prepare"
     ref["draft_ready_at"] = ""
     ref["listing_posted"] = False
@@ -3647,6 +4443,21 @@ def _render_created_drafts_drawer(drops_data, active_drop, ready_cards, proxy_im
 
 def _drop_card_total(drop):
     return sum(max(1, _safe_int(ref.get("quantity"), 1)) for ref in drop.get("cards", []) or [])
+
+
+def _analytics_origin(drop):
+    """Origine des courbes et des durees : date de la PREMIERE mise en ligne (online_at), sinon le lancement du Drop."""
+    return _parse_dt(online_marking.drop_first_online_at(drop)) or _parse_dt((drop or {}).get("drop_launched_at"))
+
+
+def _analytics_total_cards_at(drop, moment):
+    """Denominateur du taux d'ecoulement a un instant : cartes DEJA EN LIGNE a cet instant, chacune a sa propre date.
+
+    Un Drop sans aucune date de mise en ligne garde le total du Drop (comportement historique).
+    """
+    if not online_marking.drop_has_online_stamps(drop):
+        return _drop_card_total(drop)
+    return online_marking.drop_cards_online_by(drop, moment)
 
 
 def _drop_value_total(drop):
@@ -3887,7 +4698,7 @@ def _negotiation_stats(rows):
 
 
 def _render_drop_timing(drop, rows, fp_func):
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     if not launched:
         st.caption("Temporalité : N/A, drop non lancé.")
         return
@@ -3926,7 +4737,7 @@ def _render_drop_timing(drop, rows, fp_func):
 
 
 def _render_drop_charts(drop, rows):
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     if not launched or not rows:
         return
     try:
@@ -4021,14 +4832,14 @@ def _group_drop_transactions(rows):
 
 def _analytics_snapshot_at(drop, rows, cutoff):
     """Return cumulative metrics at an exact elapsed-time cutoff."""
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     if not launched or cutoff is None:
         return {"revenue": 0.0, "profit": None, "sold": 0, "sell_through": None, "transactions": 0}
     events = [event for event in _group_drop_transactions(rows) if launched <= event["timestamp"] <= cutoff]
     known_profits = [event["profit"] for event in events if event.get("profit") is not None]
     has_unknown_profit = any(event.get("profit") is None for event in events)
     sold = sum(event["sold_cards"] for event in events)
-    total_cards = _drop_card_total(drop)
+    total_cards = _analytics_total_cards_at(drop, cutoff)
     return {
         "revenue": sum(event["revenue"] for event in events),
         "profit": None if has_unknown_profit else sum(_safe_float(value) for value in known_profits),
@@ -4078,7 +4889,7 @@ def _analytics_restock_markers(drop, *, end=None, min_cards=_RESTOCK_MIN_CARDS):
 
 def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
     """Precise cumulative series with a launch point and optional flat visual end."""
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     if not launched:
         return []
     reference_now = now or datetime.now()
@@ -4097,7 +4908,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
         "sold": 0,
         "sell_through": 0.0,
         "transaction_revenue": None,
-        "event_label": "Lancement du Drop",
+        "event_label": "Lancement du Drop" if launched == _parse_dt(drop.get("drop_launched_at")) else "Première mise en ligne",
         "event_kind": "initial",
         "transaction_type": "Lancement",
         "is_transaction": False,
@@ -4109,6 +4920,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
             continue
         cumulative_revenue += event["revenue"]
         cumulative_sold += event["sold_cards"]
+        cards_online = _analytics_total_cards_at(drop, event["timestamp"])
         if event.get("profit") is not None:
             cumulative_profit += _safe_float(event["profit"])
         event_label = {"mixed": "Transaction mixte", "hors stock": "Transaction hors stock", "cartes": "Transaction cartes"}[event["kind"]]
@@ -4119,7 +4931,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
             "revenue": cumulative_revenue,
             "profit": cumulative_profit,
             "sold": cumulative_sold,
-            "sell_through": cumulative_sold / total_cards * 100.0 if total_cards else 0.0,
+            "sell_through": cumulative_sold / cards_online * 100.0 if cards_online else 0.0,
             "transaction_revenue": event["revenue"],
             "event_label": event_label,
             "event_kind": event["kind"],
@@ -4142,7 +4954,7 @@ def _analytics_time_series(drop, rows, *, now=None, range_hours=None):
 
 
 def _analytics_milestones(drop, rows):
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     if not launched:
         return {}
     total_cards = _drop_card_total(drop)
@@ -4153,6 +4965,7 @@ def _analytics_milestones(drop, rows):
             continue
         cumulative_revenue += event["revenue"]
         cumulative_sold += event["sold_cards"]
+        cards_online = _analytics_total_cards_at(drop, event["timestamp"])
         elapsed = event["timestamp"] - launched
         if "first_sale" not in milestones:
             milestones["first_sale"] = elapsed
@@ -4162,13 +4975,13 @@ def _analytics_milestones(drop, rows):
                 milestones[key] = elapsed
         for percent in (10, 25, 50, 75):
             key = f"sold_{percent}"
-            if total_cards and key not in milestones and cumulative_sold / total_cards * 100.0 >= percent:
+            if cards_online and key not in milestones and cumulative_sold / cards_online * 100.0 >= percent:
                 milestones[key] = elapsed
     return milestones
 
 
 def _analytics_timing(drop, rows, *, now=None):
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     reference_now = now or datetime.now()
     checkpoints = []
     for label, hours in _ANALYTICS_CHECKPOINTS:
@@ -4196,11 +5009,12 @@ def _analytics_metrics_at(drop, rows, cutoff):
     revenue = scope["ca_total"]
     profit = sum(known_profits) if known_profits else None
     sold = scope["sold_cards"]
+    cards_online = _analytics_total_cards_at(drop, cutoff)
     return {
         "revenue": revenue,
         "profit": profit,
         "sold": sold,
-        "sell_through": sold / total_cards * 100.0 if total_cards else None,
+        "sell_through": sold / cards_online * 100.0 if cards_online else None,
         "avg_sold_price": scope["ca_cards"] / sold if sold else None,
         "avg_basket": revenue / scope["total_transactions"] if scope["total_transactions"] else None,
         "avg_cards_per_transaction": sold / scope["card_transactions"] if scope["card_transactions"] else None,
@@ -4215,7 +5029,7 @@ def _comparison_horizon_hours(primary_drop, primary_rows, reference_drop, refere
     reference_now = now or datetime.now()
 
     def observable_hours(drop, rows):
-        launched = _parse_dt(drop.get("drop_launched_at"))
+        launched = _analytics_origin(drop)
         if not launched:
             return 0.0
         event_times = [event["timestamp"] for event in _group_drop_transactions(rows) if event["timestamp"] >= launched]
@@ -4228,8 +5042,8 @@ def _comparison_horizon_hours(primary_drop, primary_rows, reference_drop, refere
 
 
 def _comparison_time_series(primary_drop, primary_rows, reference_drop, reference_rows, *, now=None, full_history=False):
-    primary_launch = _parse_dt(primary_drop.get("drop_launched_at"))
-    reference_launch = _parse_dt(reference_drop.get("drop_launched_at"))
+    primary_launch = _analytics_origin(primary_drop)
+    reference_launch = _analytics_origin(reference_drop)
     if not primary_launch or not reference_launch:
         return []
     horizon = _comparison_horizon_hours(
@@ -4304,7 +5118,7 @@ def _analytics_remaining_items(selected, *, now=None, limit=5):
 def _analytics_highlights(rows, drop):
     physical_rows = _sales_scope_metrics(rows)["physical_rows"]
     dated_rows = [row for row in physical_rows if row.get("date")]
-    launched = _parse_dt(drop.get("drop_launched_at"))
+    launched = _analytics_origin(drop)
     best_margin = max((row for row in physical_rows if row.get("profit") is not None), key=lambda row: row["profit"], default=None)
     best_margin_pct = max(
         (row for row in physical_rows if row.get("profit") is not None and _safe_float(row.get("revenue")) > 0),
@@ -4333,6 +5147,17 @@ def _analytics_insights(price_bands, negotiation):
     if negotiation.get("equal_pct") is not None:
         insights.append(f"{negotiation['equal_pct']:.1f} % des ventes avec prix de référence sont réalisées au prix affiché.")
     return insights
+
+
+def _analytics_header_dates(drop):
+    """Date de lancement, plus la premiere mise en ligne quand elle tombe un autre jour (origine des courbes)."""
+    launch = _analytics_header_date(drop.get("drop_launched_at"))
+    first = online_marking.drop_first_online_at(drop)
+    if first and str(first)[:10] != str(drop.get("drop_launched_at") or "")[:10]:
+        stamp = _parse_dt(first)
+        if stamp:
+            return f"{launch} · 1re mise en ligne le {stamp.strftime('%d/%m/%Y')}"
+    return launch
 
 
 def _analytics_header_date(value):
@@ -4542,8 +5367,8 @@ def _render_analytics_comparison(drops, stock_data, fp_func, calc_cout_lot_func,
     if horizon_hours <= 0:
         st.caption("La comparaison apparaîtra dès que les deux Drops auront une période observable.")
         return
-    primary_metrics = _analytics_metrics_at(primary_drop, primary_rows, _parse_dt(primary_drop.get("drop_launched_at")) + timedelta(hours=horizon_hours))
-    reference_metrics = _analytics_metrics_at(reference_drop, reference_rows, _parse_dt(reference_drop.get("drop_launched_at")) + timedelta(hours=horizon_hours))
+    primary_metrics = _analytics_metrics_at(primary_drop, primary_rows, _analytics_origin(primary_drop) + timedelta(hours=horizon_hours))
+    reference_metrics = _analytics_metrics_at(reference_drop, reference_rows, _analytics_origin(reference_drop) + timedelta(hours=horizon_hours))
     comparison_metrics = [
         ("CA", "revenue", "€"), ("Bénéfice", "profit", "€"), ("Sell-through", "sell_through", "pts"),
         ("Cartes vendues", "sold", ""), ("Prix moyen", "avg_sold_price", "€"), ("Panier moyen", "avg_basket", "€"), ("Marge", "margin", "pts"),
@@ -4611,8 +5436,8 @@ def _render_analytics_comparison(drops, stock_data, fp_func, calc_cout_lot_func,
         for label, key in milestone_labels
     )
     st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Milestones</h3><p>Durées exactes depuis chaque lancement.</p></div></div><div class="ps-analytics-compare-head"><span>Milestone</span><span>{_html_escape(primary_name)}</span><span>{_html_escape(reference_name)}</span><span>Écart</span></div><div class="ps-analytics-compare-table">{milestone_html}</div></section>', unsafe_allow_html=True)
-    cutoff_primary = _parse_dt(primary_drop.get("drop_launched_at")) + timedelta(hours=horizon_hours)
-    cutoff_reference = _parse_dt(reference_drop.get("drop_launched_at")) + timedelta(hours=horizon_hours)
+    cutoff_primary = _analytics_origin(primary_drop) + timedelta(hours=horizon_hours)
+    cutoff_reference = _analytics_origin(reference_drop) + timedelta(hours=horizon_hours)
     primary_bands = {band["label"]: band for band in _analytics_price_bands([primary_drop], {str(primary_drop.get("id") or ""): [row for row in primary_rows if row.get("date") and row["date"] <= cutoff_primary]})}
     reference_bands = {band["label"]: band for band in _analytics_price_bands([reference_drop], {str(reference_drop.get("id") or ""): [row for row in reference_rows if row.get("date") and row["date"] <= cutoff_reference]})}
     band_rows = []
@@ -4664,7 +5489,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
     with header_col:
         if is_single_drop:
             drop = selected[0]
-            st.markdown(f'<div class="ps-analytics-title"><strong>{_html_escape(drop.get("name", "Drop sans nom"))}</strong><span>{_html_escape(normalize_vinted_channel(drop.get("channel", "")) or "Canal non renseigné")} · {_html_escape(_analytics_header_date(drop.get("drop_launched_at")))}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="ps-analytics-title"><strong>{_html_escape(drop.get("name", "Drop sans nom"))}</strong><span>{_html_escape(normalize_vinted_channel(drop.get("channel", "")) or "Canal non renseigné")} · {_html_escape(_analytics_header_dates(drop))}</span></div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="ps-analytics-title"><strong>Tous les drops</strong><span>Vue agrégée · périmètre sélectionné</span></div>', unsafe_allow_html=True)
     view = _analytics_view_control()
@@ -4711,7 +5536,7 @@ def _render_drop_analytics(drops_data, stock_data, fp_func, calc_cout_lot_func=N
                 st.markdown('<section class="ps-analytics-surface ps-analytics-note"><strong>Temporalité par Drop</strong><span>Sélectionnez un Drop précis pour suivre ses événements transaction par transaction.</span></section>', unsafe_allow_html=True)
         if is_single_drop:
             timing = _analytics_timing(selected[0], all_rows)
-            st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Vitesse du Drop</h3><p>Milestones atteints depuis le lancement officiel.</p></div></div>{_analytics_milestone_html(timing, compact=True)}</section>', unsafe_allow_html=True)
+            st.markdown(f'<section class="ps-analytics-section"><div class="ps-analytics-section-heading"><div><h3>Vitesse du Drop</h3><p>Milestones atteints depuis la première mise en ligne du Drop.</p></div></div>{_analytics_milestone_html(timing, compact=True)}</section>', unsafe_allow_html=True)
         insights = _analytics_insights(price_bands, neg)[:3]
         if insights:
             st.markdown(f'<section class="ps-analytics-section ps-analytics-insights"><div class="ps-analytics-section-heading"><div><h3>Enseignements</h3><p>Constats calculés à partir des données du Drop.</p></div></div><ul>{"".join(f"<li>{_html_escape(insight)}</li>" for insight in insights)}</ul></section>', unsafe_allow_html=True)
@@ -4925,6 +5750,7 @@ def _render_recognition_listing_workspace(
     cards, listing_cards, listing_type, prepared = _recognition_listing_content(listing, available_cards)
     if not read_only:
         prepared = _sync_listing_text(listing_cards, listing_type, fp_func)
+        _show_listing_text_problem(prepared)
     listing_key = str(listing.get("recognition_group_id") or listing.get("creation_order") or "listing")
     photo_col, content_col = st.columns([1, 1.85]) if not mobile else (st.container(), st.container())
     with photo_col:
@@ -4957,10 +5783,13 @@ def _render_recognition_listing_workspace(
                 f'<div class="ps-recognition-identity-title">{_html_escape(_card_display_title(card))}</div>',
                 unsafe_allow_html=True,
             )
+            extension_name = card_extension_name(card)
             st.markdown(
-                f'<div class="ps-recognition-identity-meta">{_html_escape(_card_set(card) or "Extension N/A")} · {language}</div>',
+                f'<div class="ps-recognition-identity-meta">{_html_escape(extension_name) if extension_name else extension_badge_html()} · {language}</div>',
                 unsafe_allow_html=True,
             )
+            if not extension_name and not read_only:
+                render_extension_shortcut(card, key=f"{listing_key}_{card.get('card_uid') or card.get('name')}")
 
         title_col, title_copy_col = st.columns([4, 1])
         with title_col:
@@ -5093,19 +5922,32 @@ def _render_recognition_preview_workspace(
         search_query,
     )
     if search_query.strip():
-        if search_results:
-            st.caption(f"{len(search_results)} annonce(s) trouvée(s)")
-            for result_number, result in enumerate(search_results, start=1):
-                if st.button(
-                    f"{result['label']} · Annonce {result['listing_index']}",
-                    key=f"{preview_key}_search_result_{result_number}_{result['listing_index']}",
-                    width="stretch",
-                ):
-                    st.session_state[index_key] = result["listing_index"]
-                    st.rerun()
-        else:
-            st.caption("Aucune carte de ces annonces ne correspond à cette recherche.")
+        # ecran large : la liste des resultats defile dans sa propre zone (jamais sur la page)
+        with st.container(key="ps_cockpit_search_results") if not mobile else contextlib.nullcontext():
+            if search_results:
+                st.caption(f"{len(search_results)} annonce(s) trouvée(s)")
+                for result_number, result in enumerate(search_results, start=1):
+                    if st.button(
+                        f"{result['label']} · Annonce {result['listing_index']}",
+                        key=f"{preview_key}_search_result_{result_number}_{result['listing_index']}",
+                        width="stretch",
+                    ):
+                        st.session_state[index_key] = result["listing_index"]
+                        st.rerun()
+            else:
+                st.caption("Aucune carte de ces annonces ne correspond à cette recherche.")
 
+    if not mobile:
+        with st.container(border=True, key="ps_cockpit_workspace"):
+            _render_recognition_listing_cockpit(
+                active_drop,
+                recognition_payload,
+                listings[selected - 1],
+                available_cards,
+                run_html_func,
+                read_only=True,
+            )
+        return
     with st.container(border=True):
         _render_recognition_listing_workspace(
             active_drop,
@@ -5168,6 +6010,9 @@ def _render_step4_focus_preview(active_drop, available_cards, recognition_payloa
         "<style>[data-testid='stMainBlockContainer']{padding-top:.55rem !important;}</style>",
         unsafe_allow_html=True,
     )
+    if not mobile:  # mise en page « cockpit » : l'apercu tient dans la fenetre, sans defilement de page
+        _inject_vinted_cockpit_styles()
+        st.markdown(COCKPIT_MARKER_HTML, unsafe_allow_html=True)
     _render_recognition_preview_workspace(
         active_drop,
         available_cards,
@@ -5197,6 +6042,820 @@ def _set_recognition_listing_status(drops_data, active_drop, listing, status):
     return changed
 
 
+def _restock_draft_listings(active_drop, recognition_payload):
+    """Annonces de reassort dont TOUTES les references sont en brouillon (pas encore en ligne)."""
+    drafts = []
+    for listing in (recognition_payload or {}).get("listings", []) or []:
+        statuses = _recognition_listing_statuses(active_drop, listing)
+        if statuses and all(status == "draft_ready" for status in statuses):
+            drafts.append(listing)
+    return drafts
+
+
+def _mark_restock_listing_online(drops_data, active_drop, listing):
+    """Brouillon de reassort publie sur Vinted : draft_ready -> online (rien d'autre n'est touche)."""
+    if not drop_is_launched(active_drop):
+        return False
+    wanted_ids = {item_id for item_id in _recognition_listing_item_ids(listing) if item_id}
+    wanted_uids = {str(uid) for uid in listing.get("card_uids", []) or [] if uid}
+    changed = False
+    for ref in active_drop.get("cards", []) or []:
+        if wanted_ids:
+            if str(ref.get("drop_item_id") or "") not in wanted_ids:
+                continue
+        elif str(ref.get("card_uid") or "") not in wanted_uids:
+            continue
+        if not drop_ref_is_restock_draft(ref):
+            continue  # seuls les brouillons : jamais une reference a traiter, en ligne ou vendue
+        changed = set_drop_card_status(drops_data, active_drop.get("id"), drop_ref_key(ref), "online") or changed
+    return changed
+
+
+ONLINE_RESULT_KEY = "vinted_mark_online_result"
+
+
+def _online_marking_io():
+    """Fonctions et chemins d'ecriture de la mise en ligne groupee.
+
+    Les chemins suivent le fichier ``vinted_drops.json`` charge par l'appli (dossier courant) : sauvegarde dans
+    ``backups/`` et journal dans ``logs/`` a cote de lui. Les tests travaillent donc dans leur dossier temporaire.
+    """
+    drops_path = os.path.abspath(VINTED_DROPS_FILE)
+    base = os.path.dirname(drops_path)
+    return {
+        "load_drops": load_vinted_drops,
+        "save_drops": lambda data: save_vinted_drops(data),
+        "drops_path": drops_path,
+        "backup_dir": os.path.join(base, "backups"),
+        "journal_path": os.path.join(base, "logs", "drop_online_marking_journal.jsonl"),
+    }
+
+
+def _fmt_stamp(iso):
+    stamp = online_marking.parse_iso(iso)
+    return stamp.strftime("%d/%m %H:%M") if stamp else "date inconnue"
+
+
+def _series_label(item):
+    return f"série {item['series']}" if item.get("series") else "série sans date"
+
+
+def _draft_item_value(item, stock):
+    """Prix de vente de l'annonce comme pour l'annonce elle-meme (carte du stock), repli sur le prix du Drop."""
+    total = 0.0
+    for ref in item["refs"]:
+        card = (stock or {}).get(str(ref.get("card_uid") or ""))
+        price = _safe_float(suggested_price(card)) if card else 0.0
+        if price <= 0:
+            price = _safe_float(ref.get("price_at_add"))
+        total += price * max(1, _safe_int(ref.get("quantity"), 1))
+    return total
+
+
+def _draft_item_title(item):
+    number = f" · {item['number']}" if item.get("number") else ""
+    return f"{item['name']}{number}"
+
+
+def _mark_online_state_keys(drop_id):
+    return f"vinted_markon_date_{drop_id}", f"vinted_markon_time_{drop_id}"
+
+
+def _mark_online_check_key(drop_id, item):
+    return f"vinted_markon_sel_{drop_id}_{item['key']}"
+
+
+def _reset_mark_online_state(drop_id, listings=None):
+    """Ouverture de la fenetre : date/heure = maintenant, toutes les annonces cochees."""
+    for key in _mark_online_state_keys(drop_id):
+        st.session_state.pop(key, None)
+    for key in [k for k in st.session_state.keys() if str(k).startswith(f"vinted_markon_sel_{drop_id}_")]:
+        st.session_state.pop(key, None)
+
+
+def _set_all_mark_online(drop_id, listings, value):
+    for item in listings:
+        st.session_state[_mark_online_check_key(drop_id, item)] = value
+
+
+def _render_mark_online_panel(drop_id, available_cards, *, io=None, now=None):
+    """Contenu de la fenetre « Marquer les brouillons en ligne » : cases, date/heure, total, confirmation."""
+    io = io or _online_marking_io()
+    drops = io["load_drops"]()
+    drop = find_drop(drops, drop_id)
+    listings = online_marking.draft_listings(drop)
+    if not listings:
+        st.info("Aucun brouillon à marquer en ligne.")
+        return
+    stock = _stock_by_uid(available_cards)
+    reference = now or datetime.now()
+    date_key, time_key = _mark_online_state_keys(drop_id)
+    st.session_state.setdefault(date_key, reference.date())
+    st.session_state.setdefault(time_key, reference.replace(second=0, microsecond=0).time())
+    for item in listings:
+        st.session_state.setdefault(_mark_online_check_key(drop_id, item), True)
+
+    all_col, none_col, _spacer = st.columns([1, 1, 2.4])
+    all_col.button("☑ Tout cocher", key=f"vinted_markon_all_{drop_id}", width="stretch",
+                   on_click=_set_all_mark_online, args=(drop_id, listings, True))
+    none_col.button("☐ Tout décocher", key=f"vinted_markon_none_{drop_id}", width="stretch",
+                    on_click=_set_all_mark_online, args=(drop_id, listings, False))
+    with st.container(height=340, border=True):
+        for item in listings:
+            price = _price_text(_draft_item_value(item, stock))
+            st.checkbox(
+                f"{_draft_item_title(item)} · {price} · {_series_label(item)} · brouillon du {_fmt_stamp(item['created_at'])}",
+                key=_mark_online_check_key(drop_id, item),
+            )
+    chosen = [item for item in listings if st.session_state.get(_mark_online_check_key(drop_id, item))]
+    cards = sum(item["cards"] for item in chosen)
+    value = sum(_draft_item_value(item, stock) for item in chosen)
+    st.markdown(
+        f"**{len(chosen)} annonce(s) sélectionnée(s) sur {len(listings)}** · {cards} carte(s) · "
+        f"valeur totale {_price_text(value)}"
+    )
+    date_col, time_col = st.columns(2)
+    picked_date = date_col.date_input("Date de mise en ligne", key=date_key, max_value=reference.date(), format="DD/MM/YYYY")
+    picked_time = time_col.time_input("Heure de mise en ligne", key=time_key, step=60)
+    online_at = datetime.combine(picked_date, picked_time) if picked_date and picked_time else None
+    error, _stamp = online_marking.validate_online_at(drop, online_at, now=reference) if online_at else ("Date ou heure invalide.", None)
+    if error:
+        st.error(error)
+    else:
+        st.caption(
+            f"Chaque annonce cochée sera marquée en ligne le {online_at.strftime('%d/%m/%Y à %H:%M')}. "
+            "Les annonces déjà en ligne ou vendues ne sont jamais modifiées."
+        )
+    confirm_col, cancel_col = st.columns(2)
+    if confirm_col.button(
+        f"Confirmer : marquer {len(chosen)} annonce(s) en ligne", type="primary", width="stretch",
+        key=f"vinted_markon_confirm_{drop_id}", disabled=bool(error) or not chosen,
+    ):
+        item_ids = [item_id for item in chosen for item_id in item["item_ids"]]
+        with st.spinner("Écriture en cours : sauvegarde, application, synchronisation…"):
+            result = online_marking.apply_mark_online(
+                drop_id, item_ids, online_at, confirmed=True, now=reference if now else None, **io,
+            )
+        st.session_state[ONLINE_RESULT_KEY] = (result["ok"], result["message"])
+        _reset_mark_online_state(drop_id)
+        st.rerun()
+    if cancel_col.button("Annuler", width="stretch", key=f"vinted_markon_cancel_{drop_id}"):
+        _reset_mark_online_state(drop_id)
+        st.rerun()
+
+
+@st.dialog("Marquer les brouillons en ligne", width="large")
+def _mark_online_dialog(drop_id, available_cards):
+    _render_mark_online_panel(drop_id, available_cards)
+
+
+def _render_undo_online_panel(drop_id, *, io=None):
+    """Contenu de la fenetre « Annuler la dernière mise en ligne »."""
+    io = io or _online_marking_io()
+    batch = online_marking.last_marking_batch(drop_id, io["journal_path"])
+    if not batch:
+        st.info("Aucune mise en ligne à annuler.")
+        return
+    st.markdown(
+        f"Dernière mise en ligne : **{batch['count']} annonce(s)** · {_price_text(batch['value'])} · "
+        f"horodatées du {_fmt_stamp(batch['online_at'])} (enregistrée le {_fmt_stamp(batch['at'])})."
+    )
+    st.caption("Les annonces repassent en « brouillon prêt » et leur horodatage de mise en ligne est retiré. "
+               "Une annonce vendue ou modifiée depuis est laissée telle quelle.")
+    confirm_col, cancel_col = st.columns(2)
+    if confirm_col.button("Confirmer l'annulation", type="primary", width="stretch", key=f"vinted_markon_undo_ok_{drop_id}"):
+        result = online_marking.undo_marking_batch(batch["batch"], **io)
+        message = result["message"]
+        if result["skipped"]:
+            message += f" {len(result['skipped'])} annonce(s) laissée(s) telle(s) quelle(s)."
+        st.session_state[ONLINE_RESULT_KEY] = (result["ok"], message)
+        st.rerun()
+    if cancel_col.button("Fermer", width="stretch", key=f"vinted_markon_undo_no_{drop_id}"):
+        st.rerun()
+
+
+@st.dialog("Annuler la dernière mise en ligne")
+def _undo_online_dialog(drop_id):
+    _render_undo_online_panel(drop_id)
+
+
+def _render_restock_publish_section(drops_data, active_drop, recognition_payload=None, *, cockpit=False,
+                                    available_cards=None):
+    """Encadre « Brouillons a publier » : TOUS les brouillons du Drop (source : vinted_drops.json, pas l'analyse)."""
+    listings = online_marking.draft_listings(active_drop)
+    io = _online_marking_io()
+    last = online_marking.last_marking_batch(active_drop.get("id"), io["journal_path"])
+    result = None if cockpit else st.session_state.pop(ONLINE_RESULT_KEY, None)  # cockpit : message en haut de page
+    if result:
+        (st.success if result[0] else st.warning)(result[1])
+    if not listings and not last:
+        return
+    if cockpit:  # mise en page « cockpit » : meme encadre, simple conteneur a cle pour le style
+        with st.container(key="ps_cockpit_drafts"):
+            _render_restock_publish_box(active_drop, listings, last, available_cards)
+    else:
+        _render_restock_publish_box(active_drop, listings, last, available_cards)
+
+
+def _render_restock_publish_box(active_drop, listings, last, available_cards):
+    drop_id = str(active_drop.get("id") or "")
+    stock = _stock_by_uid(available_cards)
+    cards = sum(item["cards"] for item in listings)
+    value = sum(_draft_item_value(item, stock) for item in listings)
+    with st.container(border=True):
+        title_col, action_col = st.columns([1.3, 1.7], vertical_alignment="center")
+        with title_col:
+            st.markdown(f"**Brouillons à publier ({len(listings)})**")
+            if listings:
+                series = max((item["series"] for item in listings), default=0)
+                st.caption(f"{cards} carte(s) · {_price_text(value)} · {series} série(s)")
+        with action_col:
+            if listings and st.button(
+                f"🟢 Marquer les {len(listings)} brouillons en ligne",
+                key=f"restock_mark_all_online_{drop_id}",
+                type="primary",
+                width="stretch",
+                help="Choisis la date et l'heure de mise en ligne, et coche les annonces concernées.",
+            ):
+                _reset_mark_online_state(drop_id)
+                _mark_online_dialog(drop_id, available_cards)
+            if last and st.button(
+                f"↩️ Annuler la dernière mise en ligne ({last['count']})",
+                key=f"restock_undo_online_{drop_id}",
+                width="stretch",
+            ):
+                _undo_online_dialog(drop_id)
+        if not listings:
+            return
+        st.caption(
+            "Annonce publiée sur Vinted ? Marque-la en ligne. Ses photos restent reconnues "
+            "et elle ne bloque pas la création des autres annonces."
+        )
+        with st.expander("Afficher le brouillon" if len(listings) == 1 else f"Afficher les {len(listings)} brouillons", expanded=False):
+            for item in listings:
+                with st.container(border=True):
+                    info_col, button_col = st.columns([3, 1.3], vertical_alignment="center")
+                    info_col.markdown(f"**{_html_escape(_draft_item_title(item))}**")
+                    info_col.caption(
+                        f"{_price_text(_draft_item_value(item, stock))} · {_series_label(item)} · "
+                        f"brouillon du {_fmt_stamp(item['created_at'])}"
+                    )
+                    if button_col.button(
+                        "🟢 Marquer en ligne",
+                        key=f"restock_mark_online_{drop_id}_{item['key']}",
+                        width="stretch",
+                    ):
+                        io = _online_marking_io()
+                        outcome = online_marking.apply_mark_online(
+                            drop_id, item["item_ids"], datetime.now(), confirmed=True, **io,
+                        )
+                        st.session_state[ONLINE_RESULT_KEY] = (outcome["ok"], outcome["message"])
+                        st.rerun()
+
+
+COCKPIT_MARKER_HTML = '<div class="ps-cockpit-marker"></div>'
+
+
+def _cockpit_validation_label(source):
+    return {"manual": "manuelle", "auto": "automatique"}.get(str(source or "auto"), str(source or "auto"))
+
+
+def _step4_view_key(drop_id):
+    return f"vinted_step4_view_{drop_id}"
+
+
+STEP4_PLUS_MENU_KEY = "ps_plus_menu"
+STEP4_INFO_MENU_KEY = "ps_info_menu"
+STEP4_NAME = "Création des annonces"
+
+
+def _restock_banner_text(active_drop):
+    restock_refs = drop_restock_refs(active_drop)
+    if restock_refs:
+        return (
+            f"Réassort : {len(restock_refs)} référence(s) ajoutée(s) après le lancement restent à traiter. "
+            "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
+        )
+    return (
+        "Réassort : toutes les références ajoutées après le lancement ont un brouillon. "
+        "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
+    )
+
+
+def _render_photo_order_details(listing):
+    with st.expander("Détails de l’ordre des photos", expanded=False):
+        for position, photo in enumerate(listing.get("photos", []) or [], start=1):
+            filename = str(photo.get("filename") or photo.get("name") or Path(str(photo.get("path") or "")).name)
+            st.caption(f"{position}. {photo.get('role', 'photo')} · {filename or 'Photo'}")
+
+
+def _card_keyword_pills_html(card):
+    try:
+        words = card_listing_keywords(card)
+    except Exception:
+        words = ()
+    return "".join(f'<span class="ps-cockpit-chip ps-cockpit-chip-accent">{_html_escape(word)}</span>' for word in words)
+
+
+def _cockpit_identity_html(card):
+    language = "JAP" if card.get("japanese") or card.get("is_japanese") or card.get("lang") == "ja" else "FR"
+    extension_name = card_extension_name(card)
+    if extension_name:
+        ext_pill = f'<span class="ps-cockpit-chip">{_html_escape(extension_name)} · {language}</span>'
+    else:
+        ext_pill = f'{extension_badge_html()}<span class="ps-cockpit-chip">{language}</span>'
+    return (
+        f'<div class="ps-recognition-identity-title">{_html_escape(_card_display_title(card))}</div>'
+        f'<div class="ps-recognition-identity-meta">{ext_pill}{_card_keyword_pills_html(card)}</div>'
+    )
+
+
+def _render_recognition_listing_cockpit(
+    active_drop,
+    recognition_payload,
+    listing,
+    available_cards,
+    run_html_func,
+    *,
+    read_only,
+    fp_func=None,
+    head_renderer=None,
+    actions_renderer=None,
+):
+    """Meme contenu que _render_recognition_listing_workspace, range en cockpit (3 zones de meme hauteur).
+
+    Mise en page uniquement : memes widgets, memes cles, memes textes ; le defilement,
+    s'il est necessaire, se fait a l'interieur d'une zone (jamais sur la page).
+    """
+    cards, listing_cards, listing_type, prepared = _recognition_listing_content(listing, available_cards)
+    if not read_only:
+        prepared = _sync_listing_text(listing_cards, listing_type, fp_func)
+        _show_listing_text_problem(prepared)
+    listing_key = str(listing.get("recognition_group_id") or listing.get("creation_order") or "listing")
+
+    with st.container(key="ps_cockpit_head"):
+        if head_renderer is not None:
+            head_renderer()
+        if read_only or head_renderer is None:  # apercu en lecture seule : pas de menu « Plus », le detail de l'ordre reste ici
+            with st.container(key="ps_cockpit_order"):
+                _render_photo_order_details(listing)
+
+    body = st.container(key="ps_cockpit_body")
+    with body:
+        photo_box = st.container(key="ps_cockpit_photo")
+        text_box = st.container(key="ps_cockpit_text")
+        actions_box = st.container(key="ps_cockpit_actions") if actions_renderer is not None else None
+
+        with photo_box:
+            primary_path = _recognition_photo_path(recognition_payload, listing.get("primary_front") or {})
+            if primary_path.is_file():
+                st.image(str(primary_path), width="stretch")
+            else:
+                st.caption("Photo principale indisponible dans l’aperçu.")
+            photos = listing.get("photos", []) or []
+            with st.container(key="ps_cockpit_thumbs"):
+                for start in range(0, len(photos), 4):
+                    row = photos[start : start + 4]
+                    columns = st.columns(len(row))
+                    for offset, photo in enumerate(row):
+                        with columns[offset]:
+                            photo_path = _recognition_photo_path(recognition_payload, photo)
+                            if photo_path.is_file():
+                                st.image(str(photo_path), width=52)
+                            st.markdown(
+                                f'<div class="ps-recognition-photo-caption">{_recognition_photo_role_label(photo, multi=len(cards) > 1)}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+        with text_box:
+            with st.container(key="ps_cockpit_identity"):
+                if len(cards) > 1:
+                    st.markdown(f'<div class="ps-cockpit-count">{len(cards)} cartes</div>', unsafe_allow_html=True)
+                for card in cards:
+                    st.markdown(_cockpit_identity_html(card), unsafe_allow_html=True)
+                    if not card_extension_name(card) and not read_only:
+                        render_extension_shortcut(card, key=f"{listing_key}_{card.get('card_uid') or card.get('name')}")
+            with st.container(key="ps_field_title"):
+                if read_only:
+                    st.text_input(
+                        "Titre Vinted",
+                        value=prepared["title"],
+                        disabled=True,
+                        key=f"vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+                    )
+                else:
+                    st.text_input("Titre Vinted", key="vinted_listing_title")
+                _copy_button(
+                    "📋 Copier",
+                    prepared["title"] if read_only else st.session_state.get("vinted_listing_title", ""),
+                    f"copy_vinted_recognition_preview_title_{active_drop.get('id')}_{listing_key}",
+                    run_html_func,
+                    ["Titre Vinted"] if not read_only else None,
+                    compact=True,
+                )
+            with st.container(key="ps_field_desc"):
+                if read_only:
+                    st.text_area(
+                        "Description",
+                        value=prepared["description"],
+                        height=205,
+                        disabled=True,
+                        key=f"vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+                    )
+                else:
+                    st.text_area("Description", key="vinted_listing_description", height=205)
+                _copy_button(
+                    "📋 Copier",
+                    prepared["description"] if read_only else st.session_state.get("vinted_listing_description", ""),
+                    f"copy_vinted_recognition_preview_description_{active_drop.get('id')}_{listing_key}",
+                    run_html_func,
+                    ["Description"] if not read_only else None,
+                    compact=True,
+                )
+
+        if actions_box is not None:
+            with actions_box:
+                actions_renderer()
+
+
+REGEN_RESULT_KEY = "vinted_regen_texts_result"
+
+
+def _regen_plan_key(drop_id):
+    return f"vinted_regen_plan_{drop_id}"
+
+
+def _remember_draft_text(drops_data, active_drop, listing, available_cards):
+    """Au clic « Brouillon créé » : memorise le texte reellement utilise (et s'il a ete modifie a la main)."""
+    drop = find_drop(drops_data, active_drop.get("id")) or active_drop
+    _cards, listing_cards, listing_type, _prepared = _recognition_listing_content(listing, available_cards)
+    try:
+        listing_texts.record_draft_text(
+            drop, str(listing.get("recognition_group_id") or ""),
+            str(st.session_state.get("vinted_listing_title") or ""),
+            str(st.session_state.get("vinted_listing_description") or ""),
+            listing_cards, listing_type, listing.get("card_uids") or [],
+        )
+    except Exception:
+        pass  # le memo du texte ne doit jamais empecher de creer le brouillon
+
+
+def _regen_status_class(statuses):
+    wanted = set(statuses or [])
+    if not wanted:
+        return listing_texts.STATUS_OTHER
+    if wanted <= {"sold"}:
+        return listing_texts.STATUS_SOLD
+    if wanted <= {"online", "sold"}:
+        return listing_texts.STATUS_ONLINE
+    if wanted == {"draft_ready"}:
+        return listing_texts.STATUS_DRAFT
+    if wanted <= DROP_UNPROCESSED_STATUSES:
+        return listing_texts.STATUS_TO_PREPARE
+    return listing_texts.STATUS_OTHER
+
+
+def _regen_entries(active_drop, recognition_payload, available_cards):
+    """Une entree par annonce du Drop affiche (calcul pur, ne touche a rien)."""
+    entries = []
+    for listing in (recognition_payload or {}).get("listings", []) or []:
+        cards = _recognition_listing_cards(listing, available_cards)
+        listing_cards = [_card_with_drop_quantity(card, 1) for card in cards]
+        names = " + ".join(
+            f"{card.get('name') or 'Carte'} {full_card_number(card) or card.get('number') or ''}".strip() for card in cards[:3]
+        ) + (" …" if len(cards) > 3 else "")
+        entries.append({
+            "group_id": str(listing.get("recognition_group_id") or ""),
+            "order": listing.get("creation_order"),
+            "label": names or "Annonce",
+            "status_class": _regen_status_class(_recognition_listing_statuses(active_drop, listing)),
+            "cards": listing_cards,
+            "listing_type": "Plusieurs cartes" if len(cards) > 1 else "Carte seule",
+            "card_uids": [str(uid) for uid in listing.get("card_uids", []) or []],
+        })
+    return entries
+
+
+def _regen_build_plan(active_drop, recognition_payload, available_cards, slot=None):
+    drop_id = str(active_drop.get("id") or "")
+
+    def runner(progress):
+        return listing_texts.build_plan(_regen_entries(active_drop, recognition_payload, available_cards), active_drop,
+                                        progress=progress)
+
+    return _run_with_analysis_progress(
+        drop_id, runner, slot=slot, always_show=True, start_text="Analyse des textes des annonces…",
+        phase_labels={"textes": "Analyse des textes"}, done_message=lambda _value, _seconds: "",
+    )
+
+
+def _reset_displayed_listing_text(shown_state):
+    """Force le prochain affichage a recalculer le texte de l'annonce ouverte (sauf modification a la main)."""
+    if shown_state == listing_texts.STATE_MANUAL:
+        return False
+    st.session_state.pop("vinted_listing_signature", None)
+    st.session_state.pop(LISTING_TEXT_SHADOW_KEY, None)
+    return True
+
+
+def _render_regen_panel(active_drop, recognition_payload, available_cards, shown_state="", *, plan=None,
+                        journal_path=None, load_drops=None, save_drops=None, drops_path=None, backup_dir=None):
+    """Contenu de la boite « Régénérer les titres et descriptions » : apercu, confirmation, annulation."""
+    drop_id = str(active_drop.get("id") or "")
+    load_drops = load_drops or load_vinted_drops
+    save_drops = save_drops or save_vinted_drops
+    drops_path = drops_path if drops_path is not None else os.path.join(listing_texts.ext.APP_DIR, "vinted_drops.json")
+    plan_key = _regen_plan_key(drop_id)
+    plan = plan or st.session_state.get(plan_key)
+    if plan is None:
+        plan = _regen_build_plan(active_drop, recognition_payload, available_cards, slot=st.empty())
+        st.session_state[plan_key] = plan
+    counts = plan["counts"]
+    st.markdown(f"**{counts['total']} annonce(s)** du Drop « {active_drop.get('name') or ''} » examinées avec les règles actuelles.")
+    lines = [
+        (counts["regenerate"], "brouillon(s) « Brouillon créé » : texte régénéré (le brouillon Vinted existant est à mettre à jour à la main)"),
+        (counts["update_online"], "annonce(s) déjà en ligne : jamais modifiées ici, ajoutées à la liste « à mettre à jour sur Vinted »"),
+        (counts["display"], "annonce(s) à préparer : leur texte est recalculé à l'ouverture, rien à écrire"),
+        (counts["manual"], "texte(s) modifié(s) à la main : laissé(s) tel(s) quel(s)"),
+        (counts["ok"], "annonce(s) déjà à jour"),
+        (counts["skipped"], "annonce(s) ignorée(s) (vendues, statut mixte…)"),
+    ]
+    st.markdown("\n".join(f"- **{n}** {text}" for n, text in lines if n))
+    st.caption("Prix, photos, statuts, ordre et cartes ne changent pas. Écriture dans vinted_drops.json avec sauvegarde "
+               "dans backups/, journal dans logs/ et annulation possible ci-dessous.")
+    if plan["examples"]:
+        st.markdown("**Exemples (titre avant → après)**")
+        for row in plan["examples"]:
+            tag = {"draft_ready": "Brouillon créé", "online": "En ligne", "to_prepare": "À préparer"}.get(row["status_class"], "")
+            note = " · ancien texte supposé (non enregistré)" if row["assumed"] else ""
+            st.markdown(f"`{tag}` {row['label']}{note}  \n~~{row['before_title']}~~  \n→ {row['after_title']}")
+    writes = counts["regenerate"] + counts["update_online"]
+    if not writes and not counts["display"]:
+        st.success("✅ Tous les textes sont déjà conformes aux règles actuelles.")
+    drafts = counts["regenerate"]
+    understood = True
+    if drafts:
+        st.warning(
+            f"⚠ {drafts} brouillon(s) Vinted existe(nt) déjà avec l'ancien texte : l'application ne peut pas les modifier. "
+            "Ils seront ajoutés à « Santé des données → Annonces à mettre à jour » (libellé « Brouillon Vinted à mettre à jour »)."
+        )
+        understood = st.checkbox("J'ai compris : je mettrai ces brouillons Vinted à jour à la main",
+                                 key=f"vinted_regen_understood_{drop_id}")
+    confirm_col, close_col = st.columns(2)
+    if (writes or counts["display"]) and confirm_col.button(
+        "Confirmer et écrire" if writes else "Appliquer", type="primary", width="stretch",
+        key=f"vinted_regen_confirm_{drop_id}", disabled=not understood,
+    ):
+        with st.spinner("Écriture en cours : sauvegarde, application, synchronisation…"):
+            result = listing_texts.apply_plan(plan, load_drops=load_drops, save_drops=save_drops, drops_path=drops_path,
+                                              backup_dir=backup_dir, journal_path=journal_path, confirmed=True)
+        refreshed = _reset_displayed_listing_text(shown_state)
+        message = result["message"] + (" Le texte de l'annonce ouverte sera recalculé." if refreshed else "")
+        if result["skipped"]:
+            message += f" {len(result['skipped'])} annonce(s) laissée(s) telle(s) quelle(s) (changées depuis l'aperçu)."
+        st.session_state[REGEN_RESULT_KEY] = (result["ok"], message)
+        st.session_state.pop(plan_key, None)
+        st.rerun()
+    if close_col.button("Fermer", width="stretch", key=f"vinted_regen_close_{drop_id}"):
+        st.session_state.pop(plan_key, None)
+        st.rerun()
+    batches = listing_texts.journal_batches(journal_path)
+    with st.expander(f"Journal et annulation ({len(batches)} lot(s) annulable(s))", expanded=False):
+        if not batches:
+            st.caption("Aucune régénération enregistrée dans le journal.")
+        for batch in batches[:10]:
+            cols = st.columns([4, 1.4])
+            names = ", ".join(str(e.get("label") or "") for e in batch["entries"][:3])
+            cols[0].caption(f"{batch['at']} · {batch['count']} annonce(s) · {names}{'…' if batch['count'] > 3 else ''}")
+            if cols[1].button("↩️ Annuler", key=f"vinted_regen_undo_{batch['batch']}"):
+                result = listing_texts.undo_batch(batch["batch"], load_drops=load_drops, save_drops=save_drops,
+                                                  drops_path=drops_path, backup_dir=backup_dir, journal_path=journal_path)
+                _reset_displayed_listing_text(shown_state)
+                st.session_state[REGEN_RESULT_KEY] = (result["ok"], result["message"])
+                st.session_state.pop(plan_key, None)
+                st.rerun()
+
+
+@st.dialog("Régénérer les titres et descriptions", width="large")
+def _regen_dialog(active_drop, recognition_payload, available_cards, shown_state=""):
+    _render_regen_panel(active_drop, recognition_payload, available_cards, shown_state)
+
+
+def _render_plus_menu(drops_data, active_drop, available_cards, fp_func, recognition_payload, listing, *, launched,
+                      without_photo):
+    """Menu « ⋯ Plus » : tout le secondaire de l'etape 4 (rien n'a disparu de l'ecran)."""
+    with st.container(key=STEP4_PLUS_MENU_KEY):
+        with st.popover("⋯ Plus", use_container_width=True):
+            st.caption("Ordre issu de la reconnaissance photo")
+            if st.button(
+                "Régénérer les titres et descriptions avec les règles actuelles",
+                key=f"regen_texts_open_{active_drop.get('id')}",
+                width="stretch",
+                help="Aperçu avant écriture. Prix, photos, statuts, ordre et cartes ne changent pas.",
+            ):
+                st.session_state.pop(_regen_plan_key(active_drop.get("id")), None)
+                _regen_dialog(active_drop, recognition_payload, available_cards,
+                              st.session_state.get(LISTING_TEXT_STATE_KEY, ""))
+            if launched:
+                if without_photo:
+                    st.caption(
+                        f"{len(without_photo)} carte(s) de réassort sans photo reconnue : "
+                        "importe-les dans l’étape « Tri des photos »."
+                    )
+                _render_restock_publish_section(drops_data, active_drop, recognition_payload, cockpit=True,
+                                            available_cards=available_cards)
+            _render_photo_order_details(listing)
+            if not launched:
+                st.markdown("**🚀 Lancement du Drop**")
+                _render_launch_drop_panel(drops_data, active_drop, available_cards, fp_func)
+
+
+def _text_witness_label(text_state, group_id, active_drop):
+    """Petit temoin de la ligne « Plus » quand le texte affiche differe de ce que generent les regles actuelles."""
+    if str(group_id or "") in listing_texts.pending_update_group_ids(active_drop):
+        return "⚠ Brouillon Vinted à mettre à jour"
+    if text_state == listing_texts.STATE_LEGACY:
+        return "⚠ Texte ancien format"
+    if text_state == listing_texts.STATE_MANUAL:
+        return "✎ Texte modifié à la main"
+    return ""
+
+
+def _render_plus_shortcut(run_html_func, draft_count, launched, witness=""):
+    """Ligne discrete sous « Brouillon créé » : ouvre le meme menu « ⋯ Plus » (clic relaye vers son bouton)."""
+    parts = ["⋯ Plus"]
+    items = []
+    if launched:
+        items.append(f"brouillons à publier ({draft_count})")
+    items.append("ordre des photos")
+    items.append("réassort" if launched else "lancement du Drop")
+    if witness:
+        items.append(witness)
+    label = parts[0] + " : " + " · ".join(items)
+    if not run_html_func:
+        st.caption(label)
+        return
+    run_html_func(
+        f"""
+<a id="ps-plus-shortcut" href="#" class="ps-cockpit-plus">{_html_escape(label)}</a>
+<script>
+(function() {{
+  const link = document.getElementById('ps-plus-shortcut');
+  if (!link) return;
+  link.addEventListener('click', function(event) {{
+    event.preventDefault();
+    const root = document.querySelector('.st-key-{STEP4_PLUS_MENU_KEY} [data-testid="stPopover"] button');
+    if (root) root.click();
+  }});
+}})();
+</script>
+""",
+        height=0,
+    )
+
+
+def _render_recognition_creation_cockpit(
+    drops_data,
+    active_drop,
+    available_cards,
+    fp_func,
+    run_html_func,
+    recognition_payload,
+    *,
+    launched,
+    restock_refs,
+    workflow,
+    ready,
+    pending,
+):
+    """Etape 4 en une page : carte unique, 3 zones, rien ne fait defiler la page."""
+    _inject_vinted_cockpit_styles()
+    st.markdown(COCKPIT_MARKER_HTML, unsafe_allow_html=True)
+    regen_result = st.session_state.pop(REGEN_RESULT_KEY, None)
+    if regen_result:
+        (st.success if regen_result[0] else st.warning)(regen_result[1])
+    online_result = st.session_state.pop(ONLINE_RESULT_KEY, None)
+    if online_result:
+        (st.success if online_result[0] else st.warning)(online_result[1])
+    drop_id = active_drop.get("id")
+    view_key = _step4_view_key(drop_id)
+    offset = max(0, min(len(pending) - 1, _safe_int(st.session_state.get(view_key), 0)))
+    st.session_state[view_key] = offset
+    listing = pending[offset]
+    total = len(workflow)
+    ready_count = len(ready)
+    pct = ready_count / total if total else 0.0
+    listings = recognition_payload.get("listings", []) or []
+    without_photo = []
+    if launched:
+        represented = {item_id for entry in listings for item_id in _recognition_listing_item_ids(entry) if item_id}
+        without_photo = [ref for ref in restock_refs if str(ref.get("drop_item_id") or "") not in represented]
+    restock_banner = _restock_banner_text(active_drop) if launched else ""
+    draft_count = len(online_marking.draft_listings(active_drop)) if launched else 0
+
+    def head():
+        prev_col, title_col, next_col, progress_col, info_col, plus_col = st.columns([0.3, 2.6, 0.3, 2.6, 0.4, 0.95], vertical_alignment="center")
+        with prev_col:
+            if st.button("‹", key=f"step4_prev_{drop_id}", disabled=offset <= 0, help="Annonce précédente à créer", width="stretch"):
+                st.session_state[view_key] = offset - 1
+                st.rerun()
+        with title_col:
+            photo_count = len(listing.get("photos", []) or [])
+            st.markdown(
+                f'<div class="ps-cockpit-title">Annonce {listing.get("creation_order", 1)} / {total}</div>'
+                f'<div class="ps-cockpit-sub">{photo_count} photos · validation {_cockpit_validation_label(listing.get("validation_source"))}</div>',
+                unsafe_allow_html=True,
+            )
+        with next_col:
+            if st.button("›", key=f"step4_next_{drop_id}", disabled=offset >= len(pending) - 1, help="Annonce suivante à créer", width="stretch"):
+                st.session_state[view_key] = offset + 1
+                st.rerun()
+        with progress_col:
+            st.markdown(
+                f'<div class="ps-cockpit-progress">Annonces créées <b>{ready_count} / {total}</b></div>',
+                unsafe_allow_html=True,
+            )
+            st.progress(pct)
+        with info_col:
+            if restock_banner:
+                with st.container(key=STEP4_INFO_MENU_KEY):
+                    with st.popover("ⓘ", help="Réassort", use_container_width=True):
+                        st.info(restock_banner)
+        with plus_col:
+            _render_plus_menu(
+                drops_data, active_drop, available_cards, fp_func, recognition_payload, listing,
+                launched=launched, without_photo=without_photo,
+            )
+
+    def actions():
+        with st.container(key="ps_field_price"):
+            st.text_input("Prix", key="vinted_listing_price")
+            _copy_button(
+                "📋 Copier",
+                st.session_state.get("vinted_listing_price", ""),
+                "copy_vinted_recognition_price",
+                run_html_func,
+                ["Prix"],
+                compact=True,
+            )
+        st.link_button("Ouvrir Vinted ↗", "https://www.vinted.fr/items/new", width="stretch")
+        if st.button(
+            "✓ Brouillon créé",
+            key=f"draft_ready_recognition_group_{active_drop.get('id')}_{listing.get('recognition_group_id')}",
+            type="primary",
+            width="stretch",
+        ):
+            if _listing_text_problem({"title": st.session_state.get("vinted_listing_title"), "description": st.session_state.get("vinted_listing_description")}):
+                st.error("Brouillon non enregistré : le titre ou la description est vide.")
+            elif _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
+                _remember_draft_text(drops_data, active_drop, listing, available_cards)
+                save_vinted_drops(drops_data)
+                st.session_state[view_key] = 0
+                st.rerun()
+        with st.container(key="ps_plus_shortcut"):
+            _render_plus_shortcut(
+                run_html_func, draft_count, launched,
+                _text_witness_label(st.session_state.get(LISTING_TEXT_STATE_KEY), listing.get("recognition_group_id"), active_drop),
+            )
+
+    with st.container(border=True, key="ps_cockpit_workspace"):
+        _render_recognition_listing_cockpit(
+            active_drop,
+            recognition_payload,
+            listing,
+            available_cards,
+            run_html_func,
+            read_only=False,
+            fp_func=fp_func,
+            head_renderer=head,
+            actions_renderer=actions,
+        )
+    return True
+
+
+def _recognition_creation_lists(active_drop, recognition_payload, launched):
+    """Annonces a traiter dans l'etape 4 : (workflow, deja en brouillon, restant a creer). Calcul pur."""
+    workflow = []
+    ready = []
+    pending = []
+    for listing in (recognition_payload or {}).get("listings", []) or []:
+        statuses = _recognition_listing_statuses(active_drop, listing)
+        if launched:
+            # Drop lance : uniquement des annonces dont TOUTES les references sont encore
+            # a traiter (ou deja en brouillon). Une annonce touchant une reference en ligne,
+            # vendue ou retiree du drop est ecartee.
+            if not statuses or any(status not in (DROP_UNPROCESSED_STATUSES | {"draft_ready"}) for status in statuses):
+                continue
+        elif not statuses or all(status in {"online", "sold"} for status in statuses):
+            continue
+        workflow.append(listing)
+        if statuses and all(status == "draft_ready" for status in statuses):
+            ready.append(listing)
+        else:
+            pending.append(listing)
+    return workflow, ready, pending
+
+
 def _render_recognition_creation_step(
     drops_data,
     active_drop,
@@ -5216,15 +6875,16 @@ def _render_recognition_creation_step(
             run_html_func,
             mobile,
         )
+    workflow, ready, pending = _recognition_creation_lists(active_drop, recognition_payload, launched)
+    # Mise en page « cockpit » (une page, sans defilement de page) : ecran large, annonces pretes a creer.
+    use_cockpit = (not mobile) and bool(recognition_payload.get("ready")) and bool(pending)
     if launched:
         restock_refs = drop_restock_refs(active_drop)
-        st.info(
-            f"Réassort : {len(restock_refs)} référence(s) ajoutée(s) après le lancement restent à traiter. "
-            "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
-            if restock_refs
-            else "Réassort : toutes les références ajoutées après le lancement ont un brouillon. "
-            "Les annonces déjà en ligne ou vendues ne sont jamais recréées ni modifiées."
-        )
+        # Cockpit : le bandeau vit dans l'icone ⓘ de l'en-tete de la carte ; ailleurs, inchange.
+        if not use_cockpit:
+            st.info(_restock_banner_text(active_drop))
+        if not use_cockpit:
+            _render_restock_publish_section(drops_data, active_drop, recognition_payload, available_cards=available_cards)
 
     if not recognition_payload.get("ready"):
         st.warning("La vérification photo doit être terminée avant de créer les annonces.")
@@ -5236,24 +6896,20 @@ def _render_recognition_creation_step(
         return True
 
     listings = recognition_payload.get("listings", []) or []
-    workflow = []
-    ready = []
-    pending = []
-    for listing in listings:
-        statuses = _recognition_listing_statuses(active_drop, listing)
-        if launched:
-            # Drop lance : uniquement des annonces dont TOUTES les references sont encore
-            # a traiter (ou deja en brouillon). Une annonce touchant une reference en ligne,
-            # vendue ou retiree du drop est ecartee.
-            if not statuses or any(status not in (DROP_UNPROCESSED_STATUSES | {"draft_ready"}) for status in statuses):
-                continue
-        elif not statuses or all(status in {"online", "sold"} for status in statuses):
-            continue
-        workflow.append(listing)
-        if statuses and all(status == "draft_ready" for status in statuses):
-            ready.append(listing)
-        else:
-            pending.append(listing)
+    if use_cockpit:
+        return _render_recognition_creation_cockpit(
+            drops_data,
+            active_drop,
+            available_cards,
+            fp_func,
+            run_html_func,
+            recognition_payload,
+            launched=launched,
+            restock_refs=restock_refs if launched else [],
+            workflow=workflow,
+            ready=ready,
+            pending=pending,
+        )
 
     total = len(workflow)
     ready_count = len(ready)
@@ -5323,7 +6979,9 @@ def _render_recognition_creation_step(
                 type="primary",
                 width="stretch",
             ):
-                if _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
+                if _listing_text_problem({"title": st.session_state.get("vinted_listing_title"), "description": st.session_state.get("vinted_listing_description")}):
+                    st.error("Brouillon non enregistré : le titre ou la description est vide.")
+                elif _set_recognition_listing_status(drops_data, active_drop, listing, "draft_ready"):
                     save_vinted_drops(drops_data)
                     st.rerun()
     return True
@@ -5394,6 +7052,8 @@ def _render_drop_creation_step(
         _sync_listing_text([listing_card], listing_type, fp_func)
         current_number = min(total_qty, ready_qty + 1)
         st.markdown(f"**Carte #{current_number} sur {total_qty}**")
+        current_extension_name = card_extension_name(current_card)
+        current_extension_html = _html_escape(current_extension_name) if current_extension_name else extension_badge_html()
         with st.container():
             left, right = st.columns([1, 2]) if not mobile else [st.container(), st.container()]
             with left:
@@ -5405,7 +7065,7 @@ def _render_drop_creation_step(
   <div class="ps-vinted-current-title">{_html_escape(_card_display_title(current_card))}</div>
   <div class="ps-vinted-current-meta">
     {_html_escape(_card_number(current_card) or "Numéro N/A")} ·
-    {_html_escape(_card_set(current_card) or "Extension N/A")} ·
+    {current_extension_html} ·
     Prix : {_html_escape(fp_func(suggested_price(current_card)) if suggested_price(current_card) else "à définir")} ·
     Quantité : x{current_qty}
   </div>
@@ -5413,6 +7073,8 @@ def _render_drop_creation_step(
 """,
                     unsafe_allow_html=True,
                 )
+                if not current_extension_name:
+                    render_extension_shortcut(current_card, key=f"queue_{current_key}")
 
         st.text_input("Titre généré", key="vinted_listing_title")
         _copy_button("Copier titre", st.session_state.get("vinted_listing_title", ""), "copy_vinted_queue_title", run_html_func, ["Titre généré"])
@@ -5536,8 +7198,8 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
   <div class="ps-vinted-drop-meta">
-    <span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
-    <span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
+<span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
+<span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
   </div>
 </div>
 """,
@@ -5553,8 +7215,8 @@ def _render_drops_manager(drops_data, available_cards, source_cards, proxy_img_f
 <div class="ps-vinted-drop-head">
   <strong>{_html_escape(active_drop.get('name', 'Drop sans nom'))}</strong>
   <div class="ps-vinted-drop-meta">
-    <span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
-    <span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
+<span>{total_cards} carte(s) · Valeur du drop : {fp_func(total_value) if total_value else 'à définir'}</span>
+<span class="ps-vinted-channel {channel_class}">{_html_escape(channel_label)}</span>
   </div>
 </div>
 """,
@@ -5726,14 +7388,14 @@ def render_vinted_listings_page(
             return
         st.session_state.pop(_step4_preview_mode_key(active_drop.get("id")), None)
 
-    if st.session_state.get("vinted_drop_step") == "Analyse des drops":
-        _inject_vinted_analytics_compact_styles()
-
+    # Cadre commun des 5 etapes : memes composants (bandeau, bloc Drop Vinted, pastilles, selecteur, carte du Drop),
+    # version compacte identique partout pour que le cockpit de l'etape 4 tienne sans defilement.
+    if not mobile:
+        _inject_vinted_dropframe_styles()
     st.markdown(
         render_page_header_func("Drop Vinted", "Préparer, suivre et analyser tes drops Vinted", "🛍️"),
         unsafe_allow_html=True,
     )
-
     step = _render_drop_step_nav(mobile)
     _render_drops_manager(
         drops_data,

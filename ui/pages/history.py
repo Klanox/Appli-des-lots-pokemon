@@ -629,6 +629,11 @@ def render_history_page(
         filtered_sales = [h for h in filtered if h.get("type") != "exchange"]
         total_ca_h = sum(h["price"] for h in filtered_sales)
         total_benef_h = sum(h.get("benef") for h in filtered_sales if h.get("benef") is not None)
+        # NOTE « cartes vendues » : ce compteur (Historique/Wrapped, ex. 697) compte les LIGNES de vente :
+        # il inclut les ventes hors stock et les lignes d'allocation d'une carte recue par echange
+        # (la quantite entiere est reprise sur chaque ligne). La definition unique (barre laterale, Accueil,
+        # Statistiques, ex. 688) est celle de logic._exchange_given_quantity / gst().
+        # Decision : ne pas modifier ce compteur (CA/benefice de l'Historique inchanges).
         total_nb_h = sum(int(h.get("quantity", 1)) for h in filtered_sales)
     
         s1,s2,s3 = st.columns(3)

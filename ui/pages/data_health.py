@@ -13,6 +13,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from ui.pages import extension_queue, rarity_fetch
 from services.data_health_service import (
     CHECK_LABELS,
     apply_fix,
@@ -122,6 +123,54 @@ def render_data_health_page(
         unsafe_allow_html=True,
     )
 
+    # Compteur permanent « Cartes sans extension » (calcule a chaque affichage, sans scan) + file de correction.
+    st.markdown(extension_queue.BADGE_CSS, unsafe_allow_html=True)
+    counts = extension_queue.render_extension_counters(ld_func(), load_drops_func(), load_archives(archives_path))
+    to_update = extension_queue.extension_sections_count(ld_func(), load_drops_func())
+    section = st.radio(
+        "Section",
+        ["anomalies", "extensions", "annonces", "rarete"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key=extension_queue.SECTION_KEY,
+        format_func=lambda value: {
+            "anomalies": "🩺 Anomalies",
+            "extensions": f"🧩 Extensions manquantes ({counts['stock']})",
+            "annonces": f"📝 Annonces en ligne à mettre à jour ({to_update})",
+            "rarete": "🏷️ Rareté des cartes",
+        }[value],
+    )
+    if section == "extensions":
+        extension_queue.render_extension_queue(ld_func=ld_func, sd_func=sd_func, load_drops_func=load_drops_func,
+                                               save_drops_func=save_drops_func)
+        return
+    if section == "rarete":
+        rarity_fetch.render_rarity_fetch(ld_func=ld_func, load_drops_func=load_drops_func)
+        return
+    if section == "annonces":
+        extension_queue.render_listings_to_update(ld_func=ld_func, load_drops_func=load_drops_func,
+                                                  save_drops_func=save_drops_func)
+        return
+    _render_anomalies_section(
+        ld_func=ld_func, sd_func=sd_func, navigate_func=navigate_func, load_drops_func=load_drops_func,
+        save_drops_func=save_drops_func, load_brocantes_func=load_brocantes_func, data_path=data_path,
+        drops_path=drops_path, archives_path=archives_path, backup_dir=backup_dir,
+    )
+
+
+def _render_anomalies_section(
+    *,
+    ld_func,
+    sd_func,
+    navigate_func,
+    load_drops_func,
+    save_drops_func,
+    load_brocantes_func=None,
+    data_path="data.json",
+    drops_path="vinted_drops.json",
+    archives_path="lots_archives.json",
+    backup_dir=None,
+):
     flash = st.session_state.pop(FLASH_KEY, None)
     if flash:
         (st.success if flash[0] else st.error)(flash[1])
@@ -185,17 +234,18 @@ def render_data_health_page(
             fix = anomaly.get("fix")
             if fix and fix_col.button(f"🛠️ {fix['label']}", key=f"dh_fix_{anomaly['id']}", use_container_width=True,
                                        help="Sauvegarde le fichier concerné dans backups/ puis applique la correction."):
-                ok, message = apply_fix(
-                    fix,
-                    load_data=ld_func,
-                    save_data=sd_func,
-                    load_drops=load_drops_func,
-                    save_drops=save_drops_func,
-                    data_path=data_path,
-                    drops_path=drops_path,
-                    backup_dir=backup_dir,
-                )
-                st.session_state[FLASH_KEY] = (ok, message)
-                if ok:  # le resultat affiche doit refleter les donnees corrigees
-                    st.session_state[RESULT_KEY] = run_scan(ld_func, load_brocantes_func, load_drops_func, archives_path)
+                with st.spinner("Correction en cours : sauvegarde, application puis nouveau scan…"):
+                    ok, message = apply_fix(
+                        fix,
+                        load_data=ld_func,
+                        save_data=sd_func,
+                        load_drops=load_drops_func,
+                        save_drops=save_drops_func,
+                        data_path=data_path,
+                        drops_path=drops_path,
+                        backup_dir=backup_dir,
+                    )
+                    st.session_state[FLASH_KEY] = (ok, message)
+                    if ok:  # le resultat affiche doit refleter les donnees corrigees
+                        st.session_state[RESULT_KEY] = run_scan(ld_func, load_brocantes_func, load_drops_func, archives_path)
                 st.rerun()

@@ -6,6 +6,7 @@ import streamlit as st
 import json
 import os
 import time
+from datetime import datetime
 from utils import fp, normalize_name, parse_float_input, parse_int_input, LOTS_ARCHIVES_FILE
 from data import ld, sd
 from services.perf_service import perf_count, perf_log
@@ -106,9 +107,52 @@ def calc_cout_lot(lot, valeur_estimee=None, lot_idx=None):
     return result, valeur_estimee
 
 
+def _exchange_given_quantity(card):
+    """Cartes donnees en echange (sold_entries is_exchange, 0 EUR) : sorties du stock, mais pas vendues.
+
+    DEFINITION UNIQUE de « cartes vendues » (barre laterale, Accueil, Statistiques) :
+    cartes physiques sorties du stock par vente. Ne comptent pas : les echanges donnes,
+    les ventes hors stock et les ventes initiales. L'Historique et Wrapped gardent leur
+    propre compteur (lignes de vente, hors stock inclus), voir ui/pages/history.py.
+    """
+    total = 0
+    for entry in card.get("sold_entries", []) or []:
+        if entry.get("is_exchange"):
+            try:
+                total += max(int(entry.get("quantity", 1) or 1), 1)
+            except (TypeError, ValueError):
+                total += 1
+    return total
+
+
+def _period_stats(d, archives, year):
+    """Chiffres de l'année civile `year` pour la barre latérale (voir services/sidebar_stats_service.py)."""
+    from services.sidebar_stats_service import build_period_stats
+
+    try:
+        # Même calcul du bénéfice réalisé que Statistiques (import tardif : pas de dépendance au chargement du module).
+        from ui.pages.statistics import _collect_statistics_data
+
+        rows, _purchases = _collect_statistics_data(
+            d,
+            calc_cout_lot_func=calc_cout_lot,
+            effective_purchase_price_func=effective_purchase_price,
+            lots_archives_path=LOTS_ARCHIVES_FILE,
+        )
+    except Exception as exc:  # noqa: BLE001 - la barre latérale ne doit jamais bloquer l'application
+        perf_log("gst() bénéfice réalisé indisponible", 0.0, f"{type(exc).__name__}: {exc}"[:160])
+        rows = None
+    return build_period_stats(list(d.get("lots", [])) + list(archives), rows, year)
+
+
 @st.cache_data(ttl=30, show_spinner=False)
-def gst():
-    """Calculate global statistics for the application."""
+def gst(year=None):
+    """Calculate global statistics for the application.
+
+    Les clés historiques (sold_cards, remaining_cards, stock_value, total_revenue, total_profit...) sont les TOTAUX
+    depuis le début et ne dépendent pas de `year`. Les clés « year_* » sont les chiffres de l'année civile `year`
+    (année en cours par défaut ; l'appelant la passe en paramètre, ce qui renouvelle aussi le cache au 1er janvier).
+    """
     perf_count("gst")
     perf_start = time.perf_counter()
     d = ld()
@@ -125,16 +169,20 @@ def gst():
             cq = c.get("quantity", 0)
             csq = c.get("sold_quantity", 0)
             outq = int(c.get("exchange_out_quantity", 0) or 0)
+            storedq = int(c.get("stored_quantity", 0) or 0)
             tc += cq
-            sc += csq
+            sc += max(csq - _exchange_given_quantity(c), 0)
             if not c.get("is_collection_keep"):
-                remaining = max(cq - csq - outq, 0)
+                # Une carte stockee compte une seule fois : dans le lot Stockage
+                # (meme definition que card_available_qty).
+                remaining = max(cq - csq - outq - storedq, 0)
                 rc += remaining
                 sv += remaining * c.get("suggested_price", 0.)
             for s in c.get("sold_entries", []):
                 tr += s.get("price", 0.)
     
     archive_file = LOTS_ARCHIVES_FILE
+    archives = []
     if os.path.exists(archive_file):
         try:
             with open(archive_file, "r", encoding="utf-8") as f:
@@ -149,10 +197,11 @@ def gst():
                     cq = c.get("quantity", 0)
                     csq = c.get("sold_quantity", 0)
                     outq = int(c.get("exchange_out_quantity", 0) or 0)
+                    storedq = int(c.get("stored_quantity", 0) or 0)
                     tc += cq
-                    sc += csq
+                    sc += max(csq - _exchange_given_quantity(c), 0)
                     if not c.get("is_collection_keep"):
-                        remaining = max(cq - csq - outq, 0)
+                        remaining = max(cq - csq - outq - storedq, 0)
                         rc += remaining
                         sv += remaining * c.get("suggested_price", 0.)
                     for s in c.get("sold_entries", []):
@@ -161,7 +210,9 @@ def gst():
             st.warning(f"Erreur lors de la lecture des archives dans gst(): {e}")
             pass
     
+    period = _period_stats(d, archives if isinstance(archives, list) else [], int(year) if year else datetime.now().year)
     result = {
+        **period,
         "total_cards": int(tc),
         "sold_cards": int(sc),
         "remaining_cards": int(rc),

@@ -808,6 +808,11 @@ Il sert à préparer de gros Drops Vinted de cartes Pokémon.
 
 Le processus est divisé en 5 étapes.
 
+L’étape 4 (Création des annonces) est affichée en « une page » aérée sur ordinateur, avec le MÊME cadre que les 4 autres étapes (bandeau PokéStock, bloc « Drop Vinted », 5 pastilles, « Drop à afficher » + « Nouveau Drop », carte du Drop), compacté de façon identique sur les 5 étapes ; aucun défilement de la page, tout reste accessible, le secondaire est dans le menu « ⋯ Plus » et l’icône ⓘ du cockpit (voir sections 35 et 43).
+Cadre commun des 5 étapes (15/10/2026, ui/pages/vinted_listings.py : _DROPFRAME_CSS, _inject_vinted_dropframe_styles, marqueur .ps-dropframe-marker) : les étapes 1 à 5 affichent exactement les mêmes composants dans le même ordre — bandeau « PokéStock — Collection, lots et ventes sous contrôle », bloc « Drop Vinted — Préparer, suivre et analyser tes drops Vinted », rangée des 5 pastilles larges, « Drop à afficher » (libellé à gauche du sélecteur) + « Nouveau Drop », carte du Drop (nom, nombre de cartes, valeur, canal, « ⚙ Gérer »). Ce cadre est compacté de la même façon sur les 5 étapes (écran large uniquement ; le mobile est inchangé) : décalage du haut de page 62 px (sous la barre Streamlit), bandeau 40 px, bloc Drop Vinted 46 px, pastilles 34 px, sélecteur et « Nouveau Drop » 36 px, carte du Drop sur une ligne, 8 px entre ces éléments ; les éléments invisibles (styles, scripts) ne comptent plus dans l’espacement. Couleurs, pastilles, boutons et dégradés sont ceux de l’application ; seuls les tailles et espacements changent. L’ancienne ligne compacte propre à l’étape 4 (ps_topbar, ps-topbar-marker, STEP4_TOPBAR_FLAG) et la compaction propre à l’étape 5 ont été supprimées. Le contenu propre à chaque étape garde ses espacements habituels.
+
+Les titres et descriptions d’annonces sont calculés à l’affichage (aucune écriture de données) et enrichis de mots courts que les acheteurs recherchent (Shiny, AR, Gold, Alt, FA) placés avant le numéro de la carte, d’après une table de règles du code et la rareté récupérée depuis TCGdex (voir section 43 et Santé des données).
+
 36. Étape 1 — Choix des cartes
 
 Tu sélectionnes les cartes qui feront partie du Drop.
@@ -847,6 +852,13 @@ vente.
 drop_launched_at sert de référence temporelle aux analyses.
 
 Une fois fixé, il doit rester stable.
+
+Réassort d’un Drop lancé (octobre 2026) :
+
+les cartes ajoutées après le lancement sont du réassort ;
+le périmètre de reconnaissance de l’analyse contient le réassort à traiter, ses brouillons (draft_ready) et ses brouillons déjà publiés (online / sold avec draft_ready_at renseigné et ajoutés après drop_launched_at) ;
+les cartes online / sold d’avant le lancement n’en font jamais partie : leur empreinte doit rester identique ;
+un brouillon passé en ligne reste donc reconnu et ne tombe jamais en « Non reconnu ».
 
 38. Étape 2 — Photos
 
@@ -894,6 +906,23 @@ groupes multi-cartes.
 
 Il possède également un cache persistant permettant de ne pas tout recalculer.
 
+Progression de l’analyse (octobre 2026) :
+
+« Mettre à jour l’analyse », « Relancer l’analyse » et « Actualiser les cartes du Drop » affichent une barre de progression avec la phase (lecture des photos, regroupement des annonces, reconnaissance des cartes), « Photo X / N », le temps écoulé et le temps restant estimé ;
+l’estimation est une moyenne glissante du temps des dernières photos (8) x photos restantes, et reste « estimation en cours… » pendant les 3 premières photos de chaque phase ;
+à la fin : « Analyse terminée en X min Y s » (conservé après le rechargement de l’écran) ;
+si le résultat vient du cache et revient en moins de 0,4 s, rien ne s’affiche ;
+techniquement : services/analysis_progress.py (suivi sans Streamlit) + un simple paramètre progress_callback(phase, done, total) dans analyze_sample / refresh_result_candidates / _recognize_groups ; le callback ne reçoit que des compteurs, ne modifie jamais le résultat et une erreur d’affichage ne peut pas casser l’analyse.
+
+« Actualiser les cartes du Drop » (octobre 2026, correctif barre de chargement) :
+le bouton est dans « Options de l’analyse » (étape 4 / photos). Il relit le stock et les cartes du Drop (active_drop_candidates), recalcule seulement les annonces touchées, enregistre l’analyse puis met à jour les statuts du Drop ; sur le vrai Drop (420 cartes, 133 de réassort) la dernière analyse mesurée a pris 29 s pour 41 annonces ;
+avant : la barre n’était dessinée qu’à l’endroit de l’appel, donc sous l’expander (hors de l’écran), et le chemin « rien n’a changé » n’émettait aucun événement : aucun indicateur, aucun message ;
+maintenant : un emplacement (st.empty) est créé tout en HAUT de l’étape et reçoit la barre ; le texte de départ « Lecture du stock et des cartes du Drop… » s’affiche tout de suite, puis une phase par étape : « Lecture du stock et des cartes du Drop » (0–10 %), « Recalcul de l’analyse · Photo X / N · reste environ … · écoulé … » (10–85 %), « Enregistrement de l’analyse » (85–93 %), « Mise à jour des statuts du Drop » (93–100 %) ;
+message de fin toujours affiché, même si l’opération dure moins d’1 s : « Actualisation terminée en 12 s : 420 carte(s) du Drop prises en compte, 0 changement (…) » ou « …, 7 carte(s) modifiée(s), 3 annonce(s) recalculée(s) » ; il survit au rechargement de l’écran ;
+le chargement automatique de l’écran (reprise de l’analyse enregistrée) utilise la même barre (« Mise à jour automatique des cartes du Drop ») mais sans message de fin ;
+techniquement : AnalysisProgress accepte phase_ranges / phase_labels, nouvelles phases candidats / enregistrement / statuts (étapes simples) ; _run_with_analysis_progress(slot=, always_show=, start_text=, phase_ranges=, phase_labels=, done_message=) ; _refresh_candidates_with_progress ; aucun résultat d’analyse n’est modifié (compteurs seulement) ;
+inventaire des boutons longs : Actualiser les cartes du Drop, Mettre à jour l’analyse, Relancer l’analyse, première analyse des photos (barre en haut de l’étape) ; étape 3 « actualiser les annonces non validées » et déplacement d’une photo (barre + spinner existants) ; Santé des données : Scanner (spinner existant) et boutons « 🛠️ » de correction (spinner ajouté : sauvegarde, correction, nouveau scan) ; Récupérer la rareté des cartes (barre par lots et bouton Annuler, existants) ; Santé des données « extensions » : les boutons d’écriture (certaines, probables, choix manuel) affichent maintenant un spinner d’écriture ; l’import de photos n’a pas de téléversement (dossier choisi par chemin), seule l’analyse est longue.
+
 Sur le dataset de référence :
 
 529 photos ;
@@ -938,6 +967,31 @@ Pour les annonces multi-cartes :
 
 chaque sous-carte physique possède sa propre validation.
 
+Une carte associée manuellement (même absente des propositions du moteur) conserve l’identifiant de la carte du Drop (drop_item_id) dans le payload. Elle passe donc de « à photographier » à photographiée, l’annonce multi-cartes peut passer à « créée », et la phrase « N cartes de réassort n’ont pas encore de photo reconnue » ne la compte plus.
+
+Prix des cartes à l’étape Vérification (15/10/2026, affichage uniquement, ui/pages/vinted_listings.py : _candidate_stock_price, _price_chip_html, _render_group_price_total) : le bloc « Carte proposée » (ou « Carte N » pour une annonce multi-cartes) affiche sous le nom/numéro un badge avec le prix de vente de la carte, par exemple « 10,00 € ». C’est le même prix que celui de l’annonce à l’étape 4 : suggested_price() de la carte du stock (même uid), avec repli sur le prix du candidat du Drop, comme _recognition_listing_cards. Prix vide ou 0 : badge rouge « Prix manquant ». Annonce multi-cartes : un prix par carte puis une ligne « Total annonce : X € » (somme des cartes retenues), avec « N prix manquant(s) » si besoin. Dans « Corriger l’identification », chaque option de la liste « Carte exacte » (et donc chaque résultat de « Rechercher par nom, numéro ou UID ») est de la forme « Nom · numéro · extension · 10,00 € · Dans le Drop · card_… » : le prix est placé AVANT l’identifiant technique pour rester lisible quand la ligne est tronquée ; carte hors Drop = « hors Drop » avec son prix de stock ; « Pas en stock » à la place du prix pour une carte ni en stock ni dans le Drop (cas rare : la recherche ne propose que des cartes du Drop ou du stock). Plusieurs exemplaires (uid différents) d’une même carte dans le Drop sont listés séparément avec leur propre prix. Aucune écriture : ni statut, ni validation, ni prix, ni logique de reconnaissance ne changent. Non modifiés (à signaler) : le détail « Détails de reconnaissance » (top 3 des candidats, sans prix), la ligne « Annonce #N » et l’étape 2 « Tri des photos », qui ne propose aucune carte ; le rattachement manuel (« Associer une carte ») et la correction passent par le même écran, donc affichent le prix. Tests : tests/test_review_prices.py.
+
+Bouton « 🔄 Actualiser l’analyse » (octobre 2026), en haut de l’écran de vérification :
+
+il relance la reconnaissance des seules annonces NON validées, après que tu as validé ou corrigé des cartes ;
+jamais modifiés : annonces validées (« Correct », « Correspondance validée »), associations manuelles, regroupements confirmés, corrections d’identification, ainsi que les annonces déjà traitées dont toutes les cartes sont en ligne ou vendues ;
+les cartes déjà attribuées à une annonce validée ou publiée sont retirées des propositions des autres annonces (sauf si le Drop en contient plusieurs exemplaires) ; l’OCR déjà lu est réutilisé ;
+la barre de progression ne compte que les photos concernées ; à la fin : « N annonces revérifiées · X propositions changées · Y passées en « Reconnu » · Z restent à vérifier » ;
+ta position dans la file est conservée (même annonce, ou la suivante si elle est devenue « Reconnu ») ;
+ce n’est PAS le même bouton que « Mettre à jour l’analyse » (étape 2) : celui-ci rematche les annonces touchées par un changement des cartes du Drop ; « Actualiser l’analyse » tient compte de ce que tu as validé. Le regroupement des photos n’est jamais recalculé ;
+aucun statut de carte (en ligne, vendu, brouillon) n’est changé et vinted_drops.json n’est pas écrit ;
+techniquement : reverify_unvalidated_groups (photo_recognition_service.py), paramètre blocked_counts de _recognize_groups, _rebase_review_pass_after_refresh (vinted_listings.py).
+
+Corrections de la vérification (octobre 2026, étape 2 du Drop) :
+
+Messages précis : « Carte peut-être absente du Drop » est remplacé, à l’affichage, par « Déjà publiée dans le Drop : <nom> <numéro> · <extension> (en ligne / vendue) » quand l’OCR correspond fortement (nom + numéro) à une carte déjà publiée, « Absente des cartes à traiter » si la carte est dans le Drop mais hors périmètre pour une autre raison, et « Absente du Drop » seulement si elle n’est nulle part. Le calcul porte sur toutes les références du Drop ; les candidats de reconnaissance ne changent pas.
+Groupe « Déjà publiée — ignorée » : un groupe signalé « absent du Drop » dont l’OCR correspond fortement à une carte en ligne / vendue sort de « À vérifier », ne bloque plus « Continuer » et ne génère aucune annonce. Jamais de masquage silencieux : compteur « N groupes ignorés (déjà publiés) » avec liste dépliable et bouton « Ce n’est pas la bonne carte » (le groupe revient dans « À vérifier » et n’est plus ignoré automatiquement, par exemple pour un 2e exemplaire). Le toggle « Consulter aussi les reconnaissances automatiques » marque « Déjà publiée — ignorée » et « Annonce déjà créée ».
+Garde-fou numéro : un numéro complet lu par l’OCR, incompatible avec la carte proposée alors que seul le nom la soutient (ni numéro, ni preuve visuelle), empêche le statut « Reconnu » : l’annonce passe en « À vérifier » avec « Plus probable : <carte> (<statut>) » quand le Drop contient une carte correspondant à la lecture. Une validation manuelle reste prioritaire.
+Verso orphelin : un verso qui ouvre un groupe est rattaché à l’annonce précédente si celle-ci n’a qu’un recto (le reste se regroupe normalement, sans renuméroter les annonces). Un recto ou un verso sans pendant reste signalé.
+Actions sous chaque photo (annonce à une carte) : « Rattacher à l’annonce précédente », « Rattacher à l’annonce suivante », « Photo de détail » (photo de défaut conservée dans l’annonce mais qui ne sert pas à identifier la carte). Le choix est mémorisé par identité de photo dans la session de vérification et rejoué après une nouvelle analyse. Les validations des deux groupes concernés sont invalidées (l’écran indique lesquelles) et seuls ces deux groupes sont rematchés avec l’OCR en cache ; les autres annonces ne changent jamais. « Grouping incorrect » enregistre désormais le signalement au lieu de seulement passer au cas suivant.
+« Cette carte n’est pas dans mon stock » : le groupe sort de « À vérifier », ne bloque plus « Continuer » ni les autres annonces et ne crée aucune annonce. Il est mémorisé (photos + nom / numéro / extension lus si l’OCR est lisible) dans la session de vérification uniquement ; un bandeau « N cartes à enregistrer dans le stock » les liste avec leurs photos, et « Remettre dans la vérification » annule. Aucune carte n’est créée dans data.json ni dans le Drop : après ajout au stock puis au Drop et « Actualiser l’analyse », le groupe repasse normalement.
+Techniquement : services/photo_review_actions.py (nouveau), clés de session review_dispositions / published_rejected / photo_moves / grouping_flagged / regroup_log (ancienne session chargée sans erreur), garde-fou ocr_conflict_blocks_recognition (photo_recognition_service.py) ; le moteur de reconnaissance n’est pas modifié. Limite connue : les numéros à un chiffre (ex. M24F) restent un point du moteur laissé de côté.
+
 Le grouping doit également être confirmé lorsqu’il est réellement ambigu.
 
 42. Système de passes de vérification
@@ -960,6 +1014,10 @@ Revoir les X cas non résolus
 
 Cela évite de revenir automatiquement au premier problème en boucle.
 
+« 🔄 Actualiser l’analyse » conserve la passe en cours : la position reste sur la même annonce (ou la suivante si elle est devenue « Reconnu »), sans retour à l’annonce n° 1.
+
+Après un rattachement de photo ou une action « Déjà publiée / pas dans mon stock », la passe est recalée sur le groupe concerné (ou le suivant) et les groupes ignorés ne comptent plus parmi les cas à traiter.
+
 43. Étape 4 — Création des annonces
 
 Une fois les photos et cartes validées, PokéStock construit un payload d’annonces.
@@ -975,7 +1033,42 @@ origine auto/manuelle ;
 titre ;
 description.
 
-Le moteur prepare_listing() génère le contenu des annonces.
+Le moteur prepare_listing() génère le contenu des annonces. Quand la carte n’a pas d’extension, le titre et la description omettent ce segment (« Carte Pokémon - Sorcilence VMAX 066/159 - FR »), jamais « N/A » ; l’écran affiche alors un badge rouge « Extension manquante » et un raccourci « Choisir l’extension » (voir section 98).
+
+Pour un Drop lancé, l’écran contient un bloc « Brouillons à publier (N) » : chaque brouillon de réassort y a un bouton « 🟢 Marquer en ligne » (draft_ready → online, sans confirmation, puis sauvegarde du Drop). Seules les cartes en brouillon de l’annonce changent ; les cartes d’avant lancement et les cartes non encore au stade brouillon ne sont jamais touchées.
+
+Brouillons à publier : liste complète, mise en ligne groupée et horodatage (16/10/2026, ui/pages/vinted_listings.py + services/drop_online_marking_service.py) :
+avant : la liste « Brouillons à publier » partait du RÉSULTAT DE L’ANALYSE PHOTO en cours (recognition_payload) : seules les annonces de la série de photos analysée y figuraient, les brouillons d’une analyse précédente disparaissaient. Maintenant : la liste vient UNIQUEMENT de vinted_drops.json (références au statut « brouillon prêt », ni en ligne, ni vendues, sans case « publiée »), quelle que soit l’analyse ou la série. Titre « Brouillons à publier (N) » = nombre d’annonces ; les annonces multi-cartes (listing_texts[...].card_uids) sont une seule ligne ; sous le titre : nombre de cartes, valeur, nombre de séries. Série = brouillons créés à moins de 3 h d’écart (« série 1 », « série 2 »…, calcul à l’affichage, rien d’enregistré) ; chaque ligne : nom · numéro, prix de l’annonce, série, date du brouillon. Sur les données du 16/10/2026 : 133 annonces / 134 cartes / 1 060 € en 4 séries (14/10, 15/10 13 h, 15/10 soir, 16/10).
+bouton « 🟢 Marquer les N brouillons en ligne » dans l’en-tête de l’encadré (visible sans déplier ; la liste détaillée est dans « Afficher les N brouillons »). Il ouvre une fenêtre : N annonces cochées par défaut (cases par annonce, « Tout cocher » / « Tout décocher »), total (annonces, cartes, valeur), DATE et HEURE de mise en ligne préremplies avec maintenant (corrigeables ; refus d’une date future ou antérieure au lancement du Drop), puis « Confirmer ». Le bouton individuel « 🟢 Marquer en ligne » de chaque ligne est conservé (horodaté à l’instant du clic).
+horodatage : le champ est online_at (déjà utilisé par « Marquer en ligne » et le lancement du Drop, auparavant posé à l’heure du clic). Il vaut désormais la date et l’heure choisies ; listing_posted_at reçoit la même valeur, listing_posted passe à vrai, le statut à « online ». Seules les références encore « brouillon prêt » changent : les cartes déjà en ligne (online_at intact), vendues ou à traiter ne sont jamais touchées. Rien n’est inventé : les 259 cartes déjà en ligne ou vendues du Drop Rentrée portent toutes online_at = 27/08/2026 17:27:35 (= lancement) et le restent.
+sécurité : écriture par la fonction normale de sauvegarde du Drop (synchro Cloud comprise) après sauvegarde de vinted_drops.json dans backups\ (étiquette mise_en_ligne_brouillons), relecture du fichier juste avant d’écrire, journal logs\drop_online_marking_journal.jsonl (une ligne par carte avec son état d’avant). Bouton « ↩️ Annuler la dernière mise en ligne (N) » dans l’en-tête de l’encadré : remet « brouillon prêt », retire online_at / listing_posted_at, SEULEMENT pour les cartes encore dans l’état écrit par le lot (une carte vendue ou modifiée depuis est laissée) ; un lot ne s’annule qu’une fois. Le message de résultat s’affiche en haut de l’écran.
+mise à jour de l’analyse : aucun chemin ne rétrograde une carte en ligne ou vendue. apply_recognition_statuses (Drop non lancé) et _apply_restock_recognition_statuses (Drop lancé) ignorent online / sold / draft_ready ; _set_recognition_listing_status saute online / sold ; « Remettre à préparer » (_drop_mark_to_prepare) refuse désormais une carte en ligne, vendue ou portant online_at / sold_at (garde ajoutée le 16/10/2026). Couvert par tests/test_drop_online_marking.py.
+
+Une annonce passée en ligne sort du dénominateur de « X / Y annonces créées » (elle n’est plus à créer), mais son groupe reste reconnu et ne bloque pas la création des autres annonces.
+
+Mise en page « une page » aérée (octobre 2026, refonte du 15/10/2026, cadre commun du 15/10/2026, ui/pages/vinted_listings.py) : sur ordinateur (largeur ≥ 1180 px et hauteur ≥ 720 px), l’étape 4 tient dans la hauteur de la fenêtre et la page ne défile jamais. De haut en bas : (1) LE CADRE COMMUN DES 5 ÉTAPES, identique pixel pour pixel d’une étape à l’autre (voir section 35) : bandeau « PokéStock » (40 px), bloc « 🛍️ Drop Vinted — Préparer, suivre et analyser tes drops Vinted » (46 px), les 5 pastilles larges sur une ligne (l’étape active en violet), « Drop à afficher » + « Nouveau Drop », carte grise du Drop (« Drop Rentrée · 420 carte(s) · Valeur du drop : … · ChoppeTaCarte · ⚙ Gérer ») ; (2) une carte blanche arrondie : en-tête « ‹ Annonce 31 / 39 › » avec « 2 photos · validation automatique », à droite « Annonces créées 28 / 39 » avec une barre fine violette, l’icône ⓘ (bandeau bleu de réassort, seulement quand le Drop est lancé) et le bouton « ⋯ Plus » ; puis trois colonnes de même hauteur : à gauche la photo principale (limitée en hauteur) avec ses miniatures étiquetées Principale / Verso ; au centre le nom de la carte avec ses pastilles (extension · langue, mots-clés ajoutés comme Shiny, badge rouge « Extension manquante » et « Choisir l’extension » seulement quand l’extension manque), le Titre Vinted et la Description (zone de hauteur fixe, défilement interne) avec « 📋 Copier » placé DANS le champ ; à droite le Prix avec « Copier » dans le champ, « Ouvrir Vinted ↗ », « ✓ Brouillon créé » (bouton principal violet identique à celui des autres étapes) et, en bas, la ligne discrète « ⋯ Plus : brouillons à publier (N) · ordre des photos · réassort » qui ouvre le même menu. Les boutons, titres et libellés du cockpit reprennent le style des autres étapes (boutons secondaires blancs à coins arrondis de 8 px, bouton principal en dégradé violet, titres en gras).
+Technique : CSS limité à cet écran (marqueur HTML .ps-cockpit-marker + sélecteur :has() sur la zone principale ; classes des conteneurs à clé ps_cockpit_*, ps_field_*, ps_plus_menu, ps_info_menu), le verrouillage de hauteur n’est actif que dans un bloc @media (largeur ≥ 1180 px et hauteur ≥ 720 px, soit 60 px d’en-tête Streamlit + 660 px utiles ; constante COCKPIT_MIN_VIEWPORT_HEIGHT_PX). En dessous (petite fenêtre, mobile), le verrouillage est désactivé et la page défile normalement avec l’ancienne disposition empilée. Les annonces atypiques (plusieurs cartes, 4 photos et plus, longue description) défilent à l’intérieur de leur zone, jamais la page. Aucune logique ni clé de widget utile n’a changé (hors flèches ‹ › et le ⓘ déplacé de la ligne du Drop vers l’en-tête du cockpit) : seuls l’ordre et l’habillage des mêmes widgets ont changé. Mesuré avec Chromium le 15/10/2026 (cadre complet inclus) : 1920x1080, 1600x900, 1500x914, 1440x800, 1366x768 et 1280x720 → aucun défilement de page ; aucun défilement interne des colonnes jusqu’à 768 px de haut (de 720 à 767 px : léger défilement interne de la colonne centrale, description au minimum de 90 px) ; boutons « Brouillon créé », « Ouvrir Vinted », « Plus » et « Gérer » visibles et cliquables à toutes ces tailles. Hauteur d’image de la carte : calc(100vh − 560 px).
+
+Menu « ⋯ Plus » : il contient tout le secondaire de l’étape, rien n’a été supprimé : le texte « Ordre issu de la reconnaissance photo », « N carte(s) de réassort sans photo reconnue », « Brouillons à publier (N) » (boutons « 🟢 Marquer en ligne »), « Détails de l’ordre des photos », « 🚀 Lancement du Drop » (Drop pas encore lancé) (le bandeau de réassort n’est plus dans ce menu : il est dans l’icône ⓘ, juste à gauche de « ⋯ Plus », quand le Drop est lancé).
+Navigation ‹ › (ajout du 15/10/2026) : l’écran de création n’avait AUCUNE navigation entre annonces (il montrait toujours la première annonce à créer ; seul l’aperçu a ses boutons précédent/suivant). Les flèches parcourent les annonces qui restent à créer (état d’écran vinted_step4_view_<id du Drop> : simple décalage dans la liste, non enregistré, aucune écriture de données). « ✓ Brouillon créé » agit sur l’annonce affichée puis l’écran revient à la première annonce à créer. Clés de widgets ajoutées : step4_prev_<id du Drop> et step4_next_<id du Drop> ; toutes les autres clés sont inchangées.
+
+Correctif du 15/10/2026 (titre, description et prix vides) : cause = Streamlit supprime la valeur d’un widget à clé (vinted_listing_title, vinted_listing_description, vinted_listing_price) dès qu’un rerun ne l’affiche pas (autre étape, autre menu) ; la signature de sélection qui décide s’il faut recalculer le texte (vinted_listing_signature) n’est pas un widget et restait en mémoire, donc rien n’était recalculé au retour sur l’étape et les champs restaient vides. Aucune donnée n’était touchée. Correction dans _sync_listing_text : un champ absent ou vide est restauré (valeur modifiée à la main mémorisée dans vinted_listing_text_shadow, sinon texte généré) ; une modification manuelle n’est jamais écrasée ; le texte suit toujours un changement d’annonce ou de carte. Garde-fous : message rouge « Impossible d’afficher le titre et/ou la description de cette annonce. Rien n’a été enregistré… » au lieu d’un champ vide, et « ✓ Brouillon créé » refuse d’enregistrer un brouillon dont le titre ou la description est vide (« Brouillon non enregistré : le titre ou la description est vide. »). Le prix vide était le même bug ; un prix « Prix à définir » reste normal pour une carte sans prix connu.
+
+Mots recherchés dans le titre et la description (mis à jour le 15/10/2026, abréviations courtes) : services/vinted_listing_service.py ajoute à une annonce à une carte les mots manquants, sans jamais écrire dans les JSON (recalcul à l’affichage). Règles dans services/listing_keyword_rules.py (table LISTING_KEYWORD_RULES : extension + plage ou préfixe de numéro -> mots ; champ enabled pour désactiver une ligne). Abréviations courtes : « Shiny », « AR » (Illustration rare), « Gold » (Hyper rare), « Alt » (Illustration spéciale rare, ajouté le 15/10/2026) et « FA » (Full Art, automatique depuis l’accord du 15/10/2026, voir plus bas). Pas de forme longue. Le mot « Chromatique » n’est plus utilisé, et RIEN n’est ajouté pour Trainer Gallery (TG), Galarian Gallery (GG), Radiant Collection (RC) ni Shiny Vault (SV) : ces préfixes restent dans le numéro. Règles de table livrées : Destinées de Paldea (sv04.5) numéros 92 à 223 -> « Shiny » (224 à 245 ne sont PAS des shiny) ; Destinées Radieuses (swsh4.5) numéros SV -> « Shiny » ; Destinées Occultes (sm115) numéros SV -> « Shiny ». AR, Gold et Alt viennent de la rareté (champ rarity de la carte, ou cache de rareté .cache/cards_rarity_cache.json rempli depuis Santé des données) : Illustration rare -> AR, Hyper rare -> Gold, « Special illustration rare » / « Illustration spéciale rare » (libellés TCGdex certains seulement, classe « sir ») -> Alt ; jamais devinés (ni par numéro ni par nom : sans rareté connue ou avec un libellé incertain, aucun mot), jamais répétés si le mot est déjà dans le nom ou le titre. Exemple : « Carte Pokémon - Dracaufeu-ex Alt 183/165 - 151 - FR ». Même abréviation dans la première ligne de la description et dans la ligne de groupe des annonces à plusieurs cartes (« Cartes Alt dans ce lot : … »). Quand le titre dépasse 100 caractères, « Alt » est conservé en dernier avec les autres abréviations. « FA » (accord du 15/10/2026) : rareté TCGdex « Ultra Rare » pour les Pokémon ex, EX, V et GX et les cartes Dresseur / Supporter (sous-type lu dans le suffixe TCGdex, sinon dans la fin du nom : « …-ex », « … V », « … GX »). Les Ultra Rare VMAX et VSTAR (et tout sous-type inconnu : V-UNION, Énergie…) ne reçoivent RIEN : elles sont listées dans le bilan pour accord (classe « fa_review »). Une carte n’a jamais deux abréviations de rareté : priorité Alt, Gold, AR, FA, puis « Shiny » seul s’il n’y en a aucune autre (ex. une Ultra Rare ex de Destinées de Paldea numéro 92 à 223 porte « FA », pas « Shiny »). L’ancien mot « ur » n’existe plus : une rareté propre « Ultra Rare » donne « FA » ou rien. Rien n’est ajouté pour Secret / Secrète ni Alternate / Alternative (séries Épée et Bouclier notamment) : elles sont listées dans le bilan de rareté.
+Placement : les mots courts se placent AVANT le numéro, dans le titre et dans la première ligne de la description : « Carte Pokémon - Courrousinge Shiny 171/091 - Destinées de Paldea - FR ». Les mots-clés de fin de description (tags) sont inchangés. Pas de doublon : un mot déjà présent n’est pas répété (mot entier, sans accents ni casse).
+Limite de 100 caractères (MAX_TITLE_LENGTH) : si le titre dépasse, on essaie dans l’ordre (1) tout, (2) « Pokémon » à la place de « Carte Pokémon », puis les mots retirés un à un en gardant les abréviations en dernier ; jamais de coupure en plein mot, et la description garde toujours tous les mots. Sur tout le stock le titre le plus long fait 89 caractères (aucun au-dessus de 100).
+Annonces à plusieurs cartes : le format du titre ne change pas ; la description reçoit une ligne par groupe de mots, par exemple « Cartes Shiny dans ce lot : Courrousinge Shiny 171/091 ».
+Numéros imprimés (15/10/2026) : full_card_number() complète à 3 chiffres les numéros des extensions sv / swsh / me / cel25 (« 66 » devient « 066 ») et affiche le total imprimé de l’extension (« 171/091 »), calculé par l’identifiant TCGdex de la carte dans sets_reference.json. Pas de total pour les cartes japonaises ; les sous-ensembles ont leur propre total (SUBSET_TOTALS : Trainer Gallery 30, Galarian Gallery 70, Shiny Vault 122 et 94, Radiant Collection 32). sets_reference.json a été vérifié extension par extension : 26 totaux corrigés (dont Destinées de Paldea 198 -> 91), 7 extensions ajoutées, 50 confirmées, 44 non vérifiées laissées telles quelles (voir verification_totaux.csv). Effets à connaître : 848 des 1385 cartes du stock changent de numéro affiché ; une recherche « 171/198 » ne trouve plus ces cartes ; l’appartenance au Drop repose sur card_uid et n’est pas touchée.
+Récupération de la rareté (Santé des données, choix « 🏷️ Rareté des cartes ») : bouton « Récupérer la rareté des cartes du Drop » (option : inclure le reste du stock). L’application interroge TCGdex (https://api.tcgdex.net/v2/fr/cards/{id}), une carte par requête, 0,25 s entre deux requêtes, par lots de 6 s avec barre de progression, bouton Annuler et reprise (les cartes déjà traitées ne sont pas redemandées). Arrêt après 5 erreurs réseau de suite. Résultat gardé dans .cache/cards_rarity_cache.json (sauvegarde avant écriture) et journal logs/rarity_fetch_journal.jsonl ; data.json et vinted_drops.json ne sont jamais modifiés. Classement : Illustration rare -> AR, Hyper rare -> Gold, Illustration spéciale rare -> Alt, Shiny -> Shiny (automatiques ; l’écran affiche le nombre de cartes du Drop qui reçoivent « Alt ») ; Ultra rare ex / EX / V / GX / Dresseur -> FA (automatique ; compteur « FA » et tableau des cartes « Ultra Rare » du Drop avec la décision « FA appliqué » ou « À valider (rien ajouté) ») ; Ultra rare VMAX / VSTAR et cas ambigus (régional, promo…) sont listés sans mot ajouté tant que l’accord n’est pas donné ; Secrète et Alternative sont comptées ET listées (volet « Secrètes / Alternatives »), sans rien ajouter. Fichiers : services/card_rarity_service.py, ui/pages/rarity_fetch.py.
+
+Textes d’annonces : stockage, ancien format, régénération (15/10/2026) :
+diagnostic : titre, description et prix ne sont ENREGISTRÉS NULLE PART (ni data.json, ni vinted_drops.json, ni les sessions d’analyse) ; ils sont recalculés à l’affichage par services/vinted_listing_service.py et gardés dans la session du navigateur (champs de l’étape 4 + « ombre » LISTING_TEXT_SHADOW_KEY). Un ancien texte (« Courrousinge 171/198 … Shiny Chromatique ») ne survivait donc que dans une session de navigateur ouverte avant le changement de règles (la signature de sélection ne contient ni la rareté ni l’extension : elle ne change pas) et dans le brouillon / l’annonce déjà publié(e) sur Vinted, que l’application ne peut pas modifier ;
+correctif de _sync_listing_text : un texte est « non modifié » s’il est identique à la dernière génération vue OU à ce que produisait l’ancien générateur (services/listing_legacy, copie figée : generator.py, keyword_rules.py, sets_reference_legacy.json avec les anciens totaux) ; il suit alors les règles actuelles, y compris au retour sur l’écran (avant, la valeur restaurée de l’ombre gardait l’ancien texte). Un texte différent de l’ancien ET du nouveau générateur est considéré comme modifié à la main et n’est jamais écrasé. Une nouvelle annonce (nouvelle sélection) est toujours générée avec les règles actuelles ;
+à partir de maintenant : au clic « ✓ Brouillon créé », le texte réellement utilisé est mémorisé dans vinted_drops.json, clé du Drop listing_texts[recognition_group_id] = {title, description, origin auto/manual/regenerated, manual (modifié à la main), state, saved_at, rules, card_uids, listing_type} (même fonction de sauvegarde, donc synchro Cloud) ; pour les brouillons déjà créés rien n’était mémorisé : l’ancien texte est SUPPOSÉ égal à la sortie de l’ancien générateur (signalé « ancien texte supposé » dans l’aperçu) ;
+témoin : dans la ligne « ⋯ Plus : … » sous « Brouillon créé », « ⚠ Texte ancien format » (texte affiché = ancien générateur), « ✎ Texte modifié à la main » (texte affiché ≠ règles actuelles) ou « ⚠ Brouillon Vinted à mettre à jour » (annonce dans la liste Vinted non traitée) ;
+bouton « Régénérer les titres et descriptions avec les règles actuelles » (menu « ⋯ Plus », étape 4) : ouvre une boîte avec la barre « Analyse des textes · Annonce X / N · reste environ … » puis l’aperçu (nombre d’annonces par catégorie, 5 exemples titre avant → après, brouillons d’abord) ; rien n’est écrit tant que la case « J’ai compris : je mettrai ces brouillons Vinted à jour à la main » n’est pas cochée et que « Confirmer et écrire » n’est pas cliqué. Portée : annonces du Drop affiché. « Brouillon créé » sans texte modifié à la main : enregistrement régénéré + ajout à la liste Vinted (« Brouillon Vinted à mettre à jour ») ; annonces EN LIGNE : jamais modifiées dans l’application, ajoutées à la liste (« Annonce en ligne à mettre à jour ») si le titre actuel diffère du titre enregistré (ou de l’ancien titre supposé) ; « à préparer » : rien à écrire, le texte est recalculé à l’ouverture ; texte modifié à la main : laissé tel quel ; vendues / statut mixte : ignorées. Prix, photos, statuts, ordre et cartes ne changent jamais. Écriture : sauvegarde vinted_drops.json.backup_<date>_regeneration_textes dans backups/, enregistrement des clés listing_texts et vinted_updates du Drop par save_vinted_drops, journal logs/listing_text_regeneration_journal.jsonl (une ligne par annonce, avec l’état d’avant) ; « ↩️ Annuler » (volet « Journal et annulation » de la boîte) remet l’état d’avant seulement si le texte n’a pas changé depuis ; une annonce modifiée entre l’aperçu et la confirmation est laissée telle quelle ;
+liste « à mettre à jour sur Vinted » : Santé des données → « 📝 Annonces en ligne à mettre à jour (N) » affiche d’abord « Textes régénérés avec les règles actuelles » (libellé Brouillon Vinted / Annonce en ligne, titre avant et après, boutons Copier, « ✔️ Marquer comme mis à jour » qui renseigne done_at dans drop[vinted_updates]), puis la liste historique des annonces en ligne dont l’extension a été corrigée ; le compteur additionne les deux ;
+technique : services/listing_text_service.py (sans Streamlit : text_state, build_plan, apply_plan, undo_batch, pending_updates, mark_update_done) ; ui/pages/vinted_listings.py (_sync_listing_text, _remember_draft_text, _regen_entries, _render_regen_panel, _regen_dialog, _text_witness_label) ; ui/pages/extension_queue.py (_render_text_updates) ; phase « textes » dans services/analysis_progress.py ; tests : tests/test_listing_text_service.py, tests/test_listing_regen_ui.py.
 
 44. Preview des annonces
 
@@ -993,7 +1086,11 @@ description ;
 boutons Copier ;
 navigation précédente/suivante.
 
+L’aperçu utilise la même mise en page « une page » (en-tête avec ← →, trois colonnes) ; les résultats de recherche d’une carte défilent dans leur zone. Il reste en lecture seule. L’écran de création (étape 4) a désormais lui aussi ses flèches ‹ › entre les annonces à créer (voir section 43) ; l’aperçu garde ses boutons précédent/suivant, sa recherche et « Quitter ».
+
 Pour un Drop déjà lancé, l’aperçu reste strictement non destructif.
+
+Les photos analysées avant le lancement restent protégées : une analyse sans périmètre de réassort (restock_scope absent) continue d’être bloquée à la ré-analyse (_legacy_analysis_blocked), et un brouillon publié ne la débloque pas.
 
 45. Drop Rentrée
 
@@ -1011,6 +1108,10 @@ Deux cartes du Drop n’avaient réellement pas été photographiées :
 
 Tour de Brouillage 261/78 ;
 Relicanth SH8.
+
+Avec les nouvelles règles (abréviations courtes), 10 des 417 références du Drop Rentrée résolues reçoivent le mot « Shiny » (36 dans tout le stock) ; aucune ne reçoit AR, Gold, Alt ni FA tant que la rareté n’est pas récupérée. 13 cartes du Drop n’ont pas d’identifiant TCGdex et ne peuvent pas être interrogées. Le numéro de Destinées de Paldea s’affiche maintenant avec le bon total imprimé (« /091 » pour les shiny, 91 cartes dans la liste principale).
+
+Pour un Drop lancé comme Drop Rentrée, le bandeau de réassort reste affiché au-dessus de la zone ; les brouillons de réassort sont dans le menu « Brouillons à publier (N) » de l’en-tête de l’étape 4.
 46. Étape 5 — Analyse des Drops
 
 Cette étape est devenue un véritable dashboard analytique.
@@ -1058,9 +1159,11 @@ Périodes :
 72 h ;
 7 jours ;
 Tout.
+
+Origine des courbes (16/10/2026) : la date de départ est la PREMIÈRE mise en ligne du Drop (la plus ancienne online_at d’une carte en ligne ou vendue ; à défaut, drop_launched_at ; aucune date inventée). Les séries mises en ligne plus tard apparaissent à leur propre date : le taux d’écoulement des courbes, des checkpoints (H+1 … J+30), des milestones et de la comparaison a pour dénominateur les cartes DÉJÀ en ligne à cet instant (chaque carte compte à partir de SON online_at ; brouillons et cartes à traiter ne comptent pas). Un Drop sans aucune online_at garde l’ancien dénominateur (total du Drop). Le taux d’écoulement global affiché dans les KPI et la barre « Progression du stock » reste vendues / total du Drop (inchangé). L’en-tête du Drop ajoute « 1re mise en ligne le JJ/MM/AAAA » quand elle tombe un autre jour que le lancement. Sur le Drop Rentrée, l’origine reste le 27/08/2026 17:27:35 ; les repères « Réassort » (cartes ajoutées après le lancement) sont inchangés. Fonctions : _analytics_origin, _analytics_total_cards_at, services.drop_online_marking_service.drop_first_online_at / drop_cards_online_by.
 49. Milestones Drop
 
-PokéStock mesure le temps après lancement pour atteindre :
+PokéStock mesure le temps après la première mise en ligne du Drop (le lancement si aucune date de mise en ligne n’est connue) pour atteindre :
 
 première vente ;
 50 € ;
@@ -1106,6 +1209,7 @@ enseignements calculés automatiquement.
 Le menu Estimations sert à analyser des opportunités d’achat avant qu’elles entrent réellement dans ton stock.
 
 C’est actuellement le prochain gros chantier Estimations V2.
+Mise à jour d’octobre 2026 (état relu dans le code le 13/10/2026) : ce n’est plus le prochain gros chantier. Performance, préchargement, défilement progressif et images ont été traités ; l’état point par point est en section 91.
 
 Mais beaucoup de fonctions existent déjà.
 
@@ -1239,6 +1343,7 @@ Pour Vinted, tes données utilisent actuellement :
 55 %
 
 mais la valeur fallback dans le code était encore 60 % lors du dernier audit.
+Mise à jour (relue dans le code le 13/10/2026) : le fallback est maintenant 55 % (DEFAULT_ESTIMATION_SOURCES dans services/estimations_service.py : Vinted 55, Main propre 65, Brocante 55). L’offre préremplie = cote totale × taux de la source (automatic_offer_amount). Elle n’est recalculée que tant que le mode d’offre est « auto » et que l’offre n’est pas envoyée (estimation_totals) : une offre personnalisée (mode « custom ») n’est donc pas écrasée. Lu dans le code, pas vérifié à l’écran.
 
 Le comportement visé dans Estimations V2 est :
 
@@ -1248,7 +1353,7 @@ tout en laissant l’offre totalement modifiable.
 
 Une offre personnalisée ne doit ensuite plus être écrasée automatiquement.
 
-60. Bug actuel du % cote
+60. Bug du % cote (corrigé)
 
 L’audit a trouvé précisément pourquoi certains pourcentages étaient faux.
 
@@ -1273,6 +1378,7 @@ alors que le vrai pourcentage demandé est :
 87 / 160,50 = 54,2 %
 
 C’est un des bugs prévus pour Estimations V2.
+Mise à jour (relue dans le code le 13/10/2026) : ce bug n’existe plus dans le code. Le % cote vient d’un seul calcul, price_to_cote_pct(prix demandé, cote totale) dans services/estimations_service.py (estimation_totals → real_pct), repris tel quel par ui/pages/estimations.py (cartes, détail, analyse, score). Le prix demandé n’est plus additionné au coût du bulk : la valeur de revente du bulk entre dans la cote totale, pas dans le prix. L’exemple ci-dessus recalculé sur une estimation de test en mémoire (prix demandé 87 €, une carte à 150 €, bulk de 10,50 € de valeur de revente) donne 160,50 € de cote et 54,2 %. Le texte qui précède décrit l’état au moment de l’audit.
 
 61. Comparer les estimations
 
@@ -1286,6 +1392,7 @@ tri ;
 état de session.
 
 Elle n’a pas de dépendance métier persistante, donc elle pourra être retirée proprement.
+Mise à jour (relue dans le code le 13/10/2026) : la fonction a été retirée. ui/pages/estimations.py ne contient plus ni renderer, ni sélection, ni état de session de comparaison (aucune occurrence dans les .py hors backups).
 
 62. Estimation → Lot
 
@@ -1310,6 +1417,7 @@ bulk V/ex mal représenté ;
 estimation conservée après transfert.
 
 Cela sera au cœur d’Estimations V2 Passe 2.
+Mise à jour (relue dans le code le 13/10/2026) : partiellement fait. Le lot créé reçoit maintenant from_estimation_uid, et le bouton « Créer un vrai lot » est désactivé quand l’estimation a déjà un created_lot_uid (garde anti-doublon). Mais le transfert n’est pas transactionnel (sd_func enregistre le lot, puis save_estimations_func enregistre l’estimation : deux sauvegardes séparées), les entrées bulk V/ex ne sont pas reprises dans le lot, et « Supprimer » supprime l’estimation sans condition. La section 63 reste donc à faire.
 
 63. Futur transfert transactionnel Estimation → Lot
 
@@ -1345,6 +1453,7 @@ le compteur diminue ;
 à 0, le rappel disparaît.
 
 Pas de cartes fictives.
+Mise à jour (relue dans le code le 13/10/2026) : pas fait. « Créer un vrai lot » ne reprend que les cartes hors bulk et n’enregistre aucune métadonnée de bulk restant à renseigner.
 
 65. Images personnalisées
 
@@ -1415,6 +1524,21 @@ bénéfice ;
 graphiques ;
 objectifs ;
 profils de mois.
+Mise à jour d’octobre 2026 : le menu est découpé en 3 sous-menus (onglets soulignés, une seule vue calculée à la fois).
+Mensuel : bilan du mois, évolution, profils des mois, objectifs du mois, records.
+Performance : CA, bénéfice réalisé et ROI de l’année ; courbe CA/bénéfice par mois ; camembert des canaux (les ventes initiales forment un canal « Ventes initiales ») ; lots les plus rentables ; lots à rembourser ; rotation du stock ; délai de remboursement ; détail par canal dans un expander.
+Années précédentes (Performance, expander en bas de la vue, ajouté le 13/10/2026) : pour chaque année archivée, CA, bénéfice réalisé et cartes vendues de l’année (calculés depuis les ventes, comme le reste de Performance) puis, par canal, le total archivé du compteur (voir section 75). Sans année archivée : « Aucune année archivée pour l’instant. Les compteurs de AAAA seront archivés au 1er janvier AAAA+1 » (année en cours, calculée à l’affichage). Cartes blanches arrondies avec accent violet, une seule colonne sur mobile. Statistiques déclenche aussi le reset annuel des compteurs à son chargement (render_statistics_page cherche counters.json à côté de lots_archives.json ; si le fichier n’existe pas, rien n’est fait).
+Passage à une nouvelle année (audité le 14/10/2026 avec une date simulée, tests/test_statistics_year_rollover.py) : dans Performance, l’année en cours est toujours proposée dans le sélecteur et choisie par défaut, même sans vente. Une année sans vente affiche « Aucune vente enregistrée en AAAA pour le moment » (l’année précédente reste consultable) puis seulement la rotation, le délai de remboursement et « Années précédentes » (plus de « N/A » ni de graphiques vides). Mensuel et Prévisions n’ont pas eu besoin de changement : les séries de mois, la moyenne glissante, le bénéfice cumulé et les mois consécutifs enjambent le 1er janvier, les objectifs annuels 2027 restent à définir (« Définir ») sans reprendre ceux de 2026. render_statistics_page accepte un paramètre facultatif now (utilisé uniquement par les tests pour simuler la date ; l’appli ne le passe pas).
+Prévisions : objectif long terme (1 500 € de bénéfice moyen par mois, date limite par défaut 31/12/2028, modifiable) avec moyenne glissante sur 12 mois (ou les mois disponibles), trajectoire requise, projection « si la tendance continue » (arrêtée à 0 €), statut (sur la bonne voie / à accélérer / en retard) ; paliers 500, 1 000, 1 500, 2 000, 3 000 € ; fin d’année estimée ; objectifs annuels (CA, bénéfice, cartes) ; bénéfice cumulé ; série de mois au-dessus de l’objectif.
+Un palier n’est « atteint » que si la moyenne porte sur au moins 6 mois complets.
+Les objectifs sont stockés dans monthly_goals.json : un bloc par mois (clé « AAAA-MM » avec ca_target, qty_target, benef_target, auto_generated et parfois based_on), annual_goals (par année : ca_target, benef_target, qty_target) et long_term_goal (monthly_benef_target, deadline facultative). Dans la copie lue le 13/10/2026, long_term_goal n’existait pas encore dans le fichier : les valeurs par défaut s’appliquaient (1 500 € par mois, 31/12/2028).
+Rotation du stock = CA de la période ÷ valeur moyenne du stock (moyenne pondérée dans le temps, courbe de stock corrigée), annualisée ; calculée depuis le début de l’historique de stock (07/06/2026).
+Détails de la rotation (compute_stock_rotation) : le CA est celui des ventes datées dans la période (les ventes initiales, datées de mars, tombent avant le début de l’historique de stock) ; annualisation = rotation de la période × 365 ÷ nombre de jours (DAYS_PER_YEAR) ; en dessous de 30 jours de période (ROTATION_MIN_DAYS) la valeur est marquée « indicatif » ; la jauge va de 0 à 4× (ROTATION_SCALE_MAX) ; avec moins de 2 points d’historique de stock : « Pas assez de données ».
+Délai de remboursement = jours entre la création d’un lot et la vente où ses ventes cumulées couvrent son prix d’achat. Exclus : lots saisis en bloc les 16-18 mars 2026, ventes initiales, lot Divers, lots système, lots collection.
+Détails du délai (compute_lot_payback) : coût = prix d’achat effectif du lot (effective_purchase_price de logic.py) ; seules les ventes de cartes entrent dans le cumul (ni ventes initiales, ni hors stock) ; délai = 0 si la vente qui rembourse est datée avant la création du lot ; moyenne simple et médiane sur les lots remboursés seulement ; moins de 3 lots remboursés (PAYBACK_MIN_LOTS) : « Pas assez de données ». Sont aussi exclus les lots sans date de création ou sans prix d’achat (le critère est _is_payback_eligible_lot : ni système, ni is_mixte, ni is_divers). Sous les chiffres, les lots non remboursés les plus anciens sont listés (PAYBACK_PENDING_COUNT = 3), seulement si leur reste à rembourser atteint SLOW_LOT_MIN_VALUE = 20 €.
+Les mois de janvier, février et mars 2026 sont estimés : l’historique saisi en mars (16-17 mars) est réparti à parts égales sur les trois mois (constantes HISTORY_IMPORT_*), marqués d’un « * ».
+Les chiffres de Statistiques incluent les ventes initiales (voir section 92).
+Repères code, pièges et tests de Statistiques : sections 95 à 97.
 70. Comparaison mensuelle équitable
 
 Pour le mois en cours, PokéStock ne compare plus un mois partiel à un mois complet.
@@ -1518,6 +1642,17 @@ La logique a été corrigée pour commencer au :
 
 et normaliser les anciens alias du canal.
 
+Fonctionnement actuel (octobre 2026, relu dans ui/pages/counters.py le 13/10/2026) : Main propre & Brocante utilise un sélecteur d’année et compte les ventes de l’année choisie, sans CA de départ (même si counters.json contient un init_ca pour ce compteur, il n’est pas utilisé). Dexify, Pokédeal et ChoppeTaCarte comptent depuis une date de départ, avec un CA de départ saisi à la main (init_ca) ajouté au CA des ventes. Ces trois canaux ont aussi un sélecteur « Année affichée » qui remet la date de départ au 1er janvier de l’année choisie (l’init_ca est conservé). Attention : le bouton « Sauvegarder les données de départ » enregistre les init_ca ET remet la date de départ à aujourd’hui pour les trois canaux, donc les ventes antérieures ne comptent plus. Le champ reset_mode est seulement une étiquette (aucun code ne le lit) : le reset annuel ci-dessous s’applique à tous les compteurs, quelle que soit cette étiquette. Les compteurs ignorent les ventes initiales (is_lot_sale) et les bénéfices d’échange : leurs CA peuvent donc être plus bas que le CA de Statistiques.
+Reset annuel automatique (ajouté le 13/10/2026) :
+Au premier chargement de la page Compteurs ou de Statistiques dans une nouvelle année civile, ensure_yearly_reset (services/counters_archive_service.py) archive l’année écoulée puis remet les compteurs à zéro, en une seule écriture de counters.json (safe_write_json_synced). Si l’écriture échoue, rien ne change (ni archive ni reset) et la page affiche un avertissement.
+Déclencheur : le marqueur _archive.last_reset_year, pas le champ year (qui est le sélecteur d’affichage). Au premier passage il est posé à l’année en cours sans rien archiver (il n’y avait pas de marqueur dans counters.json avant). Ensuite le reset ne fait rien tant que le marqueur vaut l’année en cours. Si l’appli n’est pas ouverte pendant plusieurs années, chaque année manquée est archivée dans la même écriture ; une archive déjà présente n’est jamais écrasée.
+Reset d’un compteur : init_ca à 0 (pour Main propre & Brocante, seulement si la clé existe), start_date au 01/01 de la nouvelle année, start_datetime (s’il existe) à AAAA-01-01 sans « T », year à la nouvelle année. Le start_datetime est indispensable : tant qu’il contient un « T », il prime sur start_date dans le calcul (counters.py), donc l’ancien horodatage continuerait de compter les ventes de l’année passée.
+Où est stockée l’archive : dans counters.json, sous la clé _archive : last_reset_year et years. years["2026"] contient reset_on (« 2027-01-01 », date théorique du reset, sans heure) et channels (main_brocante, dexify, pokedeal, choppetacarte) avec label, ca, ca_ventes, nb, init_ca et start_date de l’année passée. La clé voyage donc avec counters.json (synchro cloud, sauvegarde dans backups\). counters.py accède aux clés par leur nom et aucun autre code ne lit ce fichier : _archive n’est jamais prise pour un canal.
+Calcul de l’archive : par fenêtre de dates du 01/01 au 31/12 de l’année écoulée, avec les mêmes règles de comptage que les cartes (ventes initiales et bénéfices d’échange ignorés ; alias de canaux normalisés). Canaux Vinted : ca = ca_ventes + init_ca (total affiché par la carte), fenêtre depuis la date de départ si elle est postérieure au 01/01. Main propre & Brocante : les ventes de l’année civile, sans CA de départ (init_ca est archivé mais non compté, comme à l’affichage). collect_channel_counter_totals a pour cela un paramètre optionnel end_date (par défaut sans limite).
+Limite : l’archive est un instantané pris au premier chargement de la nouvelle année. Une vente datée de l’année passée mais saisie ou annulée ensuite ne la modifie pas (les chiffres annuels de Statistiques, eux, sont toujours recalculés depuis les ventes).
+Où la consulter : Statistiques > Performance > Années précédentes (section 69). La page Compteurs affiche un message quand une année vient d’être archivée.
+Le sélecteur d’année de Main propre & Brocante est inchangé. Relu dans le code : sur les canaux Vinted qui ont un start_datetime avec « T » (Dexify et Pokédeal dans la copie du 13/10/2026), le sélecteur « Année affichée » change start_date mais le calcul continue d’utiliser start_datetime ; non modifié, non testé dans l’interface.
+Tests : tests/test_counters_archive.py (date du jour simulée, fixtures temporaires) : première initialisation, passage 2026 → 2027, appels répétés, saut de deux ans, échec d’écriture, rendu de l’expander vide et rempli.
 76. 📈 Marché
 
 Une page Marché existe dans la navigation Analyse.
@@ -1621,6 +1756,8 @@ Certaines URL TCGDex doivent être normalisées vers des chemins comme :
 /high.webp
 
 pour afficher correctement l’image.
+
+Clés du cache (cards_cache.json) : la recherche locale compare des clés « compactes » (minuscules, sans accents ni ponctuation ni espaces). Depuis le 09/06/2026 la normalisation des requêtes garde les espaces, alors que le cache est resté en clés compactes : une carte au nom composé (« Sorcilence VMAX ») n’était plus trouvée localement, la recherche passait au réseau et la carte était ajoutée sans extension. Corrigé dans services/card_cache_service.py par compact_name_key() (services/card_extension_service.py), appliqué des deux côtés de la comparaison. Voir section 98.
 
 85. Cloud Sync
 
@@ -1810,19 +1947,107 @@ performance.
 
 Il reste surtout le test automatisé complet isolé que nous venons de préparer avant de la considérer définitivement gelée.
 
-🟠 Estimations : prochain gros chantier
+🟠 Estimations : en grande partie traité (état relu dans le code le 13/10/2026)
 
-La base est riche, mais V2 doit corriger :
+La base est riche. Statut des points de V2, relu dans le code (pas testé à l’écran) :
 
-% cote ;
-fluidité/reruns ;
-curseur ;
-image custom centrale ;
-offre Vinted automatique ;
-suppression Comparaison ;
-transfert Estimation → Lot ;
-bulk V/ex après transfert ;
-suppression transactionnelle de l’estimation.
+% cote : corrigé (section 60) ;
+fluidité/reruns : traité en octobre 2026 (préchargement, défilement progressif, images, caches ; tests tests/test_estimations_preload.py, _progressive_cards.py, _image_prefetch.py, _thumb_loading.py, _perf_caches.py, _choisir_background.py) ; le ressenti réel est à valider par toi ;
+curseur : non vérifiable dans le code ; une passe « pause à la frappe du nom » a été faite le 12/10/2026 (sauvegarde estimations.py.bak_20261012_2010_avant_pause_frappe_nom_vignettes) ;
+image custom centrale : en place (custom_card_image_service, register_custom_card_image avec override_official) ;
+offre Vinted automatique : en place (section 59) ;
+suppression Comparaison : faite (section 61) ;
+transfert Estimation → Lot : partiel (from_estimation_uid et garde anti-doublon, mais pas transactionnel, section 62) ;
+bulk V/ex après transfert : pas fait (section 64) ;
+suppression transactionnelle de l’estimation : pas faite (le bouton Supprimer supprime sans condition).
+🟢 Statistiques et stock (octobre 2026)
+
+Sous-menus Mensuel / Performance / Prévisions, indicateurs de rotation et de délai de remboursement, ventes initiales intégrées, double comptage des cartes stockées corrigé (13/10/2026), définition unique de « cartes vendues ». Voir sections 69, 92 et 95 à 97.
+Reste à traiter : Historique et Wrapped (section 94).
 En une phrase
 
 PokéStock est passé d’un simple gestionnaire de lots Pokémon à un véritable mini-ERP personnel pour ton activité : il suit l’origine et le coût de chaque carte, les ventes, les échanges, les rachats, les brocantes, les Drops Vinted, les estimations, les cotes, les statistiques et toute l’histoire économique du stock, avec une logique commune entre desktop, mobile et Cloud.
+
+92. Définitions métier à ne pas confondre (octobre 2026)
+
+CA et Bénéfice de la barre latérale : calculés par gst() dans logic.py. Le CA additionne toutes les ventes (cartes, ventes initiales et ventes hors stock). Le « Bénéfice » est une trésorerie nette : CA moins le prix d’achat de tous les lots, stock invendu inclus. Le calcul utilise le champ prix_achat (pas prix_achat_reel : seul « Lot master set 151 » diffère, 576,32 € contre 1 600 €) et le CA exclut les bénéfices d’échange (is_exchange_benefit). Ordres de grandeur au 13/10/2026 : CA 8 966,47 € dans Statistiques et 8 966,48 € dans gst() (arrondi), bénéfice gst() 2 227,81 €, bénéfice réalisé de Statistiques 4 977,59 €.
+Affichage de la barre latérale (depuis le 14/10/2026) : En stock et Valeur stock restent des totaux, jamais remis à zéro. Vendues, CA et « Bénéfice réalisé » affichent d’abord le chiffre de l’ANNÉE CIVILE en cours (année en violet clair à côté du libellé, ex. « CA · 2026 ») : il repart à zéro en janvier, sans reset ni archive, car il est recalculé depuis les ventes par fenêtre de dates du 01/01 au 31/12 (services/sidebar_stats_service.py). Dessous, en petit : « Total : X » depuis le début (Vendues 688, CA 8 966,48 € au 13/10/2026, bénéfice réalisé 4 977,59 €). Le bénéfice principal est le bénéfice réalisé (même définition que Statistiques, ventes initiales incluses, via _collect_statistics_data) ; la « Trésorerie nette » (ancien « Bénéfice » de la barre latérale, 2 227,81 € au 13/10/2026) est en petit dessous : CA de l’année moins le prix d’achat (prix_achat) des lots CRÉÉS dans l’année (date lue comme dans Statistiques : created, created_at, date_achat, date), avec « · total X » ajouté seulement quand il diffère du chiffre de l’année. Les lots saisis en bloc les 16-18 mars 2026 comptent donc dans 2026 ; un lot sans date lisible n’entre dans aucune année (il reste dans le total). Une année sans vente affiche 0 ; si le bénéfice réalisé ne peut pas être calculé il s’affiche « — ». Cartes : fond sombre arrondi, compactes (ui/sidebar.py : render_sidebar_period_stat et SIDEBAR_PERIOD_CSS) ; le bloc est dans app.py (zone ps_sidebar_stats_block).
+Bénéfice réalisé de Statistiques : chaque vente moins sa part du coût d’achat du lot (le stock invendu ne compte pas). Les deux chiffres sont volontairement différents ; une mention l’explique dans la page Statistiques.
+Ventes initiales : lignes de ventes avec card_name « Vente initiale » et is_lot_sale. Ce sont des montants de cartes déjà vendues avant l’enregistrement du lot (9 lignes, 2 085,60 €, saisies le 16-17 mars 2026), PAS des ventes de lots entiers. Elles comptent dans le CA, le bénéfice, le ROI et le remboursement des lots, mais pas dans les transactions, le panier moyen, le nombre de cartes vendues ni la « plus grosse transaction ». Vérifié sur la copie de données du 13/10/2026 : 9 lignes (une par lot, 9 lots différents), 2 085,60 €, datées des 16 et 17 mars 2026. Elles sont stockées dans lot["ventes"] avec les 4 ventes hors stock (25,40 €) et 10 lignes de bénéfice d’échange (is_exchange_benefit, exclues du CA). Elles sont ignorées par les compteurs, l’Historique et Wrapped.
+Historique saisi en bloc : l’application n’existait pas avant mars 2026 ; tout le passé a été saisi les 16-18 mars (10 lots créés ces jours-là : 8 le 16, 1 le 17, 1 le 18 ; constante HISTORY_BULK_LOT_DAYS). Les dates ne sont donc pas fiables avant cette date. L’historique de la valeur du stock ne commence que le 07/06/2026.
+Cartes stockées : une carte mise de côté reste dans son lot d’origine (stored_quantity, storage_entries) et une copie est ajoutée au lot « Stockage ». Elle ne doit compter qu’une fois dans le stock : reste = max(quantité − vendues − échangées − stockées, 0), comme card_available_qty. La correction est appliquée dans gst() (logic.py) et dans _stock_value_from_state (services/stock_history_service.py), au 13/10/2026 (constante STOCK_DOUBLE_COUNT_FIX_AT). Résultat ce jour-là : 919 cartes en stock pour 6 656,39 €. La courbe de valeur du stock passée est corrigée à l’affichage seulement (corrected_stock_history_points, utilisé par home.py et Statistiques ; stock_value_history.json n’est pas modifié).
+Lots collection (is_mixte) : ils ne sont pas à rembourser par les ventes ; Statistiques les affiche à part (« Lots collection conservés »).
+Cartes vendues : définition unique = cartes physiques sorties du stock par vente (688 au 13/10/2026). Les échanges donnés, les ventes hors stock et les ventes initiales sont exclus. Dans le code : gst() soustrait _exchange_given_quantity (sold_entries is_exchange) ; Statistiques utilise _physical_sale_quantity. Historique et Wrapped affichent encore 697 (non corrigé, décision de laisser tel quel, commentaire dans ui/pages/history.py) : ils comptent des lignes de vente, donc 688 + 4 ventes hors stock + 5 lignes d’allocation d’une carte reçue en échange (la quantité entière est reprise sur chaque ligne), selon l’analyse du 13/10/2026.
+Lots à rembourser (Statistiques > Performance) : les lots système (Trade, Stockage, Collection) n’y comptent pas (_is_system_lot) et les lots collection (is_mixte) sont affichés à part. Le lot « 🗂️ Divers » (is_divers) COMPTE dans cet indicateur (coût 127,26 €, déjà remboursé au 13/10/2026) : il n’est exclu que du délai de remboursement (_is_payback_eligible_lot).
+
+93. Règles de travail avec Claude Code
+
+Claude Code écrit directement dans le dossier du projet, sur la branche main.
+Pas de commit ni de push : l’utilisateur commit lui-même via GitHub Desktop.
+Ne jamais commiter backups\, logs\, _a_supprimer\ ni les JSON métier (data.json, lots_archives.json, monthly_goals.json, counters.json, custom_card_images.json, lot_estimations.json, caches, stock_value_history.json).
+Ne pas toucher à app.py ni aux JSON sans demande explicite ; sauvegarde de chaque fichier modifié dans backups\ avant modification ; fins de ligne CRLF/BOM préservées.
+Tests sur fixtures temporaires uniquement (jamais les vraies données, jamais de push cloud de test) ; md5 des JSON avant et après.
+Rapports en français, avec un résumé de quelques lignes au début, PASS/FAIL, en séparant « testé » de « à valider visuellement ».
+Pour le design : une image fixe de la proposition, pas de maquette interactive.
+Vérifier dans le dossier plutôt que deviner.
+
+94. Points connus non traités (octobre 2026)
+
+Historique et Wrapped ne comptent pas les ventes initiales (CA et bénéfice plus bas) et affichent 697 cartes vendues.
+Le dépôt GitHub est public et contient des JSON métier.
+Menus à revoir : Historique, Lot, Vente.
+Estimations : la section 91 a été remise à jour le 13/10/2026 (état relu dans le code). Restent à faire : transfert Estimation → Lot transactionnel, bulk V/ex après transfert, suppression transactionnelle (sections 62 à 64).
+Historique et Wrapped ignorent is_lot_sale (ui/pages/history.py, services/wrapped_service.py) : leur CA et leur bénéfice sont plus bas que ceux de Statistiques.
+Le .gitignore ignore backups/, logs/, .env et *.bak, mais pas data.json, lots_archives.json et les autres JSON métier, ni _a_supprimer/ : ils peuvent apparaître dans GitHub Desktop et sont à décocher à la main. Non vérifié : ce que le dépôt GitHub contient réellement (il n’est pas lisible depuis le code).
+Courbe de valeur du stock : seuls 2 points de stock_value_history.json (150 points : 102 live, 38 backup, 10 snapshot) ont pu être recalculés à partir de sauvegardes encore présentes ; les autres sont corrigés par estimation. Seules data.json.backup_20260607_002955 et data.json.backup_20260607_004810 subsistent à la racine.
+Compteurs : le reset annuel et la vue « Années précédentes » existent depuis le 13/10/2026 (section 75) ; la première archive (2026) sera créée au premier chargement de 2027.
+
+95. Repères techniques Statistiques et stock (octobre 2026)
+
+Tout Statistiques est dans ui/pages/statistics.py (fins de ligne LF, contrairement à ce fichier-ci qui est en CRLF).
+render_statistics_page(..., stock_history_path="stock_value_history.json") affiche le sélecteur de vue (STATS_VIEWS = Mensuel, Performance, Prévisions ; _sticky_segmented) puis une seule vue : _render_monthly_view, _render_performance_view, _render_forecast_view.
+_collect_statistics_data(cd, ...) construit la liste unique des lignes de vente utilisée par toutes les vues (cartes, ventes initiales, ventes hors stock) ; chaque ligne porte notamment is_lot_sale, is_off_stock, is_system_lot, canal, lot, price, benef, quantity.
+_physical_sale_quantity(row) : définition unique de « cartes vendues » (0 pour une vente hors stock ou initiale). Aides : _is_card_sale, _is_transaction_row, _row_channel, _transaction_key.
+Lots : _is_system_lot, _lot_cost_map, _lot_rows_for, _lot_summary, _collection_lot_names.
+Mois estimés : _spread_history_import avec HISTORY_IMPORT_MONTH ("2026-03"), HISTORY_IMPORT_SPREAD_MONTHS (3), HISTORY_IMPORT_LAST_DAY ("2026-03-17"), HISTORY_ESTIMATED_MARK ("*"). HISTORY_BULK_LOT_DAYS = 16, 17 et 18 mars 2026.
+Performance : compute_stock_rotation (ROTATION_MIN_DAYS = 30, DAYS_PER_YEAR = 365, ROTATION_SCALE_MAX = 4), compute_lot_payback (PAYBACK_MIN_LOTS = 3, PAYBACK_PENDING_COUNT = 3, SLOW_LOT_MIN_VALUE = 20), rendus _rotation_html et _payback_html, INITIAL_SALES_CHANNEL = "Ventes initiales".
+Prévisions : ANNUAL_GOALS_KEY, LONG_TERM_GOAL_KEY, DEFAULT_LONG_TERM_MONTHLY_BENEF = 1500, ROLLING_WINDOW_MONTHS = 12, PROJECTION_MIN_MONTHS = 6, LONG_TERM_DEFAULT_DEADLINE = 31/12/2028, LONG_TERM_MILESTONES = 500, 1000, 1500, 2000, 3000, CUMULATIVE_BENEF_MILESTONE = 10000.
+Courbe du stock : _load_corrected_stock_points (Statistiques) et corrected_stock_history_points (services/stock_history_service.py, aussi utilisé par home.py) corrigent la courbe en mémoire ; STOCK_DOUBLE_COUNT_FIX_AT = "2026-10-13T20:21:30" ; stock_double_count_annotation ajoute la note sur la courbe ; stored_value_at estime la valeur stockée à une date ; record_stock_value (appelé par home.py) enregistre les points « live » dans stock_value_history.json ; la correction du double comptage, elle, n’écrit jamais ce fichier.
+Stock et chiffres de la barre latérale : gst() dans logic.py (mis en cache 30 secondes par @st.cache_data(ttl=30)), card_available_qty, _exchange_given_quantity, effective_purchase_price. gst(year) reçoit l’année civile en paramètre (app.py passe datetime.now().year) : le cache de 30 secondes est donc renouvelé au 1er janvier ; les clés historiques sont les totaux, les clés year_* les chiffres de l’année (sidebar_stats_service). Tests : tests/test_sidebar_stats.py.
+
+96. Pièges rencontrés (octobre 2026)
+
+Lots particuliers, ne pas les confondre : is_mixte = Lot Collection partielle (coût = prix_achat_reel, affiché à part dans « Lots collection conservés ») ; is_divers = « 🗂️ Divers » (aussi is_brocante, compte dans Lots à rembourser, exclu du délai de remboursement) ; lots système = is_trade, is_storage, is_collection_lot, ou nom contenant « trade », « stockage » ou « collection » (_is_system_lot). Conséquence : un lot normal dont le nom contient « collection » serait traité comme un lot système.
+Trois façons de calculer le coût d’un lot existent : gst() utilise prix_achat ; effective_purchase_price (logic.py) utilise prix_achat_reel seulement pour is_mixte ; _lot_cost_map (Statistiques) utilise prix_achat_reel s’il existe. Sur les données du 13/10/2026 seul « Lot master set 151 » a un prix_achat_reel, donc aucun écart en pratique.
+Ventes hors stock : dans le CA et le bénéfice, jamais dans les cartes vendues, les transactions ni les lots (_lot_rows_for les ignore).
+Ventes initiales : dans le CA, le bénéfice, le ROI et le remboursement des lots ; ni transactions, ni panier, ni cartes. Ignorées par Historique, Wrapped et les compteurs.
+Échanges : une carte donnée en échange (sold_entries is_exchange, 0 €) sort du stock mais n’est pas vendue ; ses lignes d’allocation et les is_exchange_benefit sont à ignorer selon l’endroit. Les doublons d’allocation expliquent l’écart 697 / 688 dans Historique et Wrapped.
+Carte stockée : elle existe deux fois dans les données (lot d’origine avec stored_quantity, copie dans « Stockage »). Toute formule de stock doit soustraire stored_quantity.
+Anciennes sauvegardes de data.json manquantes : les points « backup » anciens de la courbe du stock ne peuvent pas tous être recalculés ; la correction se fait alors par estimation (valeur cumulée stockée retranchée).
+Arrondis : le CA vaut 8 966,47 € dans Statistiques et 8 966,48 € dans gst() ; ce n’est pas une erreur de logique.
+Tests : ne jamais viser les vraies données. gst() est mis en cache, un test doit contourner le cache ou travailler sur des fixtures temporaires, et comparer le md5 des JSON avant et après.
+Extensions : un champ set vide n’est pas « N/A » ; ne jamais remplacer une extension déjà renseignée sans confirmation explicite. Une carte du Drop a une copie du set : corriger le stock sans corriger la copie du Drop (ou l’inverse) crée un écart ; passer par apply_corrections(). L’empreinte d’identité (card_identity_fingerprint) inclut le set : après correction, relancer « Mettre à jour l’analyse ».
+
+97. Tests et comment les lancer
+
+Les tests sont dans le dossier tests\ à la racine du projet. Pour Statistiques et le stock : tests/test_statistics_views.py (moyennes glissantes, projection de fin d’année, objectifs stockés, objectif long terme, ventes initiales, rendu des sous-menus, répartition de l’historique de mars, rotation, délai de remboursement, rendu des deux cartes) et tests/test_stock_double_count.py (double comptage, valeur du stock, courbe corrigée, cartes vendues). Voisins utiles : tests/test_inventory_statistics_counters.py, tests/test_monthly_profiles.py, tests/test_month_profile_presentation.py. Estimations : tests/test_estimations_*.py.
+Lancer depuis la racine du projet : python -m pytest tests -q (tout), ou python -m pytest tests/test_statistics_views.py -q (un fichier). Dernier résultat connu : 343 tests passés le 13/10/2026, mesuré sur une copie de travail.
+Ces tests utilisent des fixtures temporaires ; ils ne doivent ni lire ni écrire data.json, lots_archives.json, stock_value_history.json ou monthly_goals.json.
+Extensions manquantes : tests/test_card_extension_source.py (reproduction de la cause, garde-fou, chemins de création, génération des titres, propositions, correction/annulation/journal, annonces en ligne), tests/test_extension_queue_ui.py et tests/test_extension_badge_ui.py (écrans, avec AppTest et fixtures temporaires). Dernier résultat connu le 15/10/2026 sur une copie de travail : 556 tests passés, 3 échecs déjà présents avant ce chantier (tests/test_estimations_add_bar_reset.py ×2, tests/test_estimations_front_helpers.py ×1).
+Mise en page « une page » de l’étape 4 : tests/test_step4_cockpit_layout.py (9 tests AppTest : mêmes widgets et mêmes clés, CSS limité à l’écran et au seuil 720 px de hauteur, mobile inchangé, aperçu en lecture seule, ordre des photos, brouillons). Dernier résultat connu le 15/10/2026 sur une copie de travail : 565 tests passés, mêmes 3 échecs Estimations. La mesure réelle du défilement se fait avec Chromium, pas avec AppTest. Cadre commun : tests/test_step4_redesign.py (mêmes composants du cadre sur grand écran, mobile inchangé, CSS du cadre limité à son marqueur, plus aucune trace de l’ancienne ligne compacte, ⓘ à côté de « Plus » seulement quand le Drop est lancé).
+Mots recherchés des annonces : tests/test_listing_keywords.py (26 tests : bornes 91/92/223/224 de la règle shiny, pas de doublon, titre de 100 caractères au plus et ordre de réduction, cartes non concernées identiques, annonces à plusieurs cartes, table configurable, aucune écriture de fichier). Dernier résultat connu le 15/10/2026 sur une copie de travail : 591 tests passés, mêmes 3 échecs Estimations.
+
+98. Extensions manquantes et Santé des données (octobre 2026)
+
+Cause : voir section 84 (clés compactes du cache). Une carte ajoutée au stock avec un set vide n’a ni extension dans l’annonce ni empreinte d’identité fiable. Au 15/10/2026 : 114 cartes du stock sans extension (dont 54 dans le Drop), 0 dans les archives.
+
+Garde-fou central : dans data.sd(), complete_new_cards_extension() complète le set des seules nouvelles cartes (card_uid absent du data.json sur disque) à partir de leur id dans le catalogue local (cards_cache.json et sets_reference.json). Il ne remplace jamais une extension existante et n’écrit rien quand l’id est inconnu.
+
+Écran : Santé des données (ui/pages/data_health.py) affiche en permanence les compteurs « Cartes sans extension » (stock et Drop), puis trois sections : Anomalies (contenu historique de la page), Extensions manquantes (ui/pages/extension_queue.py) et Annonces en ligne à mettre à jour sur Vinted.
+- Extensions manquantes : vues Certaines (application en bloc après aperçu et confirmation), Probables (cases à cocher + « Appliquer les cases cochées »), À choisir (sélecteur avec candidats préremplis et saisie libre). Filtres par lot et par statut Drop.
+- Les cartes japonaises à drapeau seul comptent comme manquantes. Le set « Nuit Noire » (me05, Méga-Évolution) est ajouté au catalogue par EXTRA_SET_NAMES.
+- Annonces en ligne à mettre à jour : liste en lecture seule des annonces en ligne dont le titre a été généré sans extension, avec titre et description corrigés (mêmes générateurs), boutons Copier et « Marquer comme mis à jour » (mémorisé hors des JSON métier). Les statuts ne changent jamais. Depuis le 15/10/2026 la même section affiche en tête les textes régénérés à reporter sur Vinted (voir section 43).
+
+Écriture : apply_corrections() remplit uniquement les set vides (stock et copies du Drop), sauvegarde data.json et vinted_drops.json dans backups\ avant d’écrire, journalise chaque carte dans logs\extension_corrections_journal.jsonl, et undo_batch() annule un lot si la valeur courante est toujours celle écrite. Jamais de changement de statut, de date, de photo ni de groupe.
+
+Trace de diagnostic (désactivée par défaut) : créer le fichier logs\trace_extension.on (ou la variable POKESTOCK_TRACE_EXTENSION) ; les ajouts de cartes écrivent alors dans logs\extension_trace.log, jamais dans les JSON métier.

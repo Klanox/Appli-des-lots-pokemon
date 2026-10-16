@@ -478,19 +478,51 @@ def drop_ref_is_restock_draft(ref):
     return not (ref.get("listing_posted") or ref.get("online_at") or ref.get("sold_at"))
 
 
+def _parse_iso_datetime(value):
+    try:
+        return datetime.fromisoformat(str(value or "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def drop_ref_is_restock_published(ref, drop):
+    """Reference de reassort dont le brouillon est passe en ligne (ou vendu ensuite).
+
+    Il faut les trois conditions : statut online / sold, un brouillon cree
+    (``draft_ready_at`` renseigne) et un ajout APRES le lancement du Drop. Les references
+    en ligne ou vendues d'avant le lancement ne sont donc jamais concernees.
+    """
+    if not isinstance(ref, dict):
+        return False
+    if drop_item_status(ref) not in {"online", "sold"}:
+        return False
+    if not str(ref.get("draft_ready_at") or "").strip():
+        return False
+    launched = _parse_iso_datetime((drop or {}).get("drop_launched_at"))
+    added = _parse_iso_datetime(ref.get("added_at"))
+    try:
+        return bool(launched and added and added > launched)
+    except TypeError:  # dates naives / avec fuseau melangees : on ne devine pas
+        return False
+
+
 def drop_restock_scope_refs(drop):
-    """Perimetre du workflow de reassort : references a traiter + brouillons pas encore en ligne.
+    """Perimetre du workflow de reassort : references a traiter + brouillons + brouillons publies.
 
     Les brouillons restent dans le perimetre pour que l'ensemble des candidats de la
     reconnaissance reste stable pendant tout le workflow (sinon passer une carte en
-    « brouillon cree » rendrait l'analyse photo perimee). Jamais de online / sold.
+    « brouillon cree » rendrait l'analyse photo perimee). Il en va de meme une fois le
+    brouillon mis en ligne (ou vendu) : son groupe ne doit pas tomber en « Non reconnu ».
+    Les references online / sold d'avant le lancement n'en font jamais partie.
     """
     if not drop_is_launched(drop):
         return []
     return [
         ref
         for ref in (drop or {}).get("cards", []) or []
-        if drop_ref_is_unprocessed(ref) or drop_ref_is_restock_draft(ref)
+        if drop_ref_is_unprocessed(ref)
+        or drop_ref_is_restock_draft(ref)
+        or drop_ref_is_restock_published(ref, drop)
     ]
 
 

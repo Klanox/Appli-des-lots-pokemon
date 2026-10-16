@@ -6,6 +6,7 @@ lot, card, sale, trade or cloud business data.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -18,6 +19,12 @@ from pathlib import Path
 
 STOCK_HISTORY_FILE = "stock_value_history.json"
 BACKUP_PREFIX = "Appli des lots pokemon - BACKUP"
+# Instant de la correction du double comptage des cartes stockees (gst + _stock_value_from_state).
+# Les points enregistres AVANT cet instant ont ete calcules avec l'ancienne formule : ils sont
+# corriges uniquement a l'affichage (jamais reecrits dans stock_value_history.json).
+STOCK_DOUBLE_COUNT_FIX_AT = "2026-10-13T20:21:30"
+STOCK_DOUBLE_COUNT_NOTE_ID = "auto_double_count_fix"
+STOCK_DOUBLE_COUNT_NOTE = "Correction du double comptage des cartes stockees (courbe recalculee)"
 EXCLUDED_HISTORY_IMPORT_BACKUPS = {
     "Appli des lots pokemon - BACKUP BEFORE REAL STOCK HISTORY IMPORT",
 }
@@ -53,7 +60,9 @@ def _stock_value_from_state(data: dict, archives: list[dict] | None = None) -> f
             quantity = int(card.get("quantity", 0) or 0)
             sold = int(card.get("sold_quantity", 0) or 0) if "sold_quantity" in card else 0
             exchange_out = int(card.get("exchange_out_quantity", 0) or 0) if "exchange_out_quantity" in card else 0
-            remaining = max(quantity - sold - exchange_out, 0)
+            # Une carte stockee compte une seule fois (dans le lot Stockage) : meme definition que gst().
+            stored = int(card.get("stored_quantity", 0) or 0) if "stored_quantity" in card else 0
+            remaining = max(quantity - sold - exchange_out - stored, 0)
             value += remaining * _float_value(card.get("suggested_price"))
     return round(value, 2)
 
@@ -340,3 +349,160 @@ def delete_stock_annotation(annotation_id: str, *, path: str = STOCK_HISTORY_FIL
     if len(payload["annotations"]) == before:
         return False
     return save_stock_history(payload, path)
+
+
+def stock_double_count_annotation() -> dict:
+    """Note affichee sur la courbe (en memoire seulement, jamais ecrite dans le JSON)."""
+    return {
+        "id": STOCK_DOUBLE_COUNT_NOTE_ID,
+        "date": STOCK_DOUBLE_COUNT_FIX_AT[:10],
+        "comment": STOCK_DOUBLE_COUNT_NOTE,
+        "auto": True,
+    }
+
+
+def _entry_day(raw) -> str:
+    return str(raw or "")[:10]
+
+
+def stored_value_at(lots: list[dict] | None, archives: list[dict] | None, captured_at: str) -> float:
+    """Valeur (au prix actuel) des cartes deja mises de cote a `captured_at`.
+
+    Estimation fondee sur `storage_entries` : c'est ce que l'ancienne formule comptait en double.
+    Les entrees sont plafonnees a `stored_quantity` (cartes revenues du stockage ignorees).
+    """
+    day = _entry_day(captured_at)
+    total = 0.0
+    for lot in list(lots or []) + list(archives or []):
+        if lot.get("is_storage") or lot.get("nom") == "Stockage":
+            continue
+        for card in lot.get("cards", []) or []:
+            if card.get("is_collection_keep"):
+                continue
+            try:
+                cap = max(int(card.get("stored_quantity", 0) or 0), 0)
+            except (TypeError, ValueError):
+                cap = 0
+            if cap <= 0:
+                continue
+            price = _float_value(card.get("suggested_price"))
+            taken = 0
+            entries = sorted(
+                (e for e in (card.get("storage_entries") or []) if isinstance(e, dict)),
+                key=lambda e: _entry_day(e.get("date")),
+            )
+            for entry in entries:
+                if taken >= cap:
+                    break
+                try:
+                    qty = max(int(entry.get("quantity", 0) or 0), 0)
+                except (TypeError, ValueError):
+                    qty = 0
+                qty = min(qty, cap - taken)
+                taken += qty
+                entry_day = _entry_day(entry.get("date"))
+                if entry_day and entry_day <= day:
+                    total += qty * price
+    return round(total, 2)
+
+
+@functools.lru_cache(maxsize=4)
+def _recomputed_values_cached(signature: tuple, wanted: frozenset) -> dict:
+    """Valeur corrigee des data.json encore presents, indexee par empreinte ou par `label:<nom du backup>`.
+
+    L'empreinte peut ne plus correspondre (lots_archives.json a change depuis) : le nom du backup sert alors de repli.
+    """
+    values: dict[str, float] = {}
+    for _kind, path_str in signature:
+        data_path = Path(path_str)
+        try:
+            label = "label:" + (data_path.parent.name if data_path.name == "data.json" else data_path.name)
+            archives_path = data_path.parent / "lots_archives.json"
+            digest = _state_hash(data_path, archives_path if archives_path.exists() else None)[:12]
+            if digest not in wanted and label not in wanted:
+                continue
+            data = _read_json_file(data_path)
+            if not isinstance(data, dict):
+                continue
+            archives = _read_json_file(archives_path) if archives_path.exists() else []
+            value = _stock_value_from_state(data, archives if isinstance(archives, list) else [])
+            if digest in wanted:
+                values[digest] = value
+            if label in wanted:
+                values.setdefault(label, value)
+        except OSError:
+            continue
+    return values
+
+
+def _recomputed_values_by_hash(project_dir, desktop, wanted: set) -> dict:
+    if not wanted:
+        return {}
+    try:
+        sources = _stock_history_sources(
+            Path(project_dir).resolve() if project_dir else None,
+            Path(desktop).resolve() if desktop else None,
+        )
+        signature = tuple((kind, str(path)) for kind, path in sources)
+    except OSError:
+        return {}
+    return _recomputed_values_cached(signature, frozenset(wanted))
+
+
+def corrected_stock_history_points(
+    points: list[dict] | None,
+    *,
+    lots: list[dict] | None,
+    archives: list[dict] | None = None,
+    project_dir: str | Path | None = None,
+    desktop: str | Path | None = None,
+    fix_at: str | None = None,
+) -> tuple[list[dict], dict]:
+    """Copie des points de la courbe avec le double comptage des cartes stockees retire.
+
+    AFFICHAGE UNIQUEMENT : la liste d'entree et le fichier JSON ne sont jamais modifies.
+    - points posterieurs a `fix_at` : deja calcules avec la formule corrigee, inchanges ;
+    - points « backup » dont le data.json d'origine existe encore : recalcules avec la formule corrigee ;
+    - autres points : valeur moins la valeur stockee cumulee estimee (`stored_value_at`).
+    Chaque point corrige porte `value_correction` = "recalcule" ou "estime" et `value_original`.
+    """
+    fix_at = fix_at or STOCK_DOUBLE_COUNT_FIX_AT
+    source = [dict(point) for point in (points or []) if isinstance(point, dict)]
+    wanted = set()
+    for point in source:
+        if point.get("provenance") == "backup" and str(point.get("captured_at") or "") < fix_at:
+            if point.get("source_hash"):
+                wanted.add(str(point.get("source_hash")))
+            if point.get("source_label"):
+                wanted.add("label:" + str(point.get("source_label")))
+    recomputed = _recomputed_values_by_hash(project_dir, desktop, wanted)
+    info = {"recalcule": 0, "estime": 0, "inchange": 0}
+    corrected: list[dict] = []
+    for point in source:
+        captured = str(point.get("captured_at") or "")
+        if not captured or captured >= fix_at:
+            info["inchange"] += 1
+            corrected.append(point)
+            continue
+        original = round(_float_value(point.get("value")), 2)
+        new_value = None
+        mode = ""
+        digest = str(point.get("source_hash") or "")
+        label_key = "label:" + str(point.get("source_label") or "")
+        if point.get("provenance") == "backup" and (digest in recomputed or label_key in recomputed):
+            new_value = recomputed[digest] if digest in recomputed else recomputed[label_key]
+            mode = "recalcule"
+        else:
+            delta = stored_value_at(lots, archives, captured)
+            if delta > 0:
+                new_value, mode = round(max(original - delta, 0.0), 2), "estime"
+        if new_value is None or new_value == original:
+            info["inchange"] += 1
+            corrected.append(point)
+            continue
+        point["value"] = new_value
+        point["value_original"] = original
+        point["value_correction"] = mode
+        info[mode] += 1
+        corrected.append(point)
+    return corrected, info

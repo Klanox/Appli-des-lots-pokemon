@@ -10,6 +10,7 @@ import json
 import os
 import time
 
+from services.card_extension_service import compact_name_key
 from utils import CARDS_CACHE_FILE, CARDS_CACHE_TTL_SECONDS, safe_write_json
 
 
@@ -52,7 +53,9 @@ def search_in_cache_index(query, cards_index, num=None, limit=None, normalize_fu
     if normalize_func is None:
         normalize_func = lambda value: str(value or "").strip().lower()
 
-    name_norm = normalize_func(query)
+    # Les cles de cards_cache.json sont SANS espaces ni tirets (« sorcilencevmax »). On compare donc toujours
+    # des formes compactes : sans cela « Sorcilence VMAX » ne trouvait rien -> repli API -> extension vide.
+    name_norm = compact_name_key(normalize_func(query))
     matches = []
     seen = set()
 
@@ -80,7 +83,7 @@ def search_in_cache_index(query, cards_index, num=None, limit=None, normalize_fu
 
     def iter_cache_items():
         for idx_name, cards in cards_index.items():
-            yield idx_name, normalize_func(idx_name), cards
+            yield idx_name, compact_name_key(normalize_func(idx_name)), cards
 
     if name_norm in cards_index:
         for card, set_name, set_id in cards_index[name_norm]:

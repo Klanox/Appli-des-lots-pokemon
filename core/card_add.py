@@ -10,6 +10,7 @@ import os
 import time
 
 from services.card_identity import card_identity_fingerprint
+from services.card_extension_service import trace as extension_trace
 from services.custom_card_image_service import apply_custom_image_fallback, resolve_custom_card_image
 
 
@@ -413,6 +414,7 @@ def acm(li,n,sn,num,q,co,p,ir,ie,lang="fr",purchase_price=0., special_tag="", co
                 json.dump(pd,f)
             return True,f"{len(ai)} résultats"
     
+    extension_trace("ajout_acm", saisi=n, extension_saisie=sn, numero=num, id=(ci or {}).get("id", ""), extension_trouvee=si, extension_vide=not si)
     cd=ld()
     nc=ecd(ci,si,lang=card_lang)
     _apply_japanese_metadata(nc, lang)
@@ -581,6 +583,7 @@ def render_card_choice_popups(li, form_ts_key=None, run_html_func=None):
                                 st.error("Les cartes Collection doivent être ajoutées depuis le menu Collection, pas depuis Divers.")
                                 st.rerun()
 
+                            extension_trace("ajout_popup_choisir", saisi=n, numero=num, id=card_dict.get("id", ""), extension_proposee=set_name)
                             nc = ecd(card_dict, set_name, lang=enrich_lang)
                             if popup_japanese:
                                 nc["japanese"] = True

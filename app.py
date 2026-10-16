@@ -2287,18 +2287,36 @@ if not wrapped_story_active:
             )
             with st.container(key="ps_sidebar_brand_block"):
                 st.markdown(render_sidebar_brand(logo_src, APP_BUILD), unsafe_allow_html=True)
+            from ui.sidebar import SIDEBAR_PERIOD_CSS, render_sidebar_period_stat
+            sidebar_year = datetime.now().year
             with perf_timer("gst() call", counter="gst_call"):
-                sts = gst()
-            sidebar_stats = [
-                ("Vendues", str(sts["sold_cards"])),
-                ("En stock", str(sts["remaining_cards"])),
-                ("Valeur stock", fp(sts["stock_value"])),
-                ("CA", fp(sts["total_revenue"])),
-                ("Bénéfice", fp(sts["total_profit"])),
-            ]
+                sts = gst(sidebar_year)
+            # Vendues, CA et Bénéfice : chiffre de l'année civile en cours (repart à zéro en janvier) + total depuis le début.
+            # En stock et Valeur stock : jamais remis à zéro.
+            realized_year = sts["year_realized_profit"]
+            realized_total = sts["total_realized_profit"]
+            cash_line = "Trésorerie nette : " + fp(sts["year_cash_profit"])
+            if abs(sts["year_cash_profit"] - sts["total_profit"]) > 0.005:
+                cash_line += " · total " + fp(sts["total_profit"])
             with st.container(key="ps_sidebar_stats_block"):
-                for label, value in sidebar_stats:
-                    st.metric(label, value)
+                st.markdown(
+                    "<style>" + SIDEBAR_PERIOD_CSS + "</style>"
+                    + render_sidebar_period_stat("Vendues", sidebar_year, str(sts["year_sold_cards"]), [f"Total : {sts['sold_cards']}"]),
+                    unsafe_allow_html=True,
+                )
+                st.metric("En stock", str(sts["remaining_cards"]))
+                st.metric("Valeur stock", fp(sts["stock_value"]))
+                st.markdown(
+                    render_sidebar_period_stat("CA", sidebar_year, fp(sts["year_revenue"]), [f"Total : {fp(sts['total_revenue'])}"]),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    render_sidebar_period_stat(
+                        "Bénéfice réalisé", sidebar_year, "—" if realized_year is None else fp(realized_year),
+                        ["Total : " + ("—" if realized_total is None else fp(realized_total)), cash_line],
+                    ),
+                    unsafe_allow_html=True,
+                )
             selected_native_nav_page = st.navigation(
                 build_native_navigation_pages(),
                 position="sidebar",

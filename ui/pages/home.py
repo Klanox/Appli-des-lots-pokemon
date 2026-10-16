@@ -17,8 +17,10 @@ from core.sale_preview import historical_unit_cost_or_none
 from services.inventory_ordering import card_matches_inventory_query, sort_inventory_records
 from services.stock_history_service import (
     add_stock_annotation,
+    corrected_stock_history_points,
     delete_stock_annotation,
     record_stock_value,
+    stock_double_count_annotation,
 )
 
 
@@ -210,8 +212,21 @@ def render_home_page(
         unsafe_allow_html=True,
     )
     stock_history, _ = record_stock_value(sts["stock_value"])
-    stock_points = stock_history.get("points", []) or []
+    # Correction du double comptage des cartes stockees : a l'AFFICHAGE uniquement,
+    # stock_value_history.json n'est jamais reecrit avec les valeurs corrigees.
+    try:
+        _stock_cd = ld_func() or {}
+        stock_points, stock_fix_info = corrected_stock_history_points(
+            stock_history.get("points", []) or [],
+            lots=_stock_cd.get("lots", []) or [],
+        )
+    except Exception:
+        stock_points = stock_history.get("points", []) or []
+        stock_fix_info = {}
     stock_annotations = stock_history.get("annotations", []) or []
+    stock_chart_annotations = list(stock_annotations)
+    if stock_fix_info.get("recalcule") or stock_fix_info.get("estime"):
+        stock_chart_annotations.append(stock_double_count_annotation())
     period = st.selectbox(
         "Période",
         ["Tout", "1 an", "6 mois", "3 mois", "1 mois"],
@@ -234,12 +249,16 @@ def render_home_page(
                 marker=dict(size=7, color="#7c3aed"),
                 fill="tozeroy",
                 fillcolor="rgba(124,58,237,0.10)",
-                hovertemplate="%{x}<br>Valeur stock : %{y:.2f}€<extra></extra>",
+                customdata=[
+                    {"recalcule": "(recalculé)", "estime": "(corrigé, estimation)"}.get(point.get("value_correction"), "")
+                    for point in visible_points
+                ],
+                hovertemplate="%{x}<br>Valeur stock : %{y:.2f}€ %{customdata}<extra></extra>",
             ))
             annotations_in_range = []
             first_visible = datetime.fromisoformat(str(visible_points[0].get("captured_at", ""))).date()
             last_visible = datetime.fromisoformat(str(visible_points[-1].get("captured_at", ""))).date()
-            for annotation in stock_annotations:
+            for annotation in stock_chart_annotations:
                 ann_date = str(annotation.get("date") or "")[:10]
                 try:
                     ann_dt = datetime.fromisoformat(ann_date).date()
@@ -247,16 +266,28 @@ def render_home_page(
                     continue
                 if first_visible <= ann_dt <= last_visible:
                     annotations_in_range.append(annotation)
-            if annotations_in_range:
-                y_top = max(point_values) if point_values else 0
+            y_top = max(point_values) if point_values else 0
+            user_notes = [item for item in annotations_in_range if not item.get("auto")]
+            auto_notes = [item for item in annotations_in_range if item.get("auto")]
+            if user_notes:
                 fig_stock.add_trace(go.Scatter(
-                    x=[item.get("date") for item in annotations_in_range],
-                    y=[y_top for _ in annotations_in_range],
+                    x=[item.get("date") for item in user_notes],
+                    y=[y_top for _ in user_notes],
                     mode="markers",
                     name="Notes",
                     marker=dict(size=11, color="#f59e0b", symbol="diamond"),
-                    text=[item.get("comment", "") for item in annotations_in_range],
+                    text=[item.get("comment", "") for item in user_notes],
                     hovertemplate="%{x}<br>%{text}<extra>Note</extra>",
+                ))
+            if auto_notes:
+                fig_stock.add_trace(go.Scatter(
+                    x=[item.get("date") for item in auto_notes],
+                    y=[y_top for _ in auto_notes],
+                    mode="markers",
+                    name="Correction du double comptage",
+                    marker=dict(size=11, color="#0ea5e9", symbol="diamond"),
+                    customdata=[item.get("comment", "") for item in auto_notes],
+                    hovertemplate="%{x}<br>%{customdata}<extra>Correction</extra>",
                 ))
             fig_stock.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",

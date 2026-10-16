@@ -30,6 +30,7 @@ from services.cloud_sync_service import (
     save_synced_dataset,
 )
 from services.data_merge_service import merge3
+from services.card_extension_service import complete_new_cards_extension
 from services.perf_service import perf_count, perf_log
 
 # Constants
@@ -313,6 +314,11 @@ def sd(d):
     with DATA_WRITE_LOCK:
         if isinstance(d, dict) and isinstance(d.get("lots"), list):
             _reconcile_with_other_sessions(d)
+            try:
+                # Garde-fou central : une carte NOUVELLE sans extension est completee depuis le catalogue local (id connu).
+                complete_new_cards_extension(d, DATA)
+            except Exception as exc:  # ne doit jamais empecher une sauvegarde
+                print(f"[Extension] garde-fou ignore : {exc}", flush=True)
         _sd_write(d)
         remember_data_base(d)
 

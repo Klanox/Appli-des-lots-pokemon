@@ -973,6 +973,21 @@
       "captured_at": "2026-10-12T14:45:10",
       "value": 7205.39,
       "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-13T20:24:35",
+      "value": 6656.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-16T22:00:54",
+      "value": 6603.39,
+      "provenance": "live"
+    },
+    {
+      "captured_at": "2026-10-16T22:48:44",
+      "value": 6556.89,
+      "provenance": "live"
     }
   ],
   "annotations": []

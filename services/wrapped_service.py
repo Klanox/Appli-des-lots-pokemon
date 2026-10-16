@@ -519,6 +519,9 @@ def collect_wrapped_stats(
     stats = {
         "ca_total": total_ca,
         "profit_total": sum(_safe_float(sale.get("benef")) for sale in year_sales),
+        # NOTE « cartes vendues » : somme des quantites des lignes de vente (hors stock inclus, lignes
+        # d'allocation d'echange dupliquees) : volontairement different de la definition unique de gst()
+        # (cartes physiques sorties du stock par vente). Voir ui/pages/history.py. Ne pas modifier sans decision.
         "cards_sold": sum(_safe_int(sale.get("quantity"), 1) for sale in year_sales),
         "lots_bought": len(bought_lots) if bought_lots else None,
         "top_sold_cards": top_sold,
